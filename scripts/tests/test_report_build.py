@@ -118,6 +118,120 @@ class TestTabelle(unittest.TestCase):
         self.assertIn("2025-09 bis 2026-08", out)
 
 
+#: Ein Wert, wie ihn ein fremdes System in ein Feld schreiben kann: ein
+#: Seitenpfad aus GA4, ein Suchbegriff aus DataForSEO, eine Adresse im Crawl.
+SCRIPT = "<script>alert(1)</script>"
+SCRIPT_ESCAPED = "&lt;script&gt;alert(1)&lt;/script&gt;"
+
+
+class TestTableEscaping(unittest.TestCase):
+    """Jede Zelle wird escaped, Markup nur auf ausdrücklichen Wunsch.
+
+    Bis zum 25.09.2026 ging jeder Zellwert roh ins HTML. Der Report geht
+    ins Portal, als PDF und per Mail raus, und dort schützt keine Sandbox.
+    """
+
+    def test_a_cell_with_a_script_tag_comes_out_escaped(self):
+        out = rb.table(["Seite", "Sitzungen"], [(SCRIPT, "1.200")])
+        self.assertIn(SCRIPT_ESCAPED, out)
+        self.assertNotIn("<script", out)
+
+    def test_a_cell_in_a_tuple_with_a_class_is_escaped_too(self):
+        out = rb.table(["Seite"], [((SCRIPT, "num"),)])
+        self.assertIn(f'<td class="num">{SCRIPT_ESCAPED}</td>', out)
+
+    def test_a_markup_cell_renders_as_markup(self):
+        cell = rb.Markup(f'31<span class="unit">von {rb.esc(SCRIPT)}</span>')
+        out = rb.table(["Wert"], [(cell,)])
+        self.assertIn('<span class="unit">', out)
+        self.assertIn(SCRIPT_ESCAPED, out)
+        self.assertNotIn("<script", out)
+
+    def test_a_markup_cell_keeps_its_class_in_a_tuple(self):
+        out = rb.table(["Wert"], [((rb.Markup("<strong>3</strong>"), "num"),)])
+        self.assertIn('<td class="num"><strong>3</strong></td>', out)
+
+    def test_an_ampersand_is_escaped_exactly_once(self):
+        out = rb.table(["Angabe"], [("Versand & Rückgabe",)])
+        self.assertIn("Versand &amp; Rückgabe", out)
+        self.assertNotIn("&amp;amp;", out)
+
+    def test_escaping_keeps_the_nowrap_protection(self):
+        out = rb.table(["Angabe"], [("5 von 21 <b>",)])
+        self.assertIn(f"5{rb.NBSP}von{rb.NBSP}21 &lt;b&gt;", out)
+
+    def test_a_numeric_column_with_a_comparison_sign_stays_numeric(self):
+        out = rb.table(["Kennzahl", "Wert"], [("Klickrate", "< 1 %"),
+                                             ("Position", "> 20")])
+        header = out[out.index("<thead>"):out.index("</thead>")]
+        self.assertEqual(header.count('class="num"'), 1)
+        self.assertIn("&lt; 1 %", out)
+
+
+class TestSectionsEscapeExternalValues(unittest.TestCase):
+    """Die Sektionen, die Werte aus fremden Systemen in Zellen stellen."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self.tmp.name)
+        self.run_id = "2026-10-01-audit"
+        self.data = self.ws / "reporting" / "data" / self.run_id
+        self.data.mkdir(parents=True)
+        self.findings = self.ws / "reporting" / "runs" / self.run_id / "findings"
+        self.findings.mkdir(parents=True)
+        (self.ws / "reporting" / "config.json").write_text(
+            json.dumps({"brand": "Beispielshop"}), encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _snap(self, name, doc):
+        (self.data / name).write_text(json.dumps(doc), encoding="utf-8")
+
+    def _run(self):
+        return rb.Run(self.ws, self.run_id)
+
+    def test_keyword_gaps_escape_keyword_and_competitor(self):
+        self._snap("gsc.json", {"totals": {}, "top_queries": [
+            {"query": SCRIPT, "clicks": 3}]})
+        self._snap("dfs-competitors.json", {"keyword_gaps": [
+            {"keyword": SCRIPT, "search_volume": 100, "competitor": SCRIPT}]})
+        out, _ = _render(rb.sec_seo, self._run())
+        self.assertNotIn("<script", out)
+        self.assertEqual(out.count(SCRIPT_ESCAPED), 3)
+
+    def test_competitor_domains_and_seed_keywords_are_escaped(self):
+        self._snap("dfs-competitors.json", {
+            "competitors": [{"domain": SCRIPT, "keywords_count": 5}],
+            "summary": {"seed_keywords": [SCRIPT]}})
+        out, _ = _render(rb.sec_competition, self._run())
+        self.assertNotIn("<script", out)
+        self.assertEqual(out.count(SCRIPT_ESCAPED), 2)
+
+    def test_a_crawled_address_in_the_mandatory_pages_is_escaped(self):
+        self._snap("crawl.json", {"summary": {"url_count": 1}, "pages": [
+            {"url": f"https://beispielshop.test/impressum{SCRIPT}", "status": 200}]})
+        out = rb.sec_trust(self._run())
+        self.assertNotIn("<script", out)
+        self.assertIn(SCRIPT_ESCAPED, out)
+
+    def test_finding_metrics_are_escaped_once(self):
+        """Die Metriken wurden vor dem 25.09.2026 beim Aufrufer escaped. Mit
+        dem Escaping in `table()` wären sie sonst doppelt escaped."""
+        (self.findings / "conversion.json").write_text(json.dumps(
+            {"discipline": "cro", "run_id": self.run_id, "findings": [
+                {"id": "CRO-01", "statement": "Ein Befund.", "severity": "hoch",
+                 "confidence": "confirmed", "effort": "small",
+                 "metrics": [{"label": "Versand & Rückgabe", "value": SCRIPT,
+                              "context": "a < b"}]}]}), encoding="utf-8")
+        out = rb.finding_blocks(self._run(), "conversion")
+        self.assertIn("Versand &amp; Rückgabe", out)
+        self.assertIn(SCRIPT_ESCAPED, out)
+        self.assertIn("a &lt; b", out)
+        self.assertNotIn("&amp;amp;", out)
+        self.assertNotIn("&amp;lt;", out)
+
+
 class TestUeberschrift(unittest.TestCase):
     def test_ganzer_satz_schlaegt_kurzen(self):
         """Ein Kopf, der mitten im Satz endet, liest sich wie ein Renderfehler."""
@@ -190,17 +304,56 @@ class TestSektionen(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _lauf(self):
+    def _run(self):
         return rb.Run(self.ws, self.run_id)
 
     def test_ausgefallene_quelle_nennt_ihren_grund(self):
         """Eine Sektion, die sagt warum, ist eine Aussage; eine leere ist ein Fehler."""
-        out = rb.sec_sea(self._lauf())
+        out = rb.sec_sea(self._run())
         self.assertIn("Kein Zugang zum Werbekonto", out)
         self.assertNotIn("<table", out)
 
+    def test_nacherhobene_quelle_traegt_ihr_datum(self):
+        """Läuft eine Disziplin nach, stehen ihre Zahlen im selben Report wie
+        die übrigen, aber von einem anderen Tag. Das muss dastehen."""
+        _schreibe(self.ws / "reporting" / "runs" / self.run_id / "state.json", {
+            "sources": {"ads": {"status": "done", "pulled_at": "2026-10-20",
+                                "file": "ads.json"}}})
+        _schreibe(self.ws / "reporting" / "data" / self.run_id / "ads.json", {
+            "currency": "EUR", "by_month": [
+                {"month": "2026-09", "cost": 100.0, "clicks": 10,
+                 "conversions_value": 300.0}]})
+        self.assertIn("Nacherhoben am 20.10.2026", rb.sec_sea(self._run()))
+
+    def test_nacherhobene_kennzahlen_rechnen_ueber_den_zeitraum_der_befunde(self):
+        # Die Befunde eines Nachlaufs rechnen über detail_period. Die
+        # Kennzahlen darüber müssen denselben Zeitraum nehmen, sonst stehen
+        # zwei Ausgabensummen im selben Abschnitt.
+        _schreibe(self.ws / "reporting" / "runs" / self.run_id / "state.json", {
+            "sources": {"ads": {"status": "done", "pulled_at": "2026-11-03",
+                                "file": "ads.json"}}})
+        _schreibe(self.ws / "reporting" / "data" / self.run_id / "ads.json", {
+            "currency": "EUR",
+            "detail_period": {"start": "2025-11-01", "end": "2026-10-31"},
+            "by_month": [
+                {"month": "2025-10", "cost": 999.0, "clicks": 1, "conversions_value": 1.0},
+                {"month": "2026-10", "cost": 100.0, "clicks": 10, "conversions_value": 300.0}]})
+        out = rb.sec_sea(self._run())
+        self.assertIn("11/2025 bis 10/2026", out)
+        self.assertNotIn("999", out)
+
+    def test_am_lauftag_erhobene_quelle_traegt_keinen_vermerk(self):
+        _schreibe(self.ws / "reporting" / "runs" / self.run_id / "state.json", {
+            "sources": {"ads": {"status": "done", "pulled_at": "2026-10-01",
+                                "file": "ads.json"}}})
+        _schreibe(self.ws / "reporting" / "data" / self.run_id / "ads.json", {
+            "currency": "EUR", "by_month": [
+                {"month": "2026-09", "cost": 100.0, "clicks": 10,
+                 "conversions_value": 300.0}]})
+        self.assertNotIn("Nacherhoben", rb.sec_sea(self._run()))
+
     def test_luecken_zeigen_nur_was_gefehlt_hat(self):
-        out = rb.sec_gaps(self._lauf())
+        out = rb.sec_gaps(self._run())
         self.assertIn("Google Ads", out)
         self.assertNotIn("Shopify Admin", out)
 
@@ -212,7 +365,7 @@ class TestSektionen(unittest.TestCase):
                                 "reason": "Pull noch nicht gebaut"},
                         "gsc": {"status": "failed",
                                 "reason": "Dienstkonto nicht eingeladen"}}})
-        out = rb.sec_gaps(self._lauf())
+        out = rb.sec_gaps(self._run())
         self.assertNotIn("noch nicht gebaut", out)
         self.assertNotIn("E-Mail-Versand", out)
         self.assertIn("Dienstkonto nicht eingeladen", out)
@@ -220,13 +373,13 @@ class TestSektionen(unittest.TestCase):
     def test_die_eigenen_abfragekosten_stehen_nicht_drin(self):
         (self.ws / "reporting" / "dfs-ledger.jsonl").write_text(
             '{"run_id": "%s", "cost_usd": 0.53}\n' % self.run_id, encoding="utf-8")
-        out = rb.sec_sources(self._lauf())
+        out = rb.sec_sources(self._run())
         self.assertNotIn("USD", out)
         self.assertNotIn("gekostet", out)
 
     def test_quellen_tragen_werkzeugnamen(self):
         """Der Leser hat Fragen zu seinem Shop, keine zu unseren Schlüsseln."""
-        out = rb.sec_sources(self._lauf())
+        out = rb.sec_sources(self._run())
         self.assertIn("Shopify Admin", out)
         self.assertNotIn(">shopify<", out)
         self.assertNotIn("dfs-ledger", out)
@@ -236,13 +389,13 @@ class TestSektionen(unittest.TestCase):
         _schreibe(self.ws / "reporting" / "runs" / self.run_id / "state.json", {
             "sources": {"shopify": {"status": "failed",
                                     "reason": "read_all_orders fehlt im Grant"}}})
-        k = rb.key_figures(self._lauf())
+        k = rb.key_figures(self._run())
         self.assertEqual(k["__KPI_REVENUE__"], "nicht erhoben")
         self.assertIn("read_all_orders", k["__KPI_REVENUE_NOTE__"])
 
     def test_keine_sektion_bricht_ohne_daten(self):
         """Ein Lauf, in dem jede Quelle ausfaellt, rendert trotzdem."""
-        run = self._lauf()
+        run = self._run()
         for key, fn in rb.SECTIONS.items():
             with self.subTest(sektion=key):
                 out = fn(run)
@@ -702,6 +855,18 @@ class TestCleanedAnalyticsOnCoverAndOrderGap(unittest.TestCase):
                             "double_counted_events": list(events)}}
 
     @staticmethod
+    def double_counted_until(*events, onset="2026-03-02", ended="2026-06-14"):
+        """Ein zweiter Absender, der wieder verschwunden ist, mit den
+        Stream-Angaben, die der Pull seit dem 17.09.2026 liefert."""
+        return {"senders": {
+            "measurable": True, "onset": onset, "ended": ended,
+            "still_duplicating": False,
+            "double_counted_events": list(events),
+            "streams": [{"stream_id": "1", "events": {
+                e: {"status": "duplicated", "onset": onset, "ended": ended}
+                for e in events}}]}}
+
+    @staticmethod
     def cell(out, label):
         """Der Wert in der Zeile `label` eines Zahlenblocks, oder None."""
         found = re.search(rf"<tr><td>{re.escape(label)}</td><td[^>]*>([^<]*)</td>", out)
@@ -741,6 +906,18 @@ class TestCleanedAnalyticsOnCoverAndOrderGap(unittest.TestCase):
         self.assertEqual(self.cell(out, "Zuordnungslücke Bestellungen"), "nicht messbar")
         self.assertNotIn(rb.percent(1 - 1_140 / 1_200), out)
         self.assertIn("02.03.2026", out)
+
+    def test_a_second_sender_that_stopped_is_named_in_the_past(self):
+        """Hört der zweite Absender auf, gilt die Doppelzählung für einen
+        Abschnitt des Zeitraums. Der Satz im Präsens wäre dann falsch."""
+        out = rb.sec_measurement(self.run_with(
+            self.double_counted_until("purchase", onset="2026-03-02", ended="2026-06-14")))
+        self.assertIn("zählte Käufe von 02.03.2026 bis 14.06.2026 doppelt", out)
+        self.assertNotIn("zählt Käufe seit", out)
+
+    def test_a_second_sender_that_still_runs_stays_in_the_present(self):
+        out = rb.sec_measurement(self.run_with(self.double_counted("purchase")))
+        self.assertIn("zählt Käufe seit 02.03.2026 doppelt", out)
 
     def test_the_revenue_gap_is_not_measurable_while_purchases_count_twice(self):
         out = rb.sec_measurement(self.run_with(self.double_counted("purchase")))
@@ -1024,7 +1201,7 @@ class TestSektionVertrauen(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _lauf(self, pages, url_count=None, budget=None):
+    def _run(self, pages, url_count=None, budget=None):
         crawl = {"summary": {"url_count": url_count
                              if url_count is not None else len(pages)},
                  "pages": pages}
@@ -1038,18 +1215,18 @@ class TestSektionVertrauen(unittest.TestCase):
         return rb.Run(self.ws, self.run_id)
 
     def test_a_found_page_is_listed_with_its_address(self):
-        run = self._lauf([{"url": "https://beispielshop.test/pages/impressum",
+        run = self._run([{"url": "https://beispielshop.test/pages/impressum",
                             "status": 200}])
         out = rb.sec_trust(run)
         self.assertIn("gefunden", out)
         self.assertIn("pages/impressum", out)
 
     def test_a_page_answering_with_an_error_says_so(self):
-        run = self._lauf([{"url": "https://beispielshop.test/agb", "status": 404}])
+        run = self._run([{"url": "https://beispielshop.test/agb", "status": 404}])
         self.assertIn("antwortet mit 404", rb.sec_trust(run))
 
     def test_a_complete_crawl_may_say_a_page_was_not_found(self):
-        run = self._lauf([{"url": "https://beispielshop.test/", "status": 200}],
+        run = self._run([{"url": "https://beispielshop.test/", "status": 200}],
                           url_count=10, budget=3500)
         self.assertIn("im Crawl nicht gefunden", rb.sec_trust(run))
 
@@ -1058,7 +1235,7 @@ class TestSektionVertrauen(unittest.TestCase):
         # Hälfte der Sitemap blieb unbesucht, die Rechtstexte lagen
         # jenseits der Grenze. "Nicht gefunden" hätte dort wie "gibt es nicht"
         # gelesen, in einem Dokument, das der Kunde seinem Anwalt zeigt.
-        run = self._lauf([{"url": "https://beispielshop.test/", "status": 200}],
+        run = self._run([{"url": "https://beispielshop.test/", "status": 200}],
                           url_count=3500, budget=3500)
         out = rb.sec_trust(run)
         self.assertIn("nicht in den erfassten Seiten", out)
@@ -1066,12 +1243,12 @@ class TestSektionVertrauen(unittest.TestCase):
         self.assertIn("Budget ausgeschöpft", out)
 
     def test_the_legal_disclaimer_is_always_there(self):
-        run = self._lauf([{"url": "https://beispielshop.test/impressum",
+        run = self._run([{"url": "https://beispielshop.test/impressum",
                             "status": 200}])
         self.assertIn("keine juristische Prüfung", rb.sec_trust(run))
 
     def test_english_paths_count_for_a_second_market(self):
-        run = self._lauf([{"url": "https://beispielshop.test/en/pages/imprint",
+        run = self._run([{"url": "https://beispielshop.test/en/pages/imprint",
                             "status": 200}])
         self.assertIn("en/pages/imprint", rb.sec_trust(run))
 
@@ -1106,6 +1283,11 @@ class TestErklaerungUndEinordnung(unittest.TestCase):
             {"discipline": "cro", "run_id": self.run_id, "findings": [finding]}),
             encoding="utf-8")
         return rb.finding_blocks(rb.Run(self.ws, self.run_id), "conversion")
+
+    def test_every_finding_block_carries_its_id_as_an_anchor(self):
+        """Ohne Anker kann der Vergleich im Portal nur auf den Abschnitt
+        verlinken, nicht auf den einzelnen Befund."""
+        self.assertIn('id="f-CRO-01"', self._render())
 
     def test_the_explanation_is_rendered(self):
         out = self._render(explanation="Die Add-to-Cart-Rate ist der Anteil der "
@@ -1246,7 +1428,7 @@ class TestPhaseVierBautBeideFassungen(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _lauf(self, *extra):
+    def _run(self, *extra):
         return rb.main(["--workspace", str(self.ws), "--run-id", self.run_id, *extra])
 
     def _text_fuellen(self):
@@ -1270,21 +1452,21 @@ class TestPhaseVierBautBeideFassungen(unittest.TestCase):
         self.text.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
 
     def test_a_missing_text_file_stops_with_a_template(self):
-        self.assertEqual(self._lauf(), 2)
+        self.assertEqual(self._run(), 2)
         self.assertTrue(self.text.exists())
 
     def test_both_versions_appear_in_one_call(self):
-        self._lauf()          # legt die Vorlage an
+        self._run()          # legt die Vorlage an
         self._text_fuellen()  # eine Sitzung fuellt sie
-        self.assertEqual(self._lauf(), 0)
+        self.assertEqual(self._run(), 0)
         run = self.ws / "reporting" / "runs" / self.run_id
         self.assertTrue((run / "audit.html").exists(), "Druckfassung fehlt")
         self.assertTrue((run / "audit-web.html").exists(), "Web-Fassung fehlt")
 
     def test_no_web_leaves_the_web_version_out(self):
-        self._lauf()
+        self._run()
         self._text_fuellen()
-        self._lauf("--no-web")
+        self._run("--no-web")
         run = self.ws / "reporting" / "runs" / self.run_id
         self.assertTrue((run / "audit.html").exists())
         self.assertFalse((run / "audit-web.html").exists())
@@ -1292,9 +1474,9 @@ class TestPhaseVierBautBeideFassungen(unittest.TestCase):
     def test_both_versions_carry_the_same_finding(self):
         # Beide aus einem `content()`-Aufruf. Liefen sie getrennt, koennten
         # Zahlen auseinanderlaufen, ohne dass es jemand bemerkt.
-        self._lauf()
+        self._run()
         self._text_fuellen()
-        self._lauf()
+        self._run()
         run = self.ws / "reporting" / "runs" / self.run_id
         druck = (run / "audit.html").read_text(encoding="utf-8")
         web = (run / "audit-web.html").read_text(encoding="utf-8")
@@ -1306,9 +1488,9 @@ class TestPhaseVierBautBeideFassungen(unittest.TestCase):
         # "Werkzeug" darf in keinem Kundentext stehen (Yves' Vorgabe). Der
         # BAUKASTEN-Kommentar ist beim Bauen schon raus, hier bleibt nur, was
         # ein Kunde tatsaechlich sieht.
-        self._lauf()
+        self._run()
         self._text_fuellen()
-        self._lauf()
+        self._run()
         run = self.ws / "reporting" / "runs" / self.run_id
         html = (run / "audit.html").read_text(encoding="utf-8")
         sichtbar = re.sub(r"<!--.*?-->", "", html, flags=re.S)
@@ -1327,13 +1509,13 @@ class TestClosingInTheAudit(unittest.TestCase):
 
     setUp = TestPhaseVierBautBeideFassungen.setUp
     tearDown = TestPhaseVierBautBeideFassungen.tearDown
-    _lauf = TestPhaseVierBautBeideFassungen._lauf
+    _run = TestPhaseVierBautBeideFassungen._run
     _text_fuellen = TestPhaseVierBautBeideFassungen._text_fuellen
 
     def _audit_html(self) -> str:
-        self._lauf()
+        self._run()
         self._text_fuellen()
-        self.assertEqual(self._lauf("--no-web"), 0)
+        self.assertEqual(self._run("--no-web"), 0)
         text = (self.ws / "reporting" / "runs" / self.run_id / "audit.html").read_text(
             encoding="utf-8")
         self.assertNotIn("__CLOSING__", text)
@@ -1365,9 +1547,9 @@ class TestClosingInTheAudit(unittest.TestCase):
         fragment = self.ws / "schlussseite.html"
         fragment.write_text(FRAGMENT, encoding="utf-8")
         self.central.write_text(f"PTAI_CLOSING_FILE={fragment}\n", encoding="utf-8")
-        self._lauf()
+        self._run()
         self._text_fuellen()
-        self.assertEqual(self._lauf(), 0)
+        self.assertEqual(self._run(), 0)
         run = self.ws / "reporting" / "runs" / self.run_id
         self.assertIn(FRAGMENT, (run / "audit.html").read_text(encoding="utf-8"))
         web = (run / "audit-web.html").read_text(encoding="utf-8")
@@ -1376,9 +1558,9 @@ class TestClosingInTheAudit(unittest.TestCase):
 
     def test_the_web_version_ends_neutral_without_a_closing_file(self):
         self.central.write_text("PTAI_OPERATOR_CONTACT=Mara Beispiel\n", encoding="utf-8")
-        self._lauf()
+        self._run()
         self._text_fuellen()
-        self.assertEqual(self._lauf(), 0)
+        self.assertEqual(self._run(), 0)
         web = (self.ws / "reporting" / "runs" / self.run_id / "audit-web.html").read_text(
             encoding="utf-8")
         self.assertNotIn("__CLOSING__", web)

@@ -2,16 +2,27 @@
 """REST-Client für die Google Ads API (GoogleAdsService.Search).
 
 Dieselbe Bauweise wie dfs_client.py: eine injizierbare Transport-Funktion,
-alles darüber rein und getestet. Hier aus einem anderen Grund als Geld: das
-Entwicklertoken war beim Bau nicht beantragt, es gab also keine Möglichkeit,
-gegen die echte API zu entwickeln. Die Fixtures sind aus der REST-Referenz
-gebaut, siehe `scripts/tests/fixtures/ads/HERKUNFT.md`.
+alles darüber rein und getestet. Hier aus einem anderen Grund als Geld: beim
+Bau gab es keinen API-Zugang, also keine Möglichkeit, gegen die echte API zu
+entwickeln. Die Fixtures sind aus der REST-Referenz gebaut, siehe
+`scripts/tests/fixtures/ads/HERKUNFT.md`.
 
 Zugriff läuft über dasselbe Dienstkonto wie GA4 und GSC, mit dem Scope
-`https://www.googleapis.com/auth/adwords`. Dafür muss die **Dienstkonto-Mail**
-als Nutzer im Google-Ads-Konto stehen, nicht eine Personenadresse. Das Token
-und der Zugang zum Werbekonto sind zwei verschiedene Dinge: das Token gehört
-dem Betreiber, den Zugang gibt der Kunde.
+`https://www.googleapis.com/auth/adwords`. Dafür braucht es zwei Dinge, und
+nur eines davon gibt der Kunde:
+
+- Der **Betreiber** aktiviert die Google Ads API im Cloud-Projekt, dem das
+  Dienstkonto gehört, und beantragt dort mindestens die Zugriffsstufe Explorer.
+  Auf der Teststufe antwortet jedes echte Konto mit
+  CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION.
+- Der **Kunde** trägt die Dienstkonto-Mail als Nutzer mit "Nur Lesen" im
+  Werbekonto ein. Eine Personenadresse reicht nicht, die API läuft über das
+  Dienstkonto.
+
+Ein Entwicklertoken gibt es nicht mehr. Google hat es am 09.09.2026
+abgeschafft, die Zugriffsstufe hängt seitdem am Cloud-Projekt. Der Header
+`developer-token` wird ignoriert und soll in einer späteren Version abgelehnt
+werden, deshalb sendet dieser Client ihn nicht.
 
 Beträge kommen als Micros (millionstel Währungseinheit) und werden hier
 umgerechnet. Die Währung steht in `customer.currency_code` und wird vom Pull
@@ -26,11 +37,10 @@ import urllib.request
 BASE = "https://googleads.googleapis.com"
 
 #: Die eingesetzte API-Version. Google stellt Versionen nach rund einem Jahr
-#: ab. Vor dem ersten echten Lauf gegen die Liste der unterstützten Versionen
-#: halten und hier anpassen; `--api-version` übersteuert sie.
-DEFAULT_VERSION = "v21"
-
-ENV_TOKEN = "PTAI_GOOGLE_ADS_TOKEN"
+#: ab, eine abgestellte antwortet mit einer nackten 404. Am 02.10.2026 lief v21
+#: schon nicht mehr, v22 bis v25 antworteten, v26 gab es noch nicht.
+#: `--api-version` übersteuert den Wert.
+DEFAULT_VERSION = "v25"
 
 DEFAULT_TIMEOUT = 120
 
@@ -67,24 +77,43 @@ def _real_transport(url, headers, body, timeout):
         return response.read()
 
 
+def _describe_http_error(exc: urllib.error.HTTPError) -> str:
+    """Status plus Googles eigene Begründung aus dem Fehlerkörper.
+
+    Die oberste Meldung einer 403 lautet bei Google Ads fast immer "The caller
+    does not have permission" und sagt nicht, wessen Seite fehlt. Der Grund
+    steckt in `details[].errors[]`: CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION
+    heißt, der Betreiber muss eine Zugriffsstufe beantragen, USER_PERMISSION_DENIED
+    heißt, der Kunde hat das Dienstkonto nicht eingetragen. Ohne diese Zeile
+    stand am 02.10.2026 nur "HTTP 403" da, für zwei Ursachen auf zwei Seiten.
+    """
+    text = f"HTTP {exc.code}"
+    try:
+        body = json.loads(exc.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return text
+    error = body.get("error") or {}
+    reasons = []
+    for detail in error.get("details") or []:
+        for item in detail.get("errors") or []:
+            code = next(iter((item.get("errorCode") or {}).values()), None)
+            message = item.get("message")
+            reasons.append(": ".join(part for part in (code, message) if part))
+    if not reasons and error.get("message"):
+        reasons.append(error["message"])
+    return f"{text}, {'; '.join(reasons)}" if reasons else text
+
+
 class Client:
-    def __init__(self, developer_token, customer_id, *, access_token,
+    def __init__(self, customer_id, *, access_token,
                  login_customer_id=None, version=DEFAULT_VERSION,
                  transport=None, timeout=DEFAULT_TIMEOUT):
-        if not developer_token:
-            raise ValueError(
-                f"Google-Ads-Entwicklertoken fehlt. {ENV_TOKEN} gehört zentral "
-                "in ~/.config/ptai-ecom/.env oder in die .env des "
-                "Kunden-Workspace. Es gehört dem Betreiber und wird im eigenen "
-                "Verwaltungskonto beantragt, nicht vom Kunden."
-            )
         self.customer_id = _strip(customer_id)
         self.version = version
         self.timeout = timeout
         self._transport = transport or _real_transport
         self._headers = {
             "Authorization": f"Bearer {access_token}",
-            "developer-token": developer_token,
             "Content-Type": "application/json",
         }
         if login_customer_id:
@@ -110,7 +139,7 @@ class Client:
             try:
                 raw = self._transport(self.url, dict(self._headers), body, self.timeout)
             except urllib.error.HTTPError as exc:
-                raise AdsError(f"Google Ads: HTTP {exc.code}") from exc
+                raise AdsError(f"Google Ads: {_describe_http_error(exc)}") from exc
             except (urllib.error.URLError, OSError) as exc:
                 raise AdsError(f"Google Ads nicht erreichbar: {exc}") from exc
             try:

@@ -1,0 +1,15 @@
+{
+  "type": "header",
+  "name": "Kopfbereich",
+  "sections": {
+    "header": {
+      "type": "header",
+      "settings": {
+        "logo_width": 300
+      }
+    }
+  },
+  "order": [
+    "header"
+  ]
+}

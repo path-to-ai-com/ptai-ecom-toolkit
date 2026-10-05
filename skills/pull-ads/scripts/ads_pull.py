@@ -4,15 +4,13 @@
 Aufruf:
   ads_pull.py --customer-id 123-456-7890 --creds <sa.json> --out <dir> \
       [--login-customer-id <mcc>] [--start YYYY-MM-DD --end YYYY-MM-DD] \
-      [--max-history] [--api-version v21]
+      [--max-history] [--api-version v25]
   ads_pull.py --customer-id ... --creds ... --check
 
 Schreibt <out>/ads.json.
 
-**Stand beim Bau: ungetestet gegen die echte API.** Das Entwicklertoken war
-nicht beantragt. Der Code ist gegen die REST-Referenz gebaut und gegen von Hand
-erstellte Fixtures geprüft; die Verifikationsliste steht in der SKILL.md und
-gehört abgearbeitet, bevor eine Zahl aus diesem Pull in ein Kundendokument geht.
+**Seit dem 02.10.2026 gegen ein echtes Konto geprüft**, die Verifikationsliste
+in der SKILL.md ist abgearbeitet.
 
 Beträge kommen als Micros und werden umgerechnet. Die Währung steht in
 `customer.currency_code` und geht mit in den Snapshot: ein Euro-Betrag aus einem
@@ -27,7 +25,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 import ads_client  # noqa: E402
-from audit import env as operator_env  # noqa: E402
 from google_token import get_access_token  # noqa: E402
 
 MAX_TERMS = 300
@@ -37,6 +34,24 @@ MAX_CAMPAIGNS = 200
 #: API liefert für Tage ohne Daten schlicht keine Zeile. Gemessen statt
 #: angenommen, wie bei pull-gsc und pull-ga4.
 HISTORY_PROBE_START = "2010-01-01"
+
+#: Kampagnen, Anzeigengruppen und Suchbegriffe laufen bei --max-history über die
+#: letzten zwölf vollständigen Monate, nicht über die ganze Historie. Die
+#: Monatsreihe braucht die Historie, die Frage "wofür geht das Geld heute"
+#: nicht: im ersten echten Lauf am 02.10.2026 lieferte ein Konto mit gut zehn
+#: Jahren Historie fast eine Million Suchbegriff-Zeilen und mehr als hundert
+#: Kampagnen, die meisten seit Jahren entfernt.
+#: Volle Monate, damit die Summen genau auf Zeilen von `by_month` passen.
+DETAIL_MONTHS = 12
+
+
+def detail_period(today: date) -> tuple[str, str]:
+    """Die letzten DETAIL_MONTHS vollständigen Monate vor `today`."""
+    end = today.replace(day=1) - timedelta(days=1)
+    year, month = end.year, end.month - DETAIL_MONTHS + 1
+    while month < 1:
+        year, month = year - 1, month + 12
+    return date(year, month, 1).isoformat(), end.isoformat()
 
 
 def query_campaigns(start: str, end: str) -> str:
@@ -91,11 +106,23 @@ def _number(value, default=0.0) -> float:
 
 
 def by_month(rows: list) -> list:
-    """Tageszeilen zu Monaten. Impression Share wird gewichtet gemittelt.
+    """Tageszeilen zu Monaten. Impression Share über die möglichen Impressionen.
 
-    Der ungewichtete Mittelwert zweier Tage mit sehr verschiedener
-    Impression-Zahl ist eine Zahl, die es nicht gibt: ein Tag mit zehn
-    Impressionen zählte dann so viel wie einer mit zehntausend.
+    Ein Impression Share ist ein Anteil an den möglichen Impressionen, nicht
+    an den tatsächlichen. Der Monatswert ist deshalb Summe der Impressionen
+    durch Summe der möglichen (`impressions / share` je Zeile), und die beiden
+    Verlustanteile werden mit den möglichen Impressionen gewichtet. Bis zum
+    02.10.2026 stand hier ein mit den tatsächlichen Impressionen gewichteter
+    Mittelwert, geteilt durch alle Impressionen des Monats, auch die aus
+    Zeilen ohne Share. Im ersten echten Lauf ergab das für einen Tag, an dem
+    Google den Share noch nicht geliefert hatte, rund 2 Prozent.
+
+    `search_impression_share_coverage` sagt, welcher Anteil der Impressionen
+    des Monats aus Zeilen mit Share stammt. Der Share beschreibt nur diesen
+    Teil, Display und Demand Gen führen keinen.
+
+    Google liefert Werte unter 10 Prozent als 0,0999 und über 90 Prozent als
+    0,9001. Ein Monat mit vielen solchen Zeilen ist entsprechend unscharf.
     """
     buckets = defaultdict(lambda: defaultdict(float))
     for row in rows:
@@ -109,18 +136,24 @@ def by_month(rows: list) -> list:
         bucket["cost_micros"] += _number(_metric(row, "costMicros", 0))
         bucket["conversions"] += _number(_metric(row, "conversions", 0))
         bucket["conversions_value"] += _number(_metric(row, "conversionsValue", 0))
-        for key, field in (("is_weighted", "searchImpressionShare"),
-                           ("budget_lost_weighted", "searchBudgetLostImpressionShare"),
-                           ("rank_lost_weighted", "searchRankLostImpressionShare")):
-            share = _metric(row, field, None)
-            if share is not None:
-                bucket[key] += _number(share) * impressions
+        share = _number(_metric(row, "searchImpressionShare", None), None)
+        if share and impressions > 0:
+            eligible = impressions / share
+            bucket["share_impressions"] += impressions
+            bucket["eligible"] += eligible
+            for key, field in (("budget_lost", "searchBudgetLostImpressionShare"),
+                               ("rank_lost", "searchRankLostImpressionShare")):
+                lost = _number(_metric(row, field, None), None)
+                if lost is not None:
+                    bucket[key] += lost * eligible
+                    bucket[key + "_eligible"] += eligible
 
     months = []
     for month in sorted(buckets):
         bucket = buckets[month]
         cost = round(bucket["cost_micros"] / 1_000_000, 2)
         impressions = bucket["impressions"]
+        eligible = bucket["eligible"]
         months.append({
             "month": month,
             "impressions": int(impressions),
@@ -131,16 +164,22 @@ def by_month(rows: list) -> list:
             # Ein Monat ohne Ausgaben hat keinen ROAS. None statt 0, weil eine
             # 0 sich als "nichts eingebracht" liest.
             "roas": round(bucket["conversions_value"] / cost, 2) if cost else None,
-            # Keine Impressionen heißt kein Impression Share. Eine 0 stünde im
-            # Report als "nie ausgeliefert", und das ist etwas anderes.
-            "search_impression_share": (round(bucket["is_weighted"] / impressions, 4)
-                                         if impressions else None),
-            "search_budget_lost_impression_share": (
-                round(bucket["budget_lost_weighted"] / impressions, 4) if impressions else None),
-            "search_rank_lost_impression_share": (
-                round(bucket["rank_lost_weighted"] / impressions, 4) if impressions else None),
+            # Kein Share geliefert heißt kein Impression Share. Eine 0 stünde
+            # im Report als "nie ausgeliefert", und das ist etwas anderes.
+            "search_impression_share": (round(bucket["share_impressions"] / eligible, 4)
+                                         if eligible else None),
+            "search_budget_lost_impression_share": _weighted(bucket, "budget_lost"),
+            "search_rank_lost_impression_share": _weighted(bucket, "rank_lost"),
+            "search_impression_share_coverage": (
+                round(bucket["share_impressions"] / impressions, 4) if impressions else None),
         })
     return months
+
+
+def _weighted(bucket, key):
+    """Verlustanteil, gewichtet mit den möglichen Impressionen."""
+    base = bucket[key + "_eligible"]
+    return round(bucket[key] / base, 4) if base else None
 
 
 def shape_campaigns(rows: list) -> dict:
@@ -180,12 +219,13 @@ def shape_search_terms(rows: list) -> dict:
     Die Summe geht über alle Zeilen, die Liste ist begrenzt. Eine Summe über
     die gekürzte Liste wäre eine andere Zahl mit demselben Namen.
     """
-    wasted, total_cost, count = [], 0.0, 0
+    wasted, total_cost, count, all_cost = [], 0.0, 0, 0.0
     for row in rows:
+        cost = ads_client.from_micros(_metric(row, "costMicros", None)) or 0.0
+        all_cost += cost
         # Google zählt Conversions als Bruchteile. 0,5 ist eine Conversion.
         if _number(_metric(row, "conversions", 0)) > 0:
             continue
-        cost = ads_client.from_micros(_metric(row, "costMicros", None)) or 0.0
         count += 1
         total_cost += cost
         wasted.append({
@@ -199,7 +239,12 @@ def shape_search_terms(rows: list) -> dict:
         "summary_search_terms": {
             "search_terms_total": len(rows),
             "terms_without_conversion": count,
-            "cost_without_conversion": round(total_cost, 2)},
+            "cost_without_conversion": round(total_cost, 2),
+            # Die Bezugsgröße für den Anteil. Die Suchbegriff-Ansicht deckt
+            # nur Suche und Shopping ab, nicht Performance Max; gegen die
+            # Gesamtausgaben gerechnet sähe die Verschwendung kleiner aus,
+            # als sie ist.
+            "cost_total": round(all_cost, 2)},
         "search_terms_without_conversion": wasted[:MAX_TERMS],
         "search_terms_truncated": len(wasted) > MAX_TERMS}
 
@@ -211,16 +256,11 @@ def history_start(rows: list):
     return min(days) if days else None
 
 
-def _build_client(args, token: str):
+def _build_client(args):
     access = get_access_token(args.creds, "adwords")
-    return ads_client.Client(token, args.customer_id, access_token=access,
+    return ads_client.Client(args.customer_id, access_token=access,
                               login_customer_id=args.login_customer_id,
                               version=args.api_version)
-
-
-def resolve_token(workspace=".") -> str:
-    """Das Entwicklertoken über dieselbe Suche wie jeder Betreiber-Schlüssel."""
-    return operator_env.get(ads_client.ENV_TOKEN, workspace) or ""
 
 
 def main() -> None:
@@ -241,20 +281,13 @@ def main() -> None:
                         help="nur Zugang und Währung prüfen, Exit 0/1")
     args = parser.parse_args()
 
-    token = resolve_token()
-    if not token:
-        sys.exit(f"Fehler: {ads_client.ENV_TOKEN} nicht gesetzt. Das "
-                 "Entwicklertoken gehört dem Betreiber und wird im eigenen "
-                 "Google-Ads-Verwaltungskonto beantragt (API-Center). Es gehört "
-                 "zentral in ~/.config/ptai-ecom/.env oder in die .env des "
-                 "Workspace.")
     if not args.check and not args.out:
         parser.error("ohne --check ist --out erforderlich")
     if not args.check and not args.max_history and not (args.start and args.end):
         parser.error("ohne --check entweder --max-history oder --start und --end")
 
     try:
-        client = _build_client(args, token)
+        client = _build_client(args)
         customer = client.search(query_customer())
     except Exception as exc:
         sys.exit(f"Fehler: Google Ads nicht erreichbar: {exc}")
@@ -282,9 +315,6 @@ def main() -> None:
         "account": {"id": info.get("id"), "name": info.get("descriptiveName"),
                      "time_zone": info.get("timeZone")},
         "api_version": args.api_version,
-        "notes": ["Ungeprüft gegen die echte API zum Zeitpunkt des Baus. "
-                   "Verifikationsliste in der SKILL.md abarbeiten, bevor eine "
-                   "Zahl in ein Kundendokument geht."],
     }
     if history_from:
         snapshot["history_from"] = history_from
@@ -296,10 +326,17 @@ def main() -> None:
     except ads_client.AdsError as exc:
         sys.exit(f"Fehler: Kampagnen nicht abrufbar: {exc}")
     snapshot["by_month"] = by_month(campaign_rows)
-    snapshot.update(shape_campaigns(campaign_rows))
 
-    for key, query in (("ad_groups", query_ad_groups(start, end)),
-                        ("search_terms", query_search_terms(start, end))):
+    # Struktur und Suchbegriffe über den Detailzeitraum, siehe DETAIL_MONTHS.
+    detail_start, detail_end = (detail_period(date.today()) if args.max_history
+                                else (start, end))
+    snapshot["detail_period"] = {"start": detail_start, "end": detail_end}
+    snapshot.update(shape_campaigns(
+        [row for row in campaign_rows
+         if detail_start <= (row.get("segments") or {}).get("date", "") <= detail_end]))
+
+    for key, query in (("ad_groups", query_ad_groups(detail_start, detail_end)),
+                        ("search_terms", query_search_terms(detail_start, detail_end))):
         try:
             rows = client.search(query)
         except ads_client.AdsError as exc:

@@ -60,27 +60,37 @@ class TestWebFassung(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _seite(self) -> str:
+    def _page(self) -> str:
         return report_web.build(rb.Run(self.ws, self.run_id), self.text)
 
     def test_kein_platzhalter_bleibt_stehen(self):
         import re
-        self.assertEqual(re.findall(r"__[A-Z_]{3,}__", self._seite()), [])
+        self.assertEqual(re.findall(r"__[A-Z_]{3,}__", self._page()), [])
 
     def test_der_filter_findet_den_schweregrad(self):
-        """Ohne data-severity filtert das Skript ins Leere, ohne Fehler."""
-        self.assertIn('data-severity="hoch"', self._seite())
+        """Ohne data-severity filtert das Skript ins Leere, ohne Fehler.
+
+        Geprueft wird der Befundblock selbst, nicht irgendein Vorkommen auf
+        der Seite: die Filter-Knoepfe tragen dasselbe Attribut fest im Markup.
+        Bis zum 17.09.2026 stand hier nur `assertIn('data-severity="hoch"')`,
+        und der Test blieb gruen, als der Anker am Befundblock den regulaeren
+        Ausdruck in `_data_attributes` nicht mehr greifen liess.
+        """
+        import re
+        seite = self._page()
+        block = re.search(r'<div class="finding-block[^>]*>', seite).group(0)
+        self.assertIn('data-severity="hoch"', block)
 
     def test_massnahmen_bleiben_bei_jedem_filter_sichtbar(self):
         """Eine Maßnahme trägt keinen eigenen Schweregrad, sie folgt aus
         ihrem Befund. Sie darf deshalb von keiner Stufe ausgeblendet werden."""
-        self.assertIn('class="measure" data-severity="alle"', self._seite()
+        self.assertIn('class="measure" data-severity="alle"', self._page()
                       + '<div class="measure" data-severity="alle">')
 
     def test_alles_steht_in_einer_datei(self):
         """Die Seite muss in einem Jahr aus einem Ordner heraus funktionieren:
         kein CDN, kein externes Skript, keine Schrift von außen."""
-        page = self._seite()
+        page = self._page()
         # Auf Teilstrings zu pruefen geht hier nicht: die eingebetteten
         # Schriften sind base64 und enthalten zufaellig jede Zeichenfolge.
         # Geprueft wird deshalb, was tatsaechlich eine Anfrage ausloest. Ein
@@ -113,7 +123,7 @@ class TestWebFassung(unittest.TestCase):
         from audit import report_web
         self.assertNotIn("preventDefault", report_web.SCRIPT)
         self.assertIn("scroll-margin-top", report_web.STYLE)
-        page = self._seite()
+        page = self._page()
         for key in ("s-commerce", "s-seo"):
             with self.subTest(anker=key):
                 self.assertIn(f'href="#{key}"', page)
@@ -133,7 +143,7 @@ class TestWebFassung(unittest.TestCase):
 
     def test_die_marke_ist_eingebettet_nicht_verlinkt(self):
         """Ein relativer Font-Pfad ueberlebt das erste Verschieben nicht."""
-        page = self._seite()
+        page = self._page()
         self.assertIn("@font-face", page)
         self.assertIn("Archivo Black", page)
         self.assertIn("data:font/woff2;base64,", page)
@@ -148,7 +158,7 @@ class TestWebFassung(unittest.TestCase):
         self.assertIn(inh["werte"]["__KPI_SIXTH_LABEL__"], page)
 
     def test_jede_sektion_bekommt_einen_anker(self):
-        page = self._seite()
+        page = self._page()
         for key in rb.SECTIONS:
             with self.subTest(sektion=key):
                 self.assertIn(f'id="s-{key}"', page)
@@ -164,7 +174,7 @@ class TestClosingInTheWebVersion(unittest.TestCase):
 
     setUp = TestWebFassung.setUp
     tearDown = TestWebFassung.tearDown
-    _seite = TestWebFassung._seite
+    _page = TestWebFassung._page
 
     def configure(self, text: str) -> None:
         self.central.write_text(text, encoding="utf-8")
@@ -182,7 +192,7 @@ class TestClosingInTheWebVersion(unittest.TestCase):
     def test_the_closing_page_follows_the_content_unchanged(self):
         self.configure(f"PTAI_CLOSING_FILE={self.closing_page()}\n"
                        "PTAI_OPERATOR_CONTACT=Mara Beispiel\n")
-        page = self._seite()
+        page = self._page()
         self.assertEqual(page.count(FRAGMENT), 1)
         self.assertEqual(self.region(page), "\n" + FRAGMENT)
         self.assertEqual((page.count(closing.START), page.count(closing.END)), (1, 1))
@@ -197,7 +207,7 @@ class TestClosingInTheWebVersion(unittest.TestCase):
 
     def test_without_the_setting_the_neutral_closing(self):
         self.configure("PTAI_OPERATOR_CONTACT=Mara Beispiel\n")
-        page = self._seite()
+        page = self._page()
         region = self.region(page)
         self.assertNotIn("__CLOSING__", page)
         self.assertIn('<footer class="closing">', region)
@@ -209,14 +219,14 @@ class TestClosingInTheWebVersion(unittest.TestCase):
 
     def test_applying_again_changes_nothing(self):
         self.configure(f"PTAI_CLOSING_FILE={self.closing_page()}\n")
-        page = self._seite()
+        page = self._page()
         self.assertEqual(closing.apply(page, self.ws), page)
 
     def test_every_class_of_the_neutral_closing_has_a_web_rule(self):
         self.configure("PTAI_OPERATOR_NAME=Beispiel GmbH\nPTAI_OPERATOR_CONTACT=Mara Beispiel\n"
                        "PTAI_OPERATOR_EMAIL=kontakt@beispielshop.example\n"
                        "PTAI_OPERATOR_BOOKING_URL=https://termine.example/30min\n")
-        page = self._seite()
+        page = self._page()
         start = page.index('<div class="closing-web">')
         markup = re.sub(r"<svg\b.*?</svg>", "", page[start:page.index("</footer>", start)],
                         flags=re.S)
@@ -249,3 +259,62 @@ class TestClosingInTheWebVersion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBodyAndOutline(TestWebFassung):
+    """Der Rumpf ist das, was das Portal anzeigt; die Gliederung seine
+    Navigation. Beide kommen aus demselben Aufbau wie die eigenstaendige
+    Web-Fassung, damit es keine zweite Wahrheit gibt."""
+
+    def setUp(self):
+        super().setUp()
+        _schreibe(self.ws / "reporting" / "runs" / self.run_id / "findings"
+                  / "data-quality.json",
+                  {"discipline": "data_quality", "findings": [
+                      {"id": "MES-01", "statement": "Ein Befund ueber die Messung.",
+                       "severity": "hoch", "why": "Verzerrt jede Zahl.",
+                       "fix": "Absender begrenzen.",
+                       "evidence": "ga4.json > by_month"}]})
+
+    def _rumpf(self):
+        return report_web.body_and_outline(rb.Run(self.ws, self.run_id), self.text)
+
+    def test_the_body_has_no_frame(self):
+        rumpf, _ = self._rumpf()
+        for verboten in ("<!doctype", "<head", "<nav", "@font-face", "<script"):
+            self.assertNotIn(verboten, rumpf.lower())
+        self.assertIn('<section id="s-measurement"', rumpf)
+
+    def test_the_body_carries_no_dead_controls(self):
+        """Die Filterleiste des Dokuments haengt im <main>, ihr Skript aber
+        nicht. Im Rumpf waere sie eine Bedienung, die nichts tut."""
+        rumpf, _ = self._rumpf()
+        self.assertNotIn('class="filter"', rumpf)
+        # Zum Vergleich: in der eigenstaendigen Fassung steht sie sehr wohl.
+        self.assertIn('class="filter"', self._page())
+
+    def test_the_outline_lists_sections_and_findings(self):
+        _, outline = self._rumpf()
+        keys = [s["key"] for s in outline["sections"]]
+        self.assertIn("measurement", keys)
+        measurement = next(s for s in outline["sections"] if s["key"] == "measurement")
+        self.assertEqual(measurement["anchor"], "s-measurement")
+        self.assertIn("MES-01", measurement["findings"])
+        self.assertEqual(outline["version"], 1)
+        self.assertEqual(outline["run_id"], self.run_id)
+
+    def test_the_outline_carries_the_class_contract(self):
+        """Die Klassenliste ist der Vertrag mit dem Portal. Fehlt eine Klasse
+        darin, faellt es dort auf, statt still zu verrutschen."""
+        rumpf, outline = self._rumpf()
+        self.assertIn("finding-block", outline["classes"])
+        self.assertEqual(outline["classes"], sorted(set(outline["classes"])))
+        for klasse in outline["classes"]:
+            self.assertIn(klasse, rumpf)
+
+    def test_the_standalone_page_still_contains_the_body(self):
+        """Ein zweiter Bauweg waere eine zweite Wahrheit."""
+        rumpf, _ = self._rumpf()
+        seite = self._page()
+        for abschnitt in rumpf.split("<section ")[1:]:
+            self.assertIn("<section " + abschnitt[:120], seite)

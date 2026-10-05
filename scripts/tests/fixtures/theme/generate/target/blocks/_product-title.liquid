@@ -1,0 +1,18 @@
+{% doc %}
+  Produkttitel, statisch in der Produktinformation.
+{% enddoc %}
+<h1 {{ block.shopify_attributes }}>{{ closest.product.title }}{% if block.settings.show_vendor %} {{ closest.product.vendor }}{% endif %}</h1>
+
+{% schema %}
+{
+  "name": "Produkttitel",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "show_vendor",
+      "label": "Marke zeigen",
+      "default": false
+    }
+  ]
+}
+{% endschema %}

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import re
 import sys
 from pathlib import Path
@@ -502,30 +503,131 @@ def _data_attributes(html_text: str) -> str:
         grad = re.search(r"finding-block--(\w+)", klasse)
         return (f'<div class="{klasse}" data-severity='
                 f'"{grad.group(1) if grad else "alle"}"{remainder}')
-    html_text = re.sub(r'<div class="(finding-block[^"]*)"(>)', block, html_text)
+    # Hinter dem Klassenattribut kann jetzt der Anker stehen (`id="f-MES-01"`),
+    # deshalb endet der Ausdruck auf `>` **oder** einem Leerzeichen. Mit dem
+    # engeren Ausdruck griff er nach dem Anker nicht mehr, und der Filter lief
+    # ins Leere, ohne dass etwas brach.
+    html_text = re.sub(r'<div class="(finding-block[^"]*)"(>|\s)', block, html_text)
     return html_text.replace('<div class="measure">',
                              '<div class="measure" data-severity="alle">')
+
+
+#: Die Filterleiste der eigenstaendigen Web-Fassung. Sie gehoert **nicht** in
+#: den Rumpf fuer das Portal: ihr Skript bleibt draussen, sie waere dort eine
+#: tote Bedienung, und das Portal stellt Suche und Filter selbst.
+FILTER_BAR = """<div class="filter">
+ <input id="q" type="search" placeholder="In Befunden und Maßnahmen suchen">
+ <button data-severity="alle" aria-pressed="true">alle</button>
+ <button data-severity="hoch" aria-pressed="false">nur schwerwiegend</button>
+ <button data-severity="mittel" aria-pressed="false">mittel</button>
+ <button data-severity="gering" aria-pressed="false">gering</button>
+ <span class="count" id="count"></span>
+</div>"""
+
+#: Version des Gliederungsformats. Sie steht in der Datei, damit das Portal
+#: eine aeltere Fassung erkennt, statt an einem fehlenden Feld zu scheitern.
+OUTLINE_VERSION = 1
+
+
+def _assemble(run: rb.Run, text: dict, inh: dict | None = None) -> dict:
+    """Die Teile des Dokuments, aus denen beide Ausgaben gesetzt werden.
+
+    **Es gibt genau einen Bauweg.** Die eigenstaendige Web-Fassung und der
+    Rumpf fuer das Portal nehmen dieselben Teile; nur der Rahmen ist ein
+    anderer. Zwei Bauwege waeren zwei Wahrheiten, und die erste Zahl, die nur
+    in einem von beiden korrigiert wird, faellt niemandem auf.
+    """
+    inh = inh or rb.content(run, text)
+    w = inh["werte"]
+    nav, sections_html = [], []
+    for key, block in inh["sektionen"].items():
+        number, title = rb.SECTION_TITLES.get(key, rb.SECTION_APPENDIX.get(key))
+        nav.append((number, title, key))
+        sections_html.append((number, key, f'<section id="s-{key}"><h2>{number} · '
+                                     f"{rb.esc(title)}</h2>{block}</section>"))
+    nav.sort()
+    sections_html.sort()
+
+    navigation = "".join(
+        f'<a href="#s-{k}"><span class="num">{n}</span>{rb.esc(t)}</a>'
+        for n, t, k in nav)
+    rendered = [_data_attributes(block) for _, _, block in sections_html]
+    body_html = "".join(rendered)
+
+    # Die Gliederung wird aus dem gesetzten Abschnitt gelesen, nicht aus den
+    # Befund-Dateien daneben: so kann sie nicht auseinanderlaufen mit dem, was
+    # im Rumpf tatsaechlich steht.
+    titles = {k: (n, t) for n, t, k in nav}
+    sections = []
+    for (number, key, _), block in zip(sections_html, rendered):
+        sections.append({"no": number, "key": key, "title": titles[key][1],
+                         "anchor": f"s-{key}",
+                         "findings": re.findall(r'id="f-([A-Z]{2,5}-\d{2})"', block)})
+
+    head = f"""<p class="meta" id="oben">E-Com-Audit · {w['__BRAND__']} ·
+ {w['__RUN_LABEL__']} · erstellt am {w['__GENERATED_DATE__']}</p>
+<h1>{w['__COVER_HEADLINE__']}<span class="dot">.</span></h1>
+<div class="lead">{w['__INTRO__']}</div>
+<p class="eyebrow">Was den Shop gerade am meisten kostet</p>
+{w['__PROBLEMS__']}
+<p class="eyebrow">Wo der Shop steht</p>
+{w['__SCORES__']}
+<p class="kpi-period">{rb.esc(w['__KPI_PERIOD__'])}</p>
+<div class="kpi-grid">
+{_tile("Umsatz", w['__KPI_REVENUE__'], w['__KPI_REVENUE_NOTE__'])}
+{_tile("Bestellungen", w['__KPI_ORDERS__'], w['__KPI_ORDERS_NOTE__'])}
+{_tile("Ø Bestellwert", w['__KPI_AOV__'], w['__KPI_AOV_NOTE__'])}
+{_tile("Conversion Rate", w['__KPI_CR__'], w['__KPI_CR_NOTE__'])}
+{_tile("Sitzungen", w['__KPI_SESSIONS__'], w['__KPI_SESSIONS_NOTE__'])}
+{_tile(w['__KPI_SIXTH_LABEL__'], w['__KPI_SIXTH__'], w['__KPI_SIXTH_NOTE__'],
+         w['__KPI_SIXTH_CLASS__'])}
+</div>
+<div class="summary">
+{_row("Was ihr hier seht", w['__SUMMARY_WHAT__'])}
+{_row("Warum", w['__SUMMARY_WHY__'])}
+{_row("Status quo", w['__SUMMARY_STATUS__'])}
+{_row("Das Problem", w['__SUMMARY_PROBLEM__'])}
+{_row("Was möglich ist", w['__SUMMARY_POSSIBLE__'])}
+</div>
+<p class="eyebrow">Die wichtigsten Erkenntnisse</p>
+{w['__TAKEAWAYS__']}
+<p class="eyebrow">Die Befunde im Überblick</p>
+{w['__FINDINGS_OVERVIEW__']}"""
+
+    footer = (f'<div class="next-step"><p class="eyebrow">Nächster Schritt</p>\n'
+               f'{w["__NEXT_STEP__"]}</div>')
+
+    return {"values": w, "head": head, "body": body_html, "footer": footer,
+            "navigation": navigation, "sections": sections}
+
+
+def body_and_outline(run: rb.Run, text: dict,
+                     inh: dict | None = None) -> tuple[str, dict]:
+    """Der Rumpf des Reports und seine Gliederung, fuer das Portal.
+
+    Der Rumpf ist alles, was Inhalt ist: Einstieg, Kennzahlen, Befunde,
+    Abschnitte, Schluss. Kopfleiste, Navigation, Schriften, Filterleiste und
+    Skript bleiben draussen, weil das Portal sie selbst stellt.
+
+    Die Gliederung traegt je Abschnitt Nummer, Titel, Anker und die
+    Befund-Kennungen darin, dazu die Klassenliste: sie ist der Vertrag
+    zwischen Plugin und Portal. Aendert das Plugin eine Klasse, faellt es dort
+    auf, statt dass die Portal-Ansicht still verrutscht.
+    """
+    parts = _assemble(run, text, inh)
+    body_html = f'{parts["head"]}\n{parts["body"]}\n{parts["footer"]}'
+    classes = sorted({k for m in re.finditer(r'class="([^"]+)"', body_html)
+                      for k in m.group(1).split()})
+    return body_html, {"version": OUTLINE_VERSION, "run_id": run.run_id,
+                       "sections": parts["sections"], "classes": classes}
 
 
 def build(run: rb.Run, text: dict, inh: dict | None = None,
           assets: Path | None = None) -> str:
     assets = assets or (Path(__file__).resolve().parents[2] / "assets" / "brand")
-    inh = inh or rb.content(run, text)
-    w = inh["werte"]
-    nav, koerper = [], []
-    for key, block in inh["sektionen"].items():
-        number, title = rb.SECTION_TITLES.get(key, rb.SECTION_APPENDIX.get(key))
-        nav.append((number, title, key))
-        koerper.append((number, f'<section id="s-{key}"><h2>{number} · '
-                                f"{rb.esc(title)}</h2>{block}</section>"))
-    nav.sort()
-    koerper.sort()
-
-    navigation = "".join(
-        f'<a href="#s-{k}"><span class="num">{n}</span>{rb.esc(t)}</a>'
-        for n, t, k in nav)
-    inhalt_html = _data_attributes("".join(b for _, b in koerper))
-
+    parts = _assemble(run, text, inh)
+    w = parts["values"]
+    navigation = parts["navigation"]
     page = f"""<!doctype html>
 <html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -545,46 +647,10 @@ def build(run: rb.Run, text: dict, inh: dict | None = None,
 <a href="#oben"><span class="num">0</span>Zusammenfassung</a>
 {navigation}</nav>
 <main>
-<p class="meta" id="oben">E-Com-Audit · {w['__BRAND__']} ·
- {w['__RUN_LABEL__']} · erstellt am {w['__GENERATED_DATE__']}</p>
-<h1>{w['__COVER_HEADLINE__']}<span class="dot">.</span></h1>
-<div class="lead">{w['__INTRO__']}</div>
-<p class="eyebrow">Was den Shop gerade am meisten kostet</p>
-{w['__PROBLEMS__']}
-<p class="eyebrow">Wo der Shop steht</p>
-{w['__SCORES__']}
-<p class="kpi-period">{rb.esc(w['__KPI_PERIOD__'])}</p>
-<div class="kpi-grid">
-{_tile("Umsatz", w['__KPI_REVENUE__'], w['__KPI_REVENUE_NOTE__'])}
-{_tile("Bestellungen", w['__KPI_ORDERS__'], w['__KPI_ORDERS_NOTE__'])}
-{_tile("Ø Bestellwert", w['__KPI_AOV__'], w['__KPI_AOV_NOTE__'])}
-{_tile("Conversion Rate", w['__KPI_CR__'], w['__KPI_CR_NOTE__'])}
-{_tile("Sitzungen", w['__KPI_SESSIONS__'], w['__KPI_SESSIONS_NOTE__'])}
-{_tile(w['__KPI_SIXTH_LABEL__'], w['__KPI_SIXTH__'], w['__KPI_SIXTH_NOTE__'],
-         w['__KPI_SIXTH_CLASS__'])}
-</div>
-<div class="summary">
-{_row("Was du hier siehst", w['__SUMMARY_WHAT__'])}
-{_row("Warum", w['__SUMMARY_WHY__'])}
-{_row("Status quo", w['__SUMMARY_STATUS__'])}
-{_row("Das Problem", w['__SUMMARY_PROBLEM__'])}
-{_row("Was möglich ist", w['__SUMMARY_POSSIBLE__'])}
-</div>
-<p class="eyebrow">Die wichtigsten Erkenntnisse</p>
-{w['__TAKEAWAYS__']}
-<p class="eyebrow">Die Befunde im Überblick</p>
-{w['__FINDINGS_OVERVIEW__']}
-<div class="filter">
- <input id="q" type="search" placeholder="In Befunden und Maßnahmen suchen">
- <button data-severity="alle" aria-pressed="true">alle</button>
- <button data-severity="hoch" aria-pressed="false">nur schwerwiegend</button>
- <button data-severity="mittel" aria-pressed="false">mittel</button>
- <button data-severity="gering" aria-pressed="false">gering</button>
- <span class="count" id="count"></span>
-</div>
-{inhalt_html}
-<div class="next-step"><p class="eyebrow">Nächster Schritt</p>
-{w['__NEXT_STEP__']}</div>
+{parts["head"]}
+{FILTER_BAR}
+{parts["body"]}
+{parts["footer"]}
 </main></div>
 {_closing_region(assets, w)}
 <script>{SCRIPT}</script>
@@ -638,9 +704,20 @@ def main(argv=None) -> int:
         raise SystemExit(f"{textpfad} fehlt. Erst report_build laufen lassen.")
     goal = Path(a.out) if a.out else run.run / "audit-web.html"
     hier = Path(__file__).resolve().parents[2]
-    goal.write_text(build(run, rb.text_laden(textpfad),
-                          assets=hier / "assets" / "brand"), encoding="utf-8")
+    text = rb.text_laden(textpfad)
+    goal.write_text(build(run, text, assets=hier / "assets" / "brand"),
+                    encoding="utf-8")
     print(f"Geschrieben: {goal}")
+
+    # Daneben der Rumpf und die Gliederung fuer das Portal. Die eigenstaendige
+    # Fassung oben bleibt unveraendert: sie ist die Datei zum Weitergeben, sie
+    # traegt die Marke und funktioniert offline.
+    rumpf, outline = body_and_outline(run, text)
+    (run.run / "report-body.html").write_text(rumpf, encoding="utf-8")
+    (run.run / "report-outline.json").write_text(
+        json.dumps(outline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"Geschrieben: {run.run / 'report-body.html'} "
+          f"und report-outline.json ({len(outline['sections'])} Abschnitte)")
     return 0
 
 

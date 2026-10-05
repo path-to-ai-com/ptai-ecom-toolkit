@@ -1,0 +1,15 @@
+{
+  "type": "header",
+  "name": "Header",
+  "sections": {
+    "hero": {
+      "type": "hero",
+      "settings": {
+        "title": "Kopf"
+      }
+    }
+  },
+  "order": [
+    "hero"
+  ]
+}

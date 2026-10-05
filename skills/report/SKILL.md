@@ -461,6 +461,11 @@ in keiner allgemeinen Datei stehen können.
 Der Report geht an eine Geschäftsführung, nicht an eine Analystin und nicht an
 eine Laiin. Das ist der Grat, auf dem der Ton läuft.
 
+**Anrede ihr und euch, der Betreiber in der ich-Form.** Den Report lesen im
+Portal mehrere Personen, und die Oberfläche daneben spricht sie mit "ihr" an.
+Deshalb nie "du", auch nicht in einem festen Label, und nie "wir", wo nur der
+Betreiber handelt. Gilt genauso im Audit (`ptai-ecom:audit`, Einstieg).
+
 **Etablierte Kennzahlen behalten ihren etablierten Namen.** Conversion Rate,
 Sessions, Add-to-Cart-Rate, Produktansichtsrate, Engagement-Rate, AOV,
 Micro-Conversion-Funnel: das sind die Begriffe, die jede E-Commerce-Person

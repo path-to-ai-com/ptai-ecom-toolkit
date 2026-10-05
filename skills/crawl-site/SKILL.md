@@ -84,7 +84,11 @@ Das Script schreibt `<out>/crawl.json`:
     "longest_redirect_chain": 2,
     "max_click_depth": 5,
     "blocked_links": 6,
-    "third_party_script_hosts": ["cdn.intelligems.io", "cdn.judge.me", "www.googletagmanager.com"]
+    "robots_group": "*",
+    "home_blocked_by_robots": false,
+    "third_party_script_hosts": ["cdn.intelligems.io", "cdn.judge.me", "www.googletagmanager.com"],
+    "max_urls": 5000,
+    "hit_url_limit": false
   },
   "findings_index": {
     "cap": 25,
@@ -99,7 +103,29 @@ Das Script schreibt `<out>/crawl.json`:
     "schema_types": {"Product": 0},
     "pages_without_schema": {"count": 0, "examples": ["..."]},
     "path_prefixes": {"/products/": 0},
-    "inline_tag_ids": {"G-XXXXXXXXXX": 300, "GTM-XXXXXXX": 300}
+    "inline_tag_ids": {"G-XXXXXXXXXX": 300, "GTM-XXXXXXX": 300},
+    "canonical_pages": 0,
+    "h1": {"multiple": {"count": 0, "examples": []}, "missing": {"count": 0, "examples": []}},
+    "titles": {"missing": {"count": 0, "examples": []},
+               "too_long": {"count": 0, "examples": [], "max_chars": 60},
+               "duplicate_groups": {"count": 0, "pages": 0, "groups": [{"text", "count", "examples"}]}},
+    "descriptions": {"missing": {"count": 0, "examples": []},
+                     "duplicate_groups": {"count": 0, "pages": 0, "groups": []}},
+    "non_canonical_linked": {"count": 0, "examples": [], "share_of_crawl": 0.0,
+                             "collection_product_urls": 0},
+    "pagination": {"count": 0, "examples": [], "indexable": 0,
+                   "canonical_to_first_page": {"count": 0, "examples": []}},
+    "hreflang": {"pages_with_hreflang": 0, "languages": {"de": 0},
+                 "missing_x_default": {"count": 0, "examples": []},
+                 "missing_self_reference": {"count": 0, "examples": []},
+                 "targets_not_crawled": {"count": 0, "examples": []},
+                 "targets_not_indexable": {"count": 0, "examples": []},
+                 "not_reciprocal": {"count": 0, "examples": []}},
+    "product_markup": {"pages": 0, "missing": {"has_offers": {"count": 0, "examples": []}},
+                       "multiple_nodes": {"count": 0, "examples": []},
+                       "availability": {"InStock": 0}},
+    "organization_markup": {"pages": 0, "home_url": "...", "home": null,
+                            "with_return_policy": 0, "with_shipping_service": 0}
   },
   "pages": [
     {
@@ -109,15 +135,32 @@ Das Script schreibt `<out>/crawl.json`:
       "end_url": "https://www.example.com/products/x/",
       "load_time_sec": 0.29,
       "click_depth": 2,
+      "link_depth": 3,
       "title": "...", "description": "...", "canonical": "...", "canonical_count": 1,
       "hreflang": {}, "h1": ["..."], "images": {"total": 9, "without_alt": 0, "empty_alt": 0},
       "schema_types": ["Product"], "indexable": true,
+      "markup": {"product": {"has_name": true, "has_image": true, "has_brand": true,
+                             "has_identifier": true, "has_offers": true,
+                             "price": "49.90", "currency": "EUR", "availability": "InStock",
+                             "has_shipping_details": false, "has_return_policy": false,
+                             "has_aggregate_rating": true, "has_variants": false, "count": 1}},
       "script_sources": ["//cdn.judge.me/y.js", "/assets/theme.js", "https://cdn.intelligems.io/x.js"],
       "internal_links": ["..."], "word_count": 340
     }
   ]
 }
 ```
+
+**`hit_url_limit` sagt, ob der Lauf an `--max-urls` aufgehört hat.** Dann sind
+verwaiste Seiten und nie erreichte hreflang-Ziele kein Befund über den Shop,
+sie können hinter der Grenze liegen. Ein Snapshot von vor dem 27.09.2026 trägt
+das Feld nicht.
+
+**Gerenderte Gegenprobe:** `scripts/render_check.py --crawl <crawl.json> --url
+<adresse> ...` rendert bis zu zehn Seiten mit der Headless Shell aus
+`scripts/lib/find_chrome.sh` und vergleicht Typen und Produktfelder mit dem
+Crawl-Eintrag (`same`, `only_rendered`, `only_static`, `render_failed`). Die
+Analyse nutzt das, bevor sie fehlende Auszeichnung als Befund schreibt.
 
 **`inline_tag_ids` zählt Container- und Mess-IDs, die im Seitenquelltext
 stehen, statt über ein `src`-Attribut geladen zu werden.** Genau die häufigsten
@@ -127,6 +170,29 @@ ein und tauchen deshalb in `script_sources` und in
 heißt "kein Hinweis auf doppelte Tags" in Wahrheit "nicht messbar". Zwei
 GA4-IDs mit ähnlicher Seitenzahl sind der belegte Fall einer doppelten Messung.
 Gespeichert werden ausschließlich die IDs, nie Skript-Inhalte.
+
+**Die Blöcke ab `canonical_pages` gehören zur Kriterienliste vom 27.09.2026**
+(`audit-seo-technical`, `audit-geo`). Ihre Zählregel steht im Code, nicht in
+einer Abfrage des Agents, damit zwei Läufe auf demselben Snapshot dieselbe Zahl
+liefern. Grundgesamtheit für H1, Title, Description und Produktauszeichnung
+sind die indexierbaren Seiten, die auf sich selbst kanonisieren, jede Adresse
+nur einmal (Startseite mit und ohne Schrägstrich, Weiterleitung und Ziel),
+ohne die Folgeseiten einer Liste, die H1 und Description mit Seite 1 teilen.
+Ohne diese Abgrenzung zählte eine Produktadresse im Collection-Kontext als
+eigene Dublette ihrer kanonischen Seite; an einem echten Shop war das mehr als
+das Zwölffache. `markup` stammt aus statischem HTML: per JavaScript
+eingefügtes JSON-LD fehlt, deshalb prüft die Analyse gerendert gegen, bevor
+sie "fehlt" schreibt. Ein Snapshot von vor dem 27.09.2026 hat diese Blöcke
+nicht; dann sind die Kriterien dazu nicht messbar, nicht erfüllt.
+
+**Von einer gefundenen Adresse bleibt nur `?page=<n>` ab Seite 2 stehen**,
+jede andere Query fällt weg (`variant`, `sort_by`, Filter, Tracking). Eine
+Folgeseite einer Kategorie ist eine eigene Seite mit eigenen Produktlinks.
+Bis zum 02.10.2026 fiel auch `page` weg; ein Snapshot von davor enthält keine
+Folgeseite, und jedes Produkt, das erst ab Seite 2 verlinkt ist, steht darin
+als unverlinkt oder zu tief. Folgeseiten zählen unter `pagination`, nicht
+unter `parameter_urls`. Sie kosten Budget: eine Kategorie mit 24 Seiten
+belegt 24 Abrufe von `--max-urls`.
 
 **`findings_index` ist der Zugang für die Analyse, nicht `pages`.** Die
 Seitenliste trägt rund 6,8 KB je gecrawlter Seite, ein Shop mit 2000 Seiten
@@ -145,15 +211,49 @@ KI-Crawler ab (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, CCBot und weit
 diese Liste veraltet und wird bei Bedarf nachgezogen. Die Auswertung ist bewusst kein
 vollständiger robots.txt-Interpreter nach RFC 9309 (keine Wildcard- oder
 Präzedenzregeln), sondern hält die wörtlichen Gruppen und ihre `Disallow`-Zeilen fest.
-Gelesen wird robots.txt nur für den Befund, sie steuert den Crawl selbst nicht:
-jede interne URL wird unabhängig von `Disallow` abgerufen, weil das eine
-Kunden-eigene Domain im Auftrag des Kunden ist und die Baseline sonst Lücken hätte,
-die sich nie mehr nachmessen lassen.
 
-**`click_depth` ist die Tiefe der Breitensuche über interne Links ab der Startseite,
-nie die Position in der Sitemap.** Eine Seite, die in der Sitemap steht, aber von
-keiner gecrawlten Seite aus verlinkt ist, bekommt `click_depth: null`, das ist selbst
-ein Befund (verwaiste, aber indexierte Seite).
+**Den Crawl selbst lenkt genau eine Gruppe.** Gibt es eine Gruppe für `ptai-audit`,
+gilt nur sie, sonst gilt `*`, und gibt es beides nicht, gilt keine Regel. So schreibt
+es RFC 9309 vor, und so sperrt die IT eines Shops einen bestimmten Bot aus. Die
+eigene Gruppe wird unabhängig von Groß- und Kleinschreibung gefunden, auch als
+`ptai-audit/1.0`; `ptai` oder `ptai-audit-beta` sind andere Namen. Welche Gruppe
+gegriffen hat, steht in `summary.robots_group` (`"ptai-audit"`, `"*"` oder `null`).
+Eine URL, deren Pfad eine `Disallow`-Regel dieser Gruppe trifft, wird nie abgerufen
+und zählt in `summary.blocked_links`. `Allow` wertet das Script nicht aus, es ruft
+im Zweifel also weniger ab, nicht mehr.
+
+**Sperrt die Gruppe `ptai-audit` die Startseite, etwa mit `Disallow: /`, läuft kein
+Crawl.** Abgerufen wird dann nur robots.txt, `pages` bleibt leer,
+`summary.home_blocked_by_robots` steht auf `true`, und das Script endet mit Exit 1.
+Das ist eine Absage des Shops an diesen Crawler, kein leerer Shop und kein Befund
+über den Shop: melden, nicht auswerten. Ein `Disallow: /` unter `*` wirkt anders:
+dort ruft der Crawl die Startseite weiter ab, weil ein Shop, der sich aus jeder
+Suchmaschine aussperrt, selbst der Befund ist.
+
+**`click_depth` ist die Tiefe des Inhalts ab der Startseite, nie die Position in der
+Sitemap.** Jeder interne Link zählt einen Klick. Zusätzlich reicht eine Seite, die auf
+eine andere erfasste Adresse kanonisiert, ihre Tiefe an diese weiter, ohne weiteren
+Klick: wer sie erreicht, hat deren Inhalt vor sich. Shopify-Themes verlinken
+Produktkarten als `/collections/<c>/products/<h>`, das ist schon die Produktseite mit
+Canonical auf `/products/<h>`; die kanonische Adresse bekommt so die Tiefe der
+Produktkarte statt eine Ebene mehr. Das gilt für jedes Canonical, nicht nur für dieses
+Muster. Eine Weiterleitung zählt nicht mit, eine nicht abgerufene Seite (429,
+Bot-Challenge) reicht nichts weiter, und ein Canonical-Ziel, das weder verlinkt ist
+noch in der Sitemap steht, wird nicht abgerufen.
+
+**`link_depth` ist die reine Linktiefe**, die kürzeste Zahl interner Links ab der
+Startseite, also der Wert, der bis zum 02.10.2026 `click_depth` hieß. `click_depth` ist
+nie größer. Weichen beide ab, liegt der Inhalt über eine andere Adresse näher an der
+Startseite als die Adresse selbst. Beide entstehen nach dem Abruf aus dem erfassten
+Graphen (`internal_links` und `canonical` je Seite).
+
+Eine Seite, die auf keinem Weg von der Startseite erreicht wird, bekommt
+`click_depth: null`, das ist selbst ein Befund (verwaiste, aber indexierte Seite).
+
+**`summary.max_click_depth` und `findings_index.deepest` zählen jeden Inhalt einmal.**
+Eine Adresse, deren Canonical-Ziel selbst im Crawl steht, fällt dort heraus, ihr Inhalt
+steht unter dem Ziel mit höchstens derselben Tiefe. Sonst stünde jedes Produkt zweimal
+unter den tiefsten Seiten, als Collection-Adresse und als Produktadresse.
 
 Ein regulärer 404 oder 500 ist kein `error` in diesem Sinn, sondern selbst der
 Befund: der Statuscode steht in `status`, nur ohne die SEO-Kopfdaten aus
@@ -173,8 +273,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/crawl-site/scripts/crawl.py" \
   --domain <domain> --check
 ```
 
-Exit 0 bei Erfolg, Exit 1 nur wenn keine einzige Sitemap-Wurzel erreichbar war
-(Domain vermutlich falsch oder nicht erreichbar).
+Exit 0 bei Erfolg. Exit 1, wenn keine einzige Sitemap-Wurzel erreichbar war
+(Domain vermutlich falsch oder nicht erreichbar), oder wenn die Gruppe `ptai-audit`
+in robots.txt die Startseite sperrt; dann wird die Sitemap gar nicht erst abgerufen,
+weil der Crawl keine ihrer URLs abrufen würde.
 
 ## Der Lauf meldet sich, alle 20 Sekunden
 
@@ -234,9 +336,21 @@ gemessene Unterschied auf demselben Shop, gleiche Minute, gleiche Seiten:
 
 **Der Weg heraus führt über den Kunden, nicht über den Crawler.** Eine
 Bot-Erkennung zu umgehen ist genau das, wogegen sie gebaut ist. Die Ausnahme
-für den User-Agent `ptai-audit` steht in `reference/access.md` unter
-"Empfohlen" und gehört in die Zugangs-Anforderung, sobald ein Lauf abgewiesene
-Seiten meldet.
+ist eine befristete Freigabe der festen Ausgangsadressen des Betreibers
+(`reference/access.md`, Teil A, Schritt 7), beschrieben für den Kunden in
+Teil B unter "Optional", Abschnitt "Eure Firewall". Sie
+gehört in die Zugangs-Anforderung, sobald ein Lauf abgewiesene Seiten meldet.
+
+**Eine Ausnahme nur für den User-Agent `ptai-audit` reicht nicht.** Diesen
+User-Agent sendet allein dieses Script. `capture-screens` ruft mit dem
+Standard-User-Agent des Headless-Browsers (Desktop) und einem
+iOS-Safari-User-Agent (Mobil) ab, die Linsen und das Beleg-Gate von
+`audit-light` über `curl` mit einem Chrome-User-Agent. Eine reine
+User-Agent-Ausnahme lässt deshalb Screenshots, Kaufstrecke und Belegprüfung
+gesperrt. Belegt am 23.09.2026 an einem Shop, dessen Firewall alle Pfade eines
+Länderverzeichnisses mit 403 sperrte, für curl, Headless Chromium und
+Playwright gleichermaßen. `ptai-audit` bleibt das Erkennungsmerkmal des Crawls
+im Log des Kunden.
 
 **Bis dahin ist der Snapshot unvollständig, und das steht drin.** Die
 abgewiesenen Seiten liegen mit `bot_challenge` und ihrem Grund in `pages`,
@@ -293,6 +407,10 @@ unvollständig**, und `audit.qa` weist das als Warnung aus.
   `{domain}/sitemap.xml` zurück.
 - `--check` findet keine einzige erreichbare Sitemap-Wurzel: Exit 1 mit Grund,
   gedacht als Signal für den Wizard, dass die Domain selbst geprüft werden muss.
+- robots.txt sperrt `ptai-audit` mit einer eigenen Gruppe ab der Startseite:
+  `crawl.json` entsteht mit leerem `pages` und `summary.home_blocked_by_robots:
+  true`, das Script endet mit Exit 1. Den Crawl als "nicht verfügbar, vom Shop per
+  robots.txt ausgeschlossen" melden, keine Kernzahlen daraus ableiten.
 - Eigener User-Agent `ptai-audit/1.0`, damit der Kunde und Dritte den Bot erkennen
-  können; keine Rücksicht auf `Disallow` beim Abruf selbst (siehe oben, Abschnitt
-  Snapshot-Schema).
+  können. Beim Abruf gilt `Disallow` aus genau einer robots.txt-Gruppe (siehe oben,
+  Abschnitt Snapshot-Schema).

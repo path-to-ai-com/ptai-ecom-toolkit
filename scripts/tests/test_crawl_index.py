@@ -148,6 +148,16 @@ class TestParameterUrls(unittest.TestCase):
         self.assertEqual(idx["parameter_urls"]["indexable"], 2)
         self.assertEqual(idx["parameter_urls"]["without_consolidating_canonical"], 1)
 
+    def test_a_following_page_is_no_parameter_url(self):
+        # `?page=2` kanonisiert richtigerweise auf sich selbst. Als
+        # Parameter-URL gezählt, wäre jede korrekte Folgeseite ein Befund.
+        idx = crawl.build_findings_index([
+            page("https://s.de/c"),
+            page("https://s.de/c?page=2", canonical="https://s.de/c?page=2"),
+        ])
+        self.assertEqual(idx["parameter_urls"]["count"], 0)
+        self.assertEqual(idx["parameter_urls"]["without_consolidating_canonical"], 0)
+
 
 class TestDepthAndTypes(unittest.TestCase):
     def test_the_deepest_pages_come_first(self):
@@ -157,6 +167,25 @@ class TestDepthAndTypes(unittest.TestCase):
             page("https://s.de/c", click_depth=None),
         ])
         self.assertEqual(idx["deepest"][0], {"url": "https://s.de/b", "click_depth": 5})
+
+    def test_an_address_whose_canonical_target_was_crawled_is_not_listed(self):
+        # Ihr Inhalt steht unter der kanonischen Adresse; doppelt gezählt
+        # wäre jedes Produkt zweimal unter den tiefsten Seiten.
+        idx = crawl.build_findings_index([
+            page("https://s.de/collections/c/products/x", click_depth=4,
+                 canonical="https://s.de/products/x"),
+            page("https://s.de/products/x", click_depth=4),
+        ])
+        self.assertEqual(idx["deepest"], [{"url": "https://s.de/products/x", "click_depth": 4}])
+
+    def test_an_address_whose_canonical_target_is_missing_stays_listed(self):
+        # Kein erfasster Eintrag trägt den Inhalt: die Adresse ist die einzige.
+        idx = crawl.build_findings_index([
+            page("https://s.de/collections/c/products/x", click_depth=4,
+                 canonical="https://s.de/products/x"),
+        ])
+        self.assertEqual(idx["deepest"], [{"url": "https://s.de/collections/c/products/x",
+                                           "click_depth": 4}])
 
     def test_schema_types_are_counted_over_all_pages(self):
         idx = crawl.build_findings_index([

@@ -27,6 +27,32 @@ Fehlt eins davon oder steht `sources.shopify` auf `false`: Shopify als "nicht
 verfügbar (Grund)" melden und aufhören. Nie den Gesamtlauf (Report/Puls) daran
 scheitern lassen.
 
+## Shop aus dem Cockpit
+
+Steht in `reporting/config.json` ein Block `portal` (geschrieben von
+`/ptai-ecom:setup --from-portal`), hat der Kunde Shopify im Cockpit verbunden.
+Dann gilt für diese Skill:
+
+- **Keine Store-Auth.** Die Scope-Regel unten entfällt, `shopify store auth`
+  wird nie aufgerufen. Die App im Cockpit hat ihre Scopes bei der Installation
+  bekommen.
+- **Jeder Aufruf geht über das Cockpit.** Überall, wo unten
+  `shopify store execute --store <shopify_store> --json` steht, steht stattdessen
+
+  ```bash
+  PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal shopify-execute
+  ```
+
+  mit denselben `--query` oder `--query-file`. Ausgabe und Exit-Code verhalten
+  sich wie bei der CLI: Daten ohne `data`-Hülle auf stdout, bei Drosselung oder
+  Fehler Exit 1 und die Meldung auf stderr. Die Regeln zu Exit-Code,
+  Wiederholung und `parseErrors` in Schritt 4 gelten unverändert.
+- Der Historie-Check in Schritt 2 liest den Grant genauso, über
+  `currentAppInstallation { accessScopes { handle } }`.
+- Antwortet das Cockpit mit "nicht verbunden", ist Shopify für diesen Lauf
+  nicht verfügbar. Nie auf die CLI ausweichen: der Store gehört dann einem
+  Kunden, für den es keine CLI-Anmeldung gibt.
+
 ## Scope-Regel (hart): vor jeder Re-Auth die Union senden
 
 Die CLI mergt Scopes nicht verlässlich. Eine Auth mit nur den Report-Scopes
@@ -373,7 +399,7 @@ Scopes senden, nie nur die neu benötigten.
    shopify store execute --store <shopify_store> --json --query 'query {
      web: ordersCount(query: "source_name:web") { count precision }
      draft: ordersCount(query: "source_name:shopify_draft_order") { count precision }
-     alle: ordersCount(query: "") { count precision }
+     all: ordersCount(query: "") { count precision }
    }' 2>/dev/null
    ```
 

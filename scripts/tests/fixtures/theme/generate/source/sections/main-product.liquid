@@ -1,0 +1,54 @@
+<div class="product">
+  {%- for block in section.blocks -%}
+    {%- case block.type -%}
+      {%- when '@app' -%}{% render block %}
+      {%- when 'title' -%}<h1 {{ block.shopify_attributes }}>{{ product.title }}</h1>
+      {%- when 'price' -%}<p {{ block.shopify_attributes }}>{{ product.price | money }}</p>
+    {%- endcase -%}
+  {%- endfor -%}
+</div>
+
+{% schema %}
+{
+  "name": "Produkt",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enable_zoom",
+      "label": "Zoom",
+      "default": true
+    }
+  ],
+  "blocks": [
+    {
+      "type": "@app"
+    },
+    {
+      "type": "title",
+      "name": "Titel",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "checkbox",
+          "id": "show_vendor",
+          "label": "Marke zeigen",
+          "default": true
+        }
+      ]
+    },
+    {
+      "type": "price",
+      "name": "Preis",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "checkbox",
+          "id": "show_compare",
+          "label": "Streichpreis zeigen",
+          "default": false
+        }
+      ]
+    }
+  ]
+}
+{% endschema %}

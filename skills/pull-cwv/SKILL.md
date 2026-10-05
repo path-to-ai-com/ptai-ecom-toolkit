@@ -1,3 +1,4 @@
+<!-- naming-lint: schema (CWV-Snapshot, durch bestehende Kundenlaeufe eingefroren: cwv.json liegt in mehreren Kunden-Workspaces) -->
 ---
 name: pull-cwv
 description: Core-Web-Vitals-Daten (Feld- plus Lab-Werte, plus CrUX-Wochenhistorie) über die PageSpeed-Insights-API je Seitentyp für den Kunden-Report oder den Wochen-Puls ziehen und als Snapshot ablegen. Nutzen, wenn ein Monats-Report oder Puls CWV-Zahlen braucht, oder wenn der Nutzer explizit Core-Web-Vitals- bzw. PageSpeed-Daten für die Kunden-Site abrufen will. Liest reporting/config.json und .env im Kunden-Workspace.

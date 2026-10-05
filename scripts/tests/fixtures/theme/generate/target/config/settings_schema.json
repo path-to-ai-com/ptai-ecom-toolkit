@@ -1,0 +1,50 @@
+[
+  {
+    "name": "theme_info",
+    "theme_name": "Zielthema",
+    "theme_version": "4.0.0",
+    "theme_author": "Beispiel",
+    "theme_documentation_url": "https://beispielshop.example/doku",
+    "theme_support_email": "support@beispielshop.example"
+  },
+  {
+    "name": "Farben",
+    "settings": [
+      {
+        "type": "color_palette",
+        "id": "colors",
+        "default": {
+          "primary": "#000000",
+          "secondary": "#FFFFFF"
+        }
+      },
+      {
+        "type": "color",
+        "id": "color_sale",
+        "label": "Angebot",
+        "default": "{{ settings.colors.primary }}"
+      }
+    ]
+  },
+  {
+    "name": "Schrift",
+    "settings": [
+      {
+        "type": "font_picker",
+        "id": "type_font_heading",
+        "label": "Überschriften",
+        "default": "inter_n4"
+      },
+      {
+        "type": "range",
+        "id": "page_width",
+        "label": "Seitenbreite",
+        "min": 1000,
+        "max": 1600,
+        "step": 100,
+        "unit": "px",
+        "default": 1200
+      }
+    ]
+  }
+]

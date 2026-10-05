@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Access-Token aus Service-Account-JSON. Aufruf: google_token.py <sa.json> <analytics|webmasters>"""
+import os
 import sys
 
 SCOPES = {
@@ -18,9 +19,24 @@ def get_access_token(service_account_path: str, scope_key: str) -> str:
 
     Importiert google-auth erst hier (nicht auf Modulebene), damit dieses Modul auch
     importierbar bleibt, wenn das Paket noch fehlt (z. B. beim Doku-Lesen durch Aufrufer).
+
+    **Steht statt eines Pfads `portal:<brand>/<shop>` da**, hat der Kunde Google im
+    Cockpit verbunden, und der Zugang kommt von dort (`audit.portal`, seit
+    03.10.2026). `setup --from-portal` trägt diesen Verweis als
+    `PTAI_GOOGLE_CREDENTIALS` ein, deshalb braucht kein Pull eine eigene Weiche.
+    Lehnt das Cockpit ab, wirft der Aufruf; ein Rückfall aufs Dienstkonto gibt es
+    nicht.
     """
     if scope_key not in SCOPES:
         raise ValueError(f"unbekannter Scope-Key: {scope_key!r}, erlaubt: {', '.join(SCOPES)}")
+
+    if service_account_path.startswith("portal:"):
+        # Erst hier importiert: der Weg über die Datei läuft auch ohne Paketpfad.
+        from audit import portal
+
+        brand, shop = portal.parse_target(service_account_path)
+        caller = os.path.basename(sys.argv[0]) or "google_token"
+        return portal.google_token(brand, shop, scope_key, f"{caller} {scope_key}")
 
     try:
         from google.oauth2 import service_account

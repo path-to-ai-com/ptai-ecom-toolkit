@@ -1,0 +1,28 @@
+{
+  "sections": {
+    "main": {
+      "type": "main-product",
+      "blocks": {
+        "title": {"type": "title", "settings": {}},
+        "stars": {
+          "type": "shopify://apps/judge-me-reviews/blocks/preview_badge/00000000-0000-0000-0000-000000000005",
+          "settings": {}
+        }
+      },
+      "block_order": ["title", "stars"],
+      "settings": {}
+    },
+    "reviews": {
+      "type": "apps",
+      "blocks": {
+        "widget": {
+          "type": "shopify://apps/judge-me-reviews/blocks/review_widget/00000000-0000-0000-0000-000000000006",
+          "settings": {}
+        }
+      },
+      "block_order": ["widget"],
+      "settings": {}
+    }
+  },
+  "order": ["main", "reviews"]
+}

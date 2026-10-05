@@ -21,8 +21,16 @@ entscheidet dieses Script.
 CLI:
     python3 -m audit.evidence --workspace . --run-id 2026-10-01-audit
 
-Rückgabewert 0 heisst: jeder maschinell prüfbare Beleg geht auf. 1 heisst,
-mindestens einer zeigt ins Leere.
+Rückgabewert 0 heisst: jeder maschinell prüfbare Beleg geht auf und jede
+Kriterienliste ist vollständig. 1 heisst, mindestens ein Beleg zeigt ins Leere
+oder einer Analyse fehlt eine Kriterienzeile.
+
+**Kriterienlisten** (seit 27.09.2026): Agents mit einem Abschnitt
+"Kriterienliste" schreiben je Kriterium genau einen Eintrag in `criteria`.
+Welche IDs erwartet werden, liest `check_criteria` aus der Agent-Datei selbst,
+nicht aus einer Kopie hier. Zwei Läufe desselben Moduls auf demselben Shop
+hatten vorher nur gut ein Drittel ihrer Befundthemen gemeinsam; eine fehlende
+Zeile fällt jetzt am Gate auf, statt still zu verschwinden.
 """
 from __future__ import annotations
 
@@ -31,6 +39,15 @@ import json
 import re
 import sys
 from pathlib import Path
+
+#: Wurzel des Plugins, dort liegen die Agent-Dateien mit den Kriterienlisten.
+PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+
+#: Eine Tabellenzeile der Kriterienliste beginnt mit der ID in Backticks.
+CRITERION_ROW = re.compile(r"^\| `([a-z]+\.[a-z0-9-]+)` \|", re.MULTILINE)
+
+#: Die gültigen Ergebnisse einer Kriterienzeile.
+CRITERION_RESULTS = ("violated", "passed", "not_measurable", "not_applicable")
 
 #: Ein Beleg-Teil der Form "datei.json > pfad.zum.feld". Alles ab der ersten
 #: Klammer oder einem " mit " ist Erläuterung des Menschen und gehört nicht
@@ -268,7 +285,74 @@ def check_run(workspace, run_id: str) -> dict:
 
     return {"run_id": run_id, "findings": checked_findings,
             "counts": counts, "problems": problems,
-            "coverage": check_coverage(workspace, run_id)}
+            "coverage": check_coverage(workspace, run_id),
+            "criteria": check_criteria(workspace, run_id)}
+
+
+def declared_criteria(agent_file: Path) -> list[str]:
+    """Die IDs aus dem Abschnitt "Kriterienliste" einer Agent-Datei.
+
+    Leer, wenn die Datei fehlt oder keinen solchen Abschnitt hat: dann
+    erwartet niemand eine Kriterienzeile von dieser Analyse.
+    """
+    if not agent_file.exists():
+        return []
+    text = agent_file.read_text(encoding="utf-8")
+    start = text.find("## Kriterienliste")
+    if start < 0:
+        return []
+    end = text.find("\n## ", start + 1)
+    return CRITERION_ROW.findall(text[start:end if end > 0 else None])
+
+
+def check_criteria(workspace, run_id: str, agents_dir: Path | None = None) -> list[dict]:
+    """Je Befund-Datei: ist die Kriterienliste vollständig und in sich stimmig?
+
+    Die Datei `findings/<name>.json` gehört zum Agent `agents/audit-<name>.md`.
+    Geprüft wird ohne Urteil, nur die Form: jede erwartete ID genau einmal,
+    keine fremde ID, ein gültiges Ergebnis, und jedes `violated` zeigt auf
+    einen Befund, den es in derselben Datei gibt. Denn nur Befunde werden
+    Maßnahmen; ein `violated` ohne Befund ginge im Backlog verloren.
+    """
+    agents_dir = Path(agents_dir) if agents_dir else PLUGIN_ROOT / "agents"
+    findings_dir = Path(workspace) / "reporting" / "runs" / run_id / "findings"
+    out = []
+    for path in sorted(findings_dir.glob("*.json")) if findings_dir.exists() else []:
+        expected = declared_criteria(agents_dir / f"audit-{path.stem}.md")
+        if not expected:
+            continue
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        rows = [r for r in document.get("criteria") or [] if isinstance(r, dict)]
+        ids = [r.get("id") for r in rows]
+        finding_ids = {f.get("id") for f in document.get("findings") or []}
+        counts = {result: 0 for result in CRITERION_RESULTS}
+        bad_result, orphan_violations = [], []
+        for row in rows:
+            result = row.get("result")
+            if result in counts:
+                counts[result] += 1
+            else:
+                bad_result.append(row.get("id"))
+            if result == "violated" and row.get("finding_id") not in finding_ids:
+                orphan_violations.append(row.get("id"))
+        entry = {
+            "file": path.name,
+            "discipline": document.get("discipline") or path.stem,
+            "expected": len(expected),
+            "counts": counts,
+            "missing": [i for i in expected if i not in ids],
+            "duplicate": sorted({i for i in ids if ids.count(i) > 1}),
+            "unknown": [i for i in ids if i not in expected],
+            "bad_result": bad_result,
+            "violated_without_finding": orphan_violations,
+        }
+        entry["ok"] = not any(entry[k] for k in ("missing", "duplicate", "unknown",
+                                                  "bad_result", "violated_without_finding"))
+        out.append(entry)
+    return out
 
 
 def check_coverage(workspace, run_id: str) -> list[dict]:
@@ -324,6 +408,23 @@ def format_report(result: dict) -> str:
                      "Report. Ein Kapitel, das seine Lücke verschweigt, liest "
                      "sich wie ein Befund über den Shop.")
         lines.append("")
+    criteria = result.get("criteria") or []
+    if criteria:
+        lines.append("")
+        lines.append("Kriterienlisten:")
+        for entry in criteria:
+            c = entry["counts"]
+            lines.append(f"  {entry['discipline']:<16} {entry['expected']} Kriterien: "
+                         f"{c['violated']} verletzt, {c['passed']} erfüllt, "
+                         f"{c['not_measurable']} nicht messbar, "
+                         f"{c['not_applicable']} entfällt")
+            labels = {"missing": "fehlt", "duplicate": "doppelt", "unknown": "unbekannt",
+                      "bad_result": "ungültiges Ergebnis",
+                      "violated_without_finding": "verletzt ohne Befund"}
+            for key, label in labels.items():
+                if entry[key]:
+                    lines.append(f"    {label}: {', '.join(str(i) for i in entry[key])}")
+        lines.append("")
     if not result["problems"]:
         lines.append("Kein Beleg zeigt ins Leere.")
         return "\n".join(lines)
@@ -350,7 +451,8 @@ def main(argv=None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print(format_report(result))
-    return 1 if result["problems"] else 0
+    incomplete = any(not entry["ok"] for entry in result.get("criteria") or [])
+    return 1 if result["problems"] or incomplete else 0
 
 
 if __name__ == "__main__":

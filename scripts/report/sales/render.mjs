@@ -46,7 +46,8 @@ if (isMain) {
   }
 
   mkdirSync(dirname(resolve(ziel)), { recursive: true });
-  writeFileSync(ziel, renderReportHtml(data));
+  // Belegbilder in den Befunden stehen relativ zur content.json und werden eingebettet.
+  writeFileSync(ziel, renderReportHtml(data, { baseDir: dirname(resolve(contentPath)) }));
   console.log(`HTML -> ${ziel}`);
   console.log(`PDF:   bash "$CLAUDE_PLUGIN_ROOT/skills/report/scripts/render_pdf.sh" "${ziel}" "${ziel.replace(/\.html$/, ".pdf")}"`);
 }

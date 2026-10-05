@@ -1,0 +1,367 @@
+{
+  "discipline": "cro",
+  "run_id": "2026-10-02-audit",
+  "generated_at": "2026-10-02T12:00:00+02:00",
+  "blocked_questions": [],
+  "findings": [
+    {
+      "id": "CRO-01",
+      "statement": "9,1 Prozent der Produktansichten führen zu einer Warenkorb-Zugabe",
+      "metrics": [
+        {
+          "label": "Add-to-Cart-Rate",
+          "value": "9,12 %",
+          "context": "Sessions mit Produktansicht, Bot-Profil ausgeschlossen"
+        },
+        {
+          "label": "Nächste Stufen im Kaufweg",
+          "value": "39,6 % und 60,2 %",
+          "context": "Warenkorb zu Checkout und Checkout zu Kauf"
+        }
+      ],
+      "explanation": "Die Add-to-Cart-Rate ist der Anteil der Sessions mit Produktansicht, in denen ein Artikel in den Warenkorb gelegt wird.",
+      "benchmark": "Für die Add-to-Cart-Rate gibt es keine belastbare Branchen-Benchmark, deshalb der Vergleich mit den eigenen Nachbarstufen.",
+      "effect": "Der Übergang von der Produktseite in den Warenkorb verliert mehr Sessions als jede andere Stufe des Kaufwegs.",
+      "why": "Auf der mobilen Produktseite liegt der Kaufbutton unter der Erstansicht.",
+      "fix": "Den Kaufbutton auf der mobilen Produktseite ohne Scrollen sichtbar machen.",
+      "evidence": "ga4.json > funnel.view_item.sessions; screens.json > product mobil",
+      "evidence_text": "9,12 Prozent der Produktansichten führen zu einer Warenkorb-Zugabe; die Stufen danach liegen bei 39,6 und 60,2 Prozent.",
+      "severity": "hoch",
+      "confidence": "confirmed",
+      "effort": "medium",
+      "url": "https://beispielshop.de/products/beispiel-produkt",
+      "facts": [
+        {
+          "kind": "effect",
+          "text": "Der Schritt von der Produktseite in den Warenkorb verliert mehr Sitzungen als jede andere Stufe des Kaufwegs."
+        },
+        {
+          "kind": "cause",
+          "text": "Auf dem Handy liegt der Kaufbutton unter der Erstansicht."
+        }
+      ],
+      "proof": {
+        "layout": "phone",
+        "columns": [
+          {
+            "blocks": [
+              {
+                "type": "phone",
+                "capture": {
+                  "url": "https://beispielshop.de/products/beispiel-produkt",
+                  "consent": "declined",
+                  "markers": [
+                    {
+                      "target": {
+                        "text": "In den Warenkorb"
+                      },
+                      "text": "In den Warenkorb"
+                    }
+                  ],
+                  "absent": []
+                },
+                "src": "proof/cro-01-1-mobil.jpg",
+                "full_src": "proof/cro-01-1-mobil-voll.jpg",
+                "alt": "Produktseite auf dem Handy, der Kaufbutton liegt unter dem Ende der Erstansicht",
+                "title": "Produktseite auf dem Handy",
+                "width": 390,
+                "height": 900,
+                "fold": 664,
+                "markers": [
+                  {
+                    "y": 664,
+                    "label": "664 px",
+                    "text": "Ende der Erstansicht"
+                  },
+                  {
+                    "y": 790,
+                    "label": "790 px",
+                    "text": "In den Warenkorb"
+                  }
+                ],
+                "device": "mobil",
+                "captured_at": "2026-10-02",
+                "page_url": "https://beispielshop.de/products/beispiel-produkt"
+              }
+            ]
+          },
+          {
+            "label": "Gemessen im Kaufweg",
+            "blocks": [
+              {
+                "type": "metric",
+                "ref": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "TRS-02",
+      "statement": "Der Cookie-Dialog bietet auf der ersten Ebene kein gleichwertiges Ablehnen",
+      "metrics": [
+        {
+          "label": "Dienste vor der Einwilligung",
+          "value": "7 von 12",
+          "context": "Script-Tags ohne Sperr-Attribut"
+        }
+      ],
+      "explanation": "Ein Consent Layer ist das Einwilligungsfenster, das vor dem Laden nicht notwendiger Dienste erscheinen soll.",
+      "benchmark": "Üblich ist ein gleichwertiger Ablehnen-Button auf der ersten Ebene.",
+      "effect": "Wer keine Cookies möchte, braucht einen zusätzlichen Klick.",
+      "why": "Ein Dialog ohne gleichwertige Ablehnen-Option ist ein häufig abgemahntes Muster.",
+      "fix": "Eine Schaltfläche Alle ablehnen auf der ersten Ebene ergänzen.",
+      "evidence": "screens.json > start desktop; crawl.json > summary.third_party_script_hosts",
+      "evidence_text": "Der Cookie-Dialog zeigt auf der ersten Ebene nur Alle akzeptieren und Nein, anpassen; sieben von zwölf Diensten laden vorher.",
+      "severity": "hoch",
+      "confidence": "plausible",
+      "effort": "medium",
+      "url": "https://beispielshop.de/",
+      "facts": [
+        {
+          "kind": "effect",
+          "text": "Wer ablehnen will, braucht einen Klick mehr, und sieben Dienste laden schon vor der Entscheidung."
+        },
+        {
+          "kind": "cause",
+          "text": "Das Cookie-Werkzeug zeigt auf der ersten Ebene nur Alle akzeptieren und Nein, anpassen."
+        }
+      ],
+      "proof": {
+        "columns": [
+          {
+            "blocks": [
+              {
+                "type": "image",
+                "capture": {
+                  "url": "https://beispielshop.de/",
+                  "device": "desktop",
+                  "consent": "shown",
+                  "crop": {
+                    "text": "Wir verwenden Cookies"
+                  },
+                  "rings": [
+                    {
+                      "text": "Alle akzeptieren"
+                    }
+                  ],
+                  "absent": [
+                    {
+                      "text": "Alle ablehnen"
+                    }
+                  ]
+                },
+                "src": "proof/trs-02-1-desktop.jpg",
+                "alt": "Cookie-Dialog der Startseite mit Alle akzeptieren und Nein, anpassen, markiert sind beide Schaltflächen",
+                "title": "Cookie-Dialog der Startseite",
+                "width": 560,
+                "height": 310,
+                "rings": [
+                  {
+                    "left": 4,
+                    "top": 55,
+                    "width": 92,
+                    "height": 35
+                  }
+                ],
+                "addition": "Alle ablehnen, gleichwertig neben Alle akzeptieren",
+                "device": "desktop",
+                "captured_at": "2026-10-02",
+                "page_url": "https://beispielshop.de/"
+              }
+            ]
+          },
+          {
+            "blocks": [
+              {
+                "type": "metric",
+                "ref": 0
+              },
+              {
+                "type": "chips",
+                "groups": [
+                  {
+                    "label": "Laden vor der Einwilligung",
+                    "items": [
+                      "Newsletter-Dienst",
+                      "Bundle-App",
+                      "Suche",
+                      "Preistest"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "TRF-06",
+      "statement": "Ein Bot-Profil trägt die Hälfte aller GA4-Sessions",
+      "metrics": [
+        {
+          "label": "Sessions des Bot-Profils",
+          "value": "50,1 %",
+          "context": "aller Sessions im Audit-Zeitraum"
+        },
+        {
+          "label": "Käufe aus dem Bot-Profil",
+          "value": "0",
+          "context": "im gesamten Audit-Zeitraum"
+        }
+      ],
+      "explanation": "Das Bot-Profil ist über Bildschirmauflösung, Gerät, Browser und Herkunft abgegrenzt.",
+      "benchmark": "Keine externe Benchmark; verglichen wird mit demselben Datensatz ohne das Profil.",
+      "effect": "Das Profil halbiert die Aussagekraft jeder Kennzahl mit Sessions im Nenner.",
+      "why": "Ein Ausschluss des ganzen Kanals Direct wäre zu breit.",
+      "fix": "Das Profil aus allen Auswertungen ausschließen.",
+      "evidence": "ga4.json > sessions_by_resolution",
+      "evidence_text": "Ein Profil mit derselben Bildschirmauflösung trägt 50,1 Prozent aller Sessions und hat nie gekauft.",
+      "severity": "hoch",
+      "confidence": "confirmed",
+      "effort": "medium",
+      "facts": [
+        {
+          "kind": "effect",
+          "text": "Jede Kennzahl mit Sitzungen im Nenner verliert die Hälfte ihrer Aussagekraft."
+        }
+      ],
+      "proof": {
+        "columns": [
+          {
+            "blocks": [
+              {
+                "type": "dist",
+                "parts": [
+                  {
+                    "value": 50.1,
+                    "label": "Bot-Profil",
+                    "tone": "bad"
+                  },
+                  {
+                    "value": 49.9,
+                    "label": "Übrige Sitzungen"
+                  }
+                ]
+              },
+              {
+                "type": "metric",
+                "ref": 1
+              },
+              {
+                "type": "chips",
+                "groups": [
+                  {
+                    "label": "Technisches Profil",
+                    "items": [
+                      "1600 x 1600",
+                      "Desktop",
+                      "Windows",
+                      "Chrome"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "HDL-02",
+      "statement": "Der Bestellwert fiel nach der Shop-Migration um ein Drittel",
+      "metrics": [
+        {
+          "label": "Bestellwert vorher",
+          "value": "90 €"
+        },
+        {
+          "label": "Bestellwert nachher",
+          "value": "60 €"
+        }
+      ],
+      "explanation": "Der Bestellwert ist der Umsatz geteilt durch die Zahl der Bestellungen.",
+      "benchmark": "Verglichen wird mit dem eigenen Verlauf vor der Migration.",
+      "effect": "Trifft direkt den Umsatz je Bestellung.",
+      "why": "Der Bruch fällt mit der Migration zusammen.",
+      "fix": "Klären, ob die Migration die Erfassung verändert hat.",
+      "evidence": "shopify.json > orders_by_month",
+      "severity": "hoch",
+      "confidence": "confirmed",
+      "effort": "medium"
+    },
+    {
+      "id": "CNT-04",
+      "statement": "Der Markenkern fehlt im Suchauftritt der Startseite",
+      "metrics": [
+        {
+          "label": "Kategorieseiten mit Markenkern",
+          "value": "13 von 52"
+        }
+      ],
+      "explanation": "Titel und Meta-Description sind der Text, mit dem eine Seite in der Trefferliste erscheint.",
+      "benchmark": "Ein Viertel der Kategorieseiten nutzt den Markenkern bereits.",
+      "effect": "In der Trefferliste liest man Preis und Auswahl, nicht den Unterschied.",
+      "why": "Ein Argument, das erst nach dem Klick sichtbar wird, überzeugt niemanden mehr.",
+      "fix": "Titel und Meta-Description auf den Markenkern umstellen.",
+      "evidence": "crawl.json > pages[0].title",
+      "evidence_text": "Titel und Suchvorschau der Startseite nennen Preis und Auswahl, nicht den Markenkern.",
+      "severity": "mittel",
+      "confidence": "confirmed",
+      "effort": "small",
+      "url": "https://beispielshop.de/",
+      "facts": [
+        {
+          "kind": "effect",
+          "text": "In der Trefferliste liest man Preis und Auswahl, nicht das, was die Marke unterscheidet."
+        }
+      ],
+      "proof": [
+        {
+          "label": "Startseite in der Trefferliste",
+          "blocks": [
+            {
+              "type": "quote",
+              "text": "Schmuck online bestellen | <mark>Jetzt bei Beispielshop</mark>",
+              "source": "Titel der Startseite"
+            },
+            {
+              "type": "quote",
+              "text": "Handgefertigter Schmuck <ins>aus eigener Manufaktur</ins> | Beispielshop",
+              "source": "Vorschlag"
+            }
+          ]
+        },
+        {
+          "blocks": [
+            {
+              "type": "metric",
+              "ref": 0
+            }
+          ]
+        }
+      ],
+      "decision": {
+        "question": "Den Titel der Startseite umstellen oder zuerst die Kategorieseiten angleichen?",
+        "options": [
+          {
+            "title": "Titel der Startseite umstellen",
+            "text": "Titel und Meta-Description nennen den Markenkern.",
+            "effort": "eine Einstellung im Shop",
+            "result": "Markenkern in der Trefferliste"
+          },
+          {
+            "title": "Kategorieseiten angleichen",
+            "text": "Alle Kategorieseiten bekommen dieselbe Formel.",
+            "effort": "52 Seiten",
+            "result": "einheitlicher Suchauftritt"
+          }
+        ],
+        "recommended": 0,
+        "reason": "A, weil die Startseite die meisten Impressionen trägt."
+      }
+    }
+  ]
+}

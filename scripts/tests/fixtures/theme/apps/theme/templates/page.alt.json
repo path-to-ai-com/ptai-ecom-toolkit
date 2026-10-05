@@ -1,0 +1,30 @@
+{
+  "sections": {
+    "main": {"type": "main-page", "settings": {}},
+    "reviews": {
+      "type": "apps",
+      "disabled": true,
+      "blocks": {
+        "widget": {
+          "type": "shopify://apps/judge-me-reviews/blocks/review_widget/00000000-0000-0000-0000-000000000006",
+          "settings": {}
+        }
+      },
+      "block_order": ["widget"],
+      "settings": {}
+    },
+    "upsell": {
+      "type": "apps",
+      "blocks": {
+        "offer": {
+          "type": "shopify://apps/beispiel-upsell/blocks/offer/00000000-0000-0000-0000-000000000007",
+          "disabled": true,
+          "settings": {}
+        }
+      },
+      "block_order": ["offer"],
+      "settings": {}
+    }
+  },
+  "order": ["main", "reviews", "upsell"]
+}

@@ -28,8 +28,9 @@ BLOCKS = (
     "geo", "sea", "tech", "catalogue", "measurement",
 )
 
-#: Die Nummer im Ablagepfad. Eine bewusste Neu-Baseline bekommt später "02"
-#: statt die hier gespeicherte zu überschreiben.
+#: Die Nummer der ersten Baseline im Ablagepfad. Welche Generation gerade
+#: gilt, sagt `current_number()`: es ist die höchste vorhandene, nicht diese
+#: Konstante. Sie bleibt der Startwert für einen Workspace ohne Baseline.
 NUMBER = "01"
 
 #: Die Überschrift je Block in `baseline.md`, Wortlaut aus der "Bereich"-Spalte
@@ -314,6 +315,17 @@ def is_complete(workspace: Path) -> bool:
     return not empty_blocks(workspace)
 
 
+def is_fresh(workspace: Path) -> bool:
+    """Die geltende Generation trägt noch keinen einzigen Block.
+
+    Das unterscheidet zwei Zustände, die von außen gleich aussehen und
+    gegensätzlich behandelt werden: eine Baseline mit Lücken wartet auf einen
+    Nachtrag und verträgt keinen zweiten vollen Audit, eine eben abgelöste
+    Generation dagegen ist ein frischer Nullpunkt und braucht genau den.
+    """
+    return bool(numbers(workspace)) and len(empty_blocks(workspace)) == len(BLOCKS)
+
+
 def render(workspace: Path) -> Path:
     """Erzeugt `baseline.md`, die lesbare Fassung von `baseline.json`.
 
@@ -334,7 +346,23 @@ def render(workspace: Path) -> Path:
     wie ein gemessener, und der Leser erfährt es nur, wenn er die JSON öffnet.
     """
     data = _load_or_empty(workspace)
-    lines = ["# Baseline", ""]
+    number = current_number(workspace)
+    lines = [f"# Baseline {number}", ""]
+    # Löst diese Generation eine frühere ab, steht das ganz oben und nicht in
+    # einer Fußnote. Wer die Zahlen liest, muss wissen, dass es davor andere
+    # gab und warum sie nicht mehr gelten; sonst vergleicht der nächste Report
+    # gegen einen Nullpunkt, den niemand mehr verantwortet.
+    if data.get("supersedes"):
+        lines.append(f"Löst Baseline {data['supersedes']} ab, seit "
+                     f"{_date_de(data.get('started_at'))}.")
+        lines.append("")
+        lines.append(f"> {data.get('reason')}")
+        lines.append("")
+        lines.append(f"Die abgelöste Fassung bleibt unter "
+                     f"`reporting/baseline/{data['supersedes']}/` liegen. Sie ist der Beleg "
+                     "dafür, auf welchen Zahlen vorher entschieden wurde, und wird nie "
+                     "überschrieben.")
+        lines.append("")
     for block in BLOCKS:
         lines.append(f"## {HEADINGS[block]}")
         lines.append("")
@@ -347,6 +375,16 @@ def render(workspace: Path) -> Path:
         lines.extend(_render_values(entry["values"], _checked_trust(block, entry)))
     markdown = "\n".join(lines).rstrip("\n") + "\n"
     return _write_atomic(_path(workspace).with_name("baseline.md"), markdown)
+
+
+def _date_de(value: str) -> str:
+    """Ein ISO-Datum als TT.MM.JJJJ, unverändert wenn es keines ist."""
+    parsed = None
+    try:
+        parsed = date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return str(value)
+    return parsed.strftime("%d.%m.%Y")
 
 
 def _checked_trust(block: str, entry: dict) -> dict:
@@ -560,6 +598,64 @@ def _write_atomic(path: Path, content: str) -> Path:
     return path
 
 
+def numbers(workspace: Path) -> list[str]:
+    """Alle vorhandenen Baseline-Generationen, aufsteigend sortiert."""
+    root = Path(workspace) / "reporting" / "baseline"
+    if not root.is_dir():
+        return []
+    return sorted(entry.name for entry in root.iterdir()
+                  if entry.is_dir() and entry.name.isdigit()
+                  and (entry / "baseline.json").exists())
+
+
+def current_number(workspace: Path) -> str:
+    """Die Generation, die gerade gilt: die höchste vorhandene, sonst NUMBER.
+
+    **Eine ältere Generation wird nie überschrieben und nie gelöscht.** Sie ist
+    der Beleg dafür, auf welchen Zahlen früher entschieden wurde, und genau
+    deshalb steht die Nummer von Anfang an im Pfad.
+    """
+    existing = numbers(workspace)
+    return existing[-1] if existing else NUMBER
+
+
+def supersede(workspace: Path, reason: str, today: date = None) -> str:
+    """Legt die nächste Baseline-Generation an und gibt ihre Nummer zurück.
+
+    **Der Anlass ist nie "die Zahlen sind alt".** Eine Baseline ist der
+    eingefrorene Nullpunkt und altert nicht; wer sie wegen neuer Zahlen
+    ersetzt, verliert den Vergleichspunkt, für den sie da ist. Der Anlass ist,
+    dass die Messung selbst nachweislich falsch war: dann beschreibt die alte
+    Generation einen Zustand, den der Shop nie hatte, und jeder Vergleich
+    dagegen misst die kaputte Messung mit.
+
+    Die alte Generation bleibt vollständig liegen. Die neue trägt in
+    `supersedes` die Nummer der abgelösten und in `reason` den Grund, damit
+    jeder spätere Report sagen kann, warum ab hier gegen andere Zahlen
+    gemessen wird.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("supersede braucht einen Grund, sonst ist der Wechsel "
+                         "später nicht nachvollziehbar")
+    previous = current_number(workspace)
+    if not numbers(workspace):
+        raise ValueError("es gibt noch keine Baseline, die abgelöst werden könnte")
+    number = f"{int(previous) + 1:02d}"
+    path = Path(workspace) / "reporting" / "baseline" / number / "baseline.json"
+    if path.exists():
+        raise ValueError(f"Baseline {number} gibt es bereits")
+    data = {
+        "blocks": {block: None for block in BLOCKS},
+        "supersedes": previous,
+        "reason": reason,
+        "started_at": (today or date.today()).isoformat(),
+    }
+    _write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return number
+
+
 def _path(workspace: Path) -> Path:
     """Der eine Ort, an dem der Pfad zur baseline.json gebildet wird."""
-    return Path(workspace) / "reporting" / "baseline" / NUMBER / "baseline.json"
+    return (Path(workspace) / "reporting" / "baseline"
+            / current_number(workspace) / "baseline.json")

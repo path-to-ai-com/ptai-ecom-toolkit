@@ -225,8 +225,22 @@ class TestCheckRun(unittest.TestCase):
 
     def test_the_cli_returns_zero_when_everything_resolves(self):
         self._finding("crawl.json > summary.url_count")
+        # Seit 27.09.2026 gehört zur sauberen Datei auch die vollständige
+        # Kriterienliste des Agents; hier alle als erfüllt.
+        path = self.runs / "findings" / "seo-technical.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["criteria"] = [
+            {"id": i, "result": "passed", "value": "x"}
+            for i in evidence.declared_criteria(evidence.PLUGIN_ROOT / "agents"
+                                                / "audit-seo-technical.md")]
+        path.write_text(json.dumps(document), encoding="utf-8")
         code = evidence.main(["--workspace", str(self.ws), "--run-id", self.run_id])
         self.assertEqual(code, 0)
+
+    def test_the_cli_fails_when_a_criteria_list_is_missing(self):
+        self._finding("crawl.json > summary.url_count")
+        code = evidence.main(["--workspace", str(self.ws), "--run-id", self.run_id])
+        self.assertEqual(code, 1)
 
 
 class TestCoverage(unittest.TestCase):
@@ -345,3 +359,86 @@ class TestEvidenceLabel(unittest.TestCase):
         out = self.label(roh)
         self.assertNotIn(".json", out)
         self.assertIn("Seiten-Erfassung", out)
+
+
+class TestCheckCriteria(unittest.TestCase):
+    """Kriterienlisten: jede erwartete ID genau einmal, `violated` mit Befund."""
+
+    AGENT = """# audit-seo-technical
+
+## Kriterienliste, Version 2026-09-27
+
+| ID | Kernfrage | Prüfung | Quelle | Feste Einordnung |
+|---|---|---|---|---|
+| `tec.h1` | 10 | H1 | x | |
+| `tec.robots` | 2 | robots | x | |
+
+## Arbeitsweise
+
+| `tec.not-in-the-list` | steht ausserhalb des Abschnitts | | | |
+"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self.tmp.name)
+        self.run_id = "2026-10-01-audit"
+        self.findings = self.ws / "reporting" / "runs" / self.run_id / "findings"
+        self.findings.mkdir(parents=True)
+        self.agents = self.ws / "agents"
+        self.agents.mkdir()
+        (self.agents / "audit-seo-technical.md").write_text(self.AGENT, encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, criteria, findings=()):
+        (self.findings / "seo-technical.json").write_text(json.dumps({
+            "discipline": "seo_technical", "criteria": criteria,
+            "findings": [{"id": i} for i in findings]}), encoding="utf-8")
+
+    def check(self):
+        return evidence.check_criteria(self.ws, self.run_id, agents_dir=self.agents)
+
+    def test_ids_are_read_only_from_the_criteria_section(self):
+        self.assertEqual(evidence.declared_criteria(self.agents / "audit-seo-technical.md"),
+                         ["tec.h1", "tec.robots"])
+
+    def test_a_complete_list_is_ok(self):
+        self.write([{"id": "tec.h1", "result": "violated", "finding_id": "TEC-01"},
+                    {"id": "tec.robots", "result": "passed", "value": "keine Sperre"}],
+                   findings=["TEC-01"])
+        entry = self.check()[0]
+        self.assertTrue(entry["ok"])
+        self.assertEqual(entry["counts"]["violated"], 1)
+
+    def test_a_missing_line_is_reported(self):
+        self.write([{"id": "tec.h1", "result": "passed"}])
+        entry = self.check()[0]
+        self.assertFalse(entry["ok"])
+        self.assertEqual(entry["missing"], ["tec.robots"])
+
+    def test_violated_without_its_finding_is_reported(self):
+        # Nur Befunde werden Maßnahmen. Ein violated ohne Befund ginge verloren.
+        self.write([{"id": "tec.h1", "result": "violated", "finding_id": "TEC-09"},
+                    {"id": "tec.robots", "result": "passed"}])
+        self.assertEqual(self.check()[0]["violated_without_finding"], ["tec.h1"])
+
+    def test_duplicates_unknown_ids_and_bad_results(self):
+        self.write([{"id": "tec.h1", "result": "passed"}, {"id": "tec.h1", "result": "passed"},
+                    {"id": "tec.robots", "result": "ok"}, {"id": "tec.invented", "result": "passed"}])
+        entry = self.check()[0]
+        self.assertEqual(entry["duplicate"], ["tec.h1"])
+        self.assertEqual(entry["unknown"], ["tec.invented"])
+        self.assertEqual(entry["bad_result"], ["tec.robots"])
+
+    def test_an_agent_without_a_criteria_list_is_skipped(self):
+        (self.findings / "traffic.json").write_text(json.dumps({"findings": []}), encoding="utf-8")
+        self.write([{"id": "tec.h1", "result": "passed"}, {"id": "tec.robots", "result": "passed"}])
+        self.assertEqual([e["file"] for e in self.check()], ["seo-technical.json"])
+
+    def test_an_incomplete_list_makes_the_cli_fail(self):
+        self.write([])
+        result = evidence.check_run(self.ws, self.run_id)
+        result["criteria"] = self.check()
+        self.assertFalse(result["criteria"][0]["ok"])
+        self.assertIn("fehlt: tec.h1, tec.robots", evidence.format_report(result))

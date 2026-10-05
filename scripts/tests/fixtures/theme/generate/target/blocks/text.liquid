@@ -1,0 +1,39 @@
+{% doc %}
+  Text mit Ausrichtung.
+{% enddoc %}
+<div class="text text--{{ block.settings.alignment }}" {{ block.shopify_attributes }}>{{ block.settings.text }}</div>
+
+{% schema %}
+{
+  "name": "Text",
+  "settings": [
+    {
+      "type": "richtext",
+      "id": "text",
+      "label": "Text",
+      "default": "<p>Text</p>"
+    },
+    {
+      "type": "select",
+      "id": "alignment",
+      "label": "Ausrichtung",
+      "default": "left",
+      "options": [
+        {
+          "value": "left",
+          "label": "Links"
+        },
+        {
+          "value": "center",
+          "label": "Mitte"
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Text"
+    }
+  ]
+}
+{% endschema %}

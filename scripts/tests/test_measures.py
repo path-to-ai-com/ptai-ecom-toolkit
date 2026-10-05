@@ -107,6 +107,36 @@ class TestMeasures(unittest.TestCase):
         self.assertEqual(entry["data_source"], "Shopify-Backend")
         self.assertEqual(entry["check_rule"], "Katalog-Snapshot: alt_text ist gesetzt")
 
+    # -- Die Felder, die eine Massnahme erklaeren -------------------------
+
+    def test_the_explaining_fields_are_optional(self):
+        entry = self._create()["measures"][0]
+        for field in ("intent", "effect", "needs", "evidence_text"):
+            self.assertIsNone(entry[field], field)
+
+    def test_the_explaining_fields_are_carried_over(self):
+        entry = self._create(
+            intent="Wir ergänzen die Alt-Texte im Katalog.",
+            effect="Bilder werden in der Bildsuche gefunden.",
+            needs="Eine Freigabe der Formulierungen.",
+            evidence_text="37 von 210 Produktbildern haben keinen Alt-Text.",
+        )["measures"][0]
+        self.assertEqual(entry["intent"], "Wir ergänzen die Alt-Texte im Katalog.")
+        self.assertEqual(entry["effect"], "Bilder werden in der Bildsuche gefunden.")
+        self.assertEqual(entry["needs"], "Eine Freigabe der Formulierungen.")
+        self.assertEqual(entry["evidence_text"],
+                         "37 von 210 Produktbildern haben keinen Alt-Text.")
+
+    def test_a_blank_explaining_field_becomes_none(self):
+        # Eine leere Ueberschrift im Portal ist schlechter als kein Abschnitt.
+        entry = self._create(intent="   ", evidence_text="\n")["measures"][0]
+        self.assertIsNone(entry["intent"])
+        self.assertIsNone(entry["evidence_text"])
+
+    def test_an_explaining_field_keeps_its_text_without_surrounding_space(self):
+        entry = self._create(effect=" Mehr Klicks. ")["measures"][0]
+        self.assertEqual(entry["effect"], "Mehr Klicks.")
+
     # -- Status und Historie ----------------------------------------------
 
     def test_new_measure_has_status_open(self):
@@ -128,6 +158,26 @@ class TestMeasures(unittest.TestCase):
         self.assertEqual(entry["history"][-1], {"status": "implemented", "date": "2026-10-01"})
         # Der erste Eintrag bleibt erhalten, die Historie wird nie ersetzt.
         self.assertEqual(entry["history"][0]["status"], "open")
+
+    def test_a_status_change_can_name_the_run_that_measured_it(self):
+        backlog = self._create()
+        backlog = measures.set_status(
+            backlog, "M-001", "implemented", today=date(2026, 9, 14),
+            run_id="2026-09-14-tracking",
+            note="Die Mess-ID sendet nicht mehr an die Property.")
+        last = backlog["measures"][0]["history"][-1]
+        self.assertEqual(last["run_id"], "2026-09-14-tracking")
+        self.assertIn("Mess-ID", last["note"])
+
+    def test_a_status_change_without_a_run_stays_as_it_was(self):
+        """Alte Eintraege tragen die Felder nicht. Ein leeres Feld waere die
+        Behauptung, es gaebe einen Lauf; das Portal sagt lieber "nicht
+        belegt"."""
+        backlog = self._create()
+        backlog = measures.set_status(backlog, "M-001", "implemented",
+                                      today=date(2026, 9, 14))
+        self.assertEqual(backlog["measures"][0]["history"][-1],
+                         {"status": "implemented", "date": "2026-09-14"})
 
     def test_set_status_with_unknown_status_raises(self):
         backlog = self._create()
@@ -390,3 +440,54 @@ class TestSaveRefusesTheWrongType(unittest.TestCase):
         backlog = measures.empty()
         measures.save(self.ws, backlog)
         self.assertEqual(measures.load(self.ws)["measures"], [])
+
+
+class TestEmpfehlung(unittest.TestCase):
+    """Unsere Empfehlung zu einer Massnahme (`approval`)."""
+
+    def backlog(self, **kw):
+        return measures.create(measures.empty(), title="Titel", discipline="seo",
+                               evidence="Beleg", confidence="confirmed",
+                               leverage="high", effort="small", **kw)
+
+    def test_ohne_angabe_bleibt_die_empfehlung_offen(self):
+        """Kein Ersatzwert: eine nicht eingeordnete Massnahme darf im Portal
+        nicht aussehen, als sei sie schon beurteilt."""
+        self.assertIsNone(self.backlog()["measures"][0]["approval"])
+
+    def test_die_stufe_steht_im_eintrag(self):
+        doc = self.backlog(approval="decision")
+        self.assertEqual(doc["measures"][0]["approval"], "decision")
+
+    def test_eine_unbekannte_stufe_wird_abgelehnt(self):
+        with self.assertRaises(ValueError):
+            self.backlog(approval="vielleicht")
+
+    def test_eine_abgelehnte_stufe_verbraucht_keine_kennung(self):
+        doc = measures.empty()
+        with self.assertRaises(ValueError):
+            measures.create(doc, title="Titel", discipline="seo", evidence="Beleg",
+                            confidence="confirmed", leverage="high", effort="small",
+                            approval="vielleicht")
+        self.assertEqual(doc["next_id"], 1)
+
+    def test_die_stufe_laesst_sich_nachtragen(self):
+        doc = measures.set_approval(self.backlog(), "M-001", "recommended")
+        self.assertEqual(doc["measures"][0]["approval"], "recommended")
+
+    def test_die_stufe_ist_kein_status_und_ruehrt_die_historie_nicht_an(self):
+        """Die Empfehlung ist unser Urteil ueber die Massnahme, kein gemessener
+        Zustand. Sie gehoert nicht in die Statushistorie."""
+        doc = measures.set_approval(self.backlog(), "M-001", "decision")
+        eintrag = doc["measures"][0]
+        self.assertEqual(len(eintrag["history"]), 1)
+        self.assertEqual(eintrag["status"], "open")
+
+    def test_eine_unbekannte_kennung_wird_gemeldet(self):
+        with self.assertRaises(ValueError):
+            measures.set_approval(self.backlog(), "M-999", "required")
+
+    def test_das_dokument_wird_nicht_veraendert(self):
+        doc = self.backlog()
+        measures.set_approval(doc, "M-001", "decision")
+        self.assertIsNone(doc["measures"][0]["approval"])

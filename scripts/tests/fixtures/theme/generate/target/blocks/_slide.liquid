@@ -1,0 +1,19 @@
+<div class="slide" {{ block.shopify_attributes }}>{{ block.settings.title }}</div>
+
+{% schema %}
+{
+  "name": "Folie",
+  "settings": [
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Titel"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Folie"
+    }
+  ]
+}
+{% endschema %}

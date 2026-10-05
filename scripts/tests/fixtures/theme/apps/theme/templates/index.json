@@ -1,0 +1,10 @@
+{
+  "sections": {
+    "hero": {"type": "image-banner", "settings": {"heading": "Beispiel"}},
+    "custom": {
+      "type": "custom-liquid",
+      "settings": {"custom_liquid": "<script src=\"https://cdn.jsdelivr.net/npm/beispiel-lib@1/dist/lib.min.js\"></script>"}
+    }
+  },
+  "order": ["hero", "custom"]
+}

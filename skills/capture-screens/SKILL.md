@@ -1,6 +1,6 @@
 ---
 name: capture-screens
-description: Screenshots aller Seitentypen (Desktop und Mobil) plus ein manuell durchlaufener Kaufprozess bis zur Zahlungsauswahl für den Audit-Lauf aufnehmen und in runs/<run-id>/screens.json indexieren. Nutzen, wenn der Audit-Orchestrator (/ptai-ecom:audit) Phase 1 durchläuft, oder wenn der Nutzer explizit Screenshots vom Kunden-Shop aufnehmen will. Der einzige Pull, der nicht wiederholbar ist, weil der Vorher-Zustand ohne Bild weg ist, sobald der Kunde sein Theme ändert. Liest reporting/config.json im Kunden-Workspace.
+description: Screenshots aller Seitentypen (Desktop und Mobil) plus ein manuell durchlaufener Kaufprozess bis zur Zahlungsauswahl für den Audit-Lauf aufnehmen und in runs/<run-id>/screens.json indexieren; dazu Belegbilder zu Befunden aus den Aufnahme-Aufträgen im Lauf (shoot_proof.py). Nutzen, wenn der Audit-Orchestrator (/ptai-ecom:audit) Phase 1 durchläuft, oder wenn der Nutzer explizit Screenshots vom Kunden-Shop aufnehmen will. Der einzige Pull, der nicht wiederholbar ist, weil der Vorher-Zustand ohne Bild weg ist, sobald der Kunde sein Theme ändert. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # capture-screens: Screenshots je Seitentyp und der Kaufprozess
@@ -19,6 +19,11 @@ Ende des Kunden feststeht.
 Shop-Screenshots sind kein Code-Artefakt, das dort hingehört. Nur der Index
 `screens.json` liegt im Workspace, die Bilder selbst liegen ausschließlich im
 Kundenordner.
+
+**Die eine Ausnahme sind Belegbilder zu Befunden** (Abschnitt Belegbilder
+unten). Sie gehören zu einer Fassung eines Laufs, gehen mit ihm ins Portal und
+liegen deshalb in `reporting/runs/<run-id>/proof/`, von Git ignoriert. Ihre
+Quelle ist der Bucket, nicht das Repo.
 
 ## Voraussetzungen
 
@@ -228,6 +233,53 @@ will. Fehlt das Feld, gilt `true`.
 `null` geliefert hat. Eine leere Liste heißt: alle sechs Typen waren
 konfiguriert, nicht dass die Prüfung ausgefallen ist, das Feld steht immer
 da, auch leer.
+
+## Belegbilder zu Befunden
+
+Ein Belegbild zeigt einem Kunden im Portal, was ein Befund meint: den
+Handy-Ausschnitt mit dem Ende der Erstansicht und dem Kaufbutton darunter, den
+Cookie-Dialog mit den markierten Knöpfen. Die Übersichtsaufnahmen oben sind
+dafür ungeeignet, sie zeigen den ganzen Seitentyp und markieren nichts.
+
+**Der Agent nimmt kein Bild auf, er schreibt einen Auftrag.** In einem
+`image`- oder `phone`-Baustein steht `capture` mit Seite, Gerät, Ausschnitt,
+Markierungen und dem, was nicht da sein darf, dazu `alt` und `title`. Der
+Vertrag dazu ist `reference/finding-format.md`, Abschnitt "Aufnahme-Auftrag
+capture". Aufträge schreiben nur die Agents für Conversion, Content und
+Vertrauen.
+
+`scripts/shoot_proof.py` nimmt die offenen Aufträge eines Laufs auf:
+
+```bash
+uv run --quiet --with playwright==1.58.0 python \
+  "${CLAUDE_PLUGIN_ROOT}/skills/capture-screens/scripts/shoot_proof.py" \
+  --run reporting/runs/<run-id>
+```
+
+Die Version 1.58.0 passt zu den Browsern im Playwright-Cache; eine andere lädt
+sie neu herunter. `--refresh` nimmt alle Aufträge neu auf, `--only CRO-01` nur
+einen Befund.
+
+- **Ablage:** `reporting/runs/<run-id>/proof/<id>-<n>-<gerät>.jpg`, beim
+  `phone` zusätzlich `...-voll.jpg` für die große Ansicht. Das Ergebnis
+  (`src`, Maße, Markierungen in Prozent, Ende der Erstansicht, Datum) schreibt
+  das Skript neben den Auftrag in die Befund-Datei. Der Auftrag bleibt stehen,
+  damit sich das Bild neu aufnehmen lässt.
+- **Cookie-Dialog:** `consent.py` lehnt ab, auch über die zweite Ebene
+  ("Nein, anpassen", dann "Ablehnen"). Lässt er sich nicht ablehnen, bleibt
+  der Auftrag offen. `consent: "shown"` nimmt den Dialog bewusst auf, etwa für
+  einen Befund über den Dialog selbst. `shoot_declined.py` nutzt dieselbe
+  Ablehnung.
+- **Ein Ziel trifft genau ein sichtbares Element,** sonst bleibt der Auftrag
+  offen. Ein Text trifft den Knopf oder Link, in dem er steht, damit eine
+  Markierung den ganzen Knopf umfasst.
+- **Ist etwas aus `absent` zu sehen,** ist der Mangel behoben, und es entsteht
+  kein Bild. Der Befund braucht dann einen Beleg aus Zahlen oder fällt weg.
+- **Exit 1,** sobald ein Auftrag offen bleibt. `publish` lädt einen Lauf mit
+  offenem Auftrag oder fehlender Bilddatei nicht hoch.
+
+`audit.revision` legt `proof/` mit den Befunden in die Fassung; eine neue
+Fassung nimmt ihre Bilder neu auf.
 
 ## Fehlerbilder
 

@@ -75,15 +75,38 @@ function pillarScore(findings) {
   return Math.max(MIN, Math.min(MAX, Math.round(100 - strafe)));
 }
 
-// Quick Win = crit oder warn auf Tages- statt Wochenskala. Grundlage des Ziels.
-function quickWins(findings) {
-  return findings.filter((f) =>
-    (f.severity === 'crit' || f.severity === 'warn') && !/woche/i.test(String(f.effort || ''))).length;
-}
+//: Deckel fuer das Ziel. 100 wuerde behaupten, es gaebe nichts mehr zu finden,
+//: und ein Audit prueft nur, was er pruefen kann. Derselbe Wert wie im grossen
+//: Audit (scripts/audit/score.py, DECKEL).
+const ZIEL_DECKEL = 92;
+
+/** Der Stand, wenn alles umgesetzt ist, wofuer eine Massnahme existiert.
+ *
+ * **Das ist wortwoertlich gemeint, und der Wert liegt deshalb oft nahe am
+ * Deckel.** Bis zum 16.09.2026 stand hier `score + min(24, 8 + quickWins*3)`,
+ * uebernommen aus der Zeit vor dem 07.09.2026. Zwei Dinge waren daran kaputt.
+ *
+ * Erstens deckelte die Formel den Sprung bei 24 Punkten. Genau diese Deckelung
+ * hat der grosse Audit am 07.09.2026 verworfen: die Aussage steckt nicht in der
+ * Hoehe des Ziels, sondern im **Abstand**. Yves dazu, damals und am 16.09.2026
+ * erneut am Light-Report: *"Wieso nur 53? Warum kann man nicht 100 schaffen?"*
+ *
+ * Zweitens suchte `quickWins` das Wort "woche" im Feld `effort`. Dort steht
+ * laut Vertrag ein Label aus einer festen Liste (Sehr gering bis Hoch), in dem
+ * das Wort nie vorkommt. Jeder Befund galt damit als Quick Win, `8 + n*3`
+ * uebersprang in jeder realen Saeule die 24, und das Ziel war in jedem Report
+ * exakt `score + 24`. Drei identische Zielabstaende nebeneinander lesen sich
+ * wie ein Rechenfehler, und sie waren einer.
+ *
+ * Was bleibt, sind die Befunde, die eine Umsetzung nicht aufloest: Beobachtungen,
+ * Pruefauftraege ohne Beleg und Dinge ausserhalb des eigenen Zugriffs. Ein
+ * Befund meldet das mit `persists: true`. Sie verschwinden nicht dadurch, dass
+ * jemand arbeitet, und deshalb ist das Ziel selten der Deckel.
+ */
 function targetFor(score, findings) {
   if (score === null) return null;
-  const gap = Math.min(24, Math.max(8, 8 + quickWins(findings) * 3), MAX - score);
-  return Math.min(MAX, score + gap);
+  const bleiben = findings.filter((f) => f.persists === true);
+  return Math.max(score, Math.min(ZIEL_DECKEL, pillarScore(bleiben)));
 }
 
 /** Hat diese Säule genug Abdeckung, um bewertet zu werden?

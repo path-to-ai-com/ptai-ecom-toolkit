@@ -1,0 +1,20 @@
+/*
+ * IMPORTANT: The contents of this file are auto-generated.
+ */
+{
+  "current": {
+    "color_primary": "#112233",
+    "type_heading_font": "assistant_n7",
+    "page_width_px": "1400px",
+    "blocks": {
+      "1234567890": {
+        "type": "shopify://apps/beispiel-app/blocks/embed/00000000-0000-0000-0000-000000000000",
+        "disabled": false,
+        "settings": {}
+      }
+    }
+  },
+  "presets": {
+    "Quellthema": {}
+  }
+}

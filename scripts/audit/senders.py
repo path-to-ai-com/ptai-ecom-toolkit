@@ -42,6 +42,17 @@ nicht sah, und die Überschneidung bei `view_item` fiel dadurch unter die
 Schwelle; ohne das Profil lag sie nahe bei eins. Der Pull ruft diese Prüfung
 deshalb nach der Profilerkennung auf.
 
+**Ein zweiter Absender hat einen Anfang und ein Ende.** Am 17.09.2026 fiel im
+selben Shop auf, dass der zweite Absender drei Tage zuvor verschwunden war,
+weil jemand beim Kunden den Vertriebskanal deinstalliert hatte. Bis dahin
+kannte dieses Modul nur `onset`, und der Report schrieb daraus "Analytics zählt
+Käufe seit dem 30.04. doppelt" im Präsens. Für die letzten Tage des
+Abfragezeitraums war das falsch, und gerade die trägt jede aktuelle Kennzahl.
+Deshalb liefert jedes doppelt gezählte Ereignis jetzt auch `ended`, und der
+Zeitraum zerfällt in einen Abschnitt davor und einen danach. `ended` steht nur,
+wenn der zweite Absender ENDED_QUIET_DAYS Tage vor dem letzten Tag der Daten
+verstummt ist; ein einzelner stiller Tag am Rand ist Nachlauf, kein Ende.
+
 **Die Artikel-ID als Gegenprobe.** Verschiedene Einbindungen senden Artikel in
 verschiedenen Formaten: ein Shopify-Connector die numerische Produkt-ID, die
 Google-App `shopify_<Land>_<Produkt>_<Variante>`, ein Tag-Manager oft die
@@ -49,6 +60,7 @@ Artikelnummer. Zwei Formate mit Gewicht heißen zwei Absender, auch wo die
 Merkmale oben beide gleich aussehen.
 """
 import re
+from datetime import date as _date
 
 #: Die Ereignisse, deren Absender geprüft werden: der Kaufweg plus
 #: `page_view`, weil ein doppelter Seitenaufruf die Engagement Rate und die
@@ -69,6 +81,23 @@ MIN_ACTIVE_DAYS = 7
 #: Besuche wie der erste: mehr als die Hälfte seiner Sitzungen trägt das
 #: Ereignis schon vom ersten.
 OVERLAP_THRESHOLD = 0.5
+
+#: An so vielen Tagen nach dem letzten des zweiten Absenders muss der Stream
+#: belegt weitergemessen haben, damit der zweite als beendet gilt. Nicht die
+#: bloße Stille zählt, sondern Stille neben laufender Messung: GA4 liefert die
+#: letzten Tage verzögert, und wer nur Tage zählt, erkennt ein Ende erst eine
+#: Woche später.
+#:
+#: **Der Beleg gehört an den Stream, nicht an das einzelne Ereignis.** Am
+#: 17.09.2026 gegen einen echten Shop geprüft: der zweite Absender hörte am
+#: 14.09. auf, die Daten reichten bis zum 16.09. Bei Seitenaufrufen und
+#: Produktansichten maß der erste Absender an beiden Tagen, bei Käufen und
+#: Warenkorb nur am 15., weil ein serverseitiger Connector seine Ereignisse
+#: verzögert einspielt und der letzte Tag deshalb unvollständig ist. Je
+#: Ereignis gezählt bliebe das Ende genau bei den Käufen unerkannt, also dort,
+#: wo es am meisten zählt. Gezählt werden deshalb die Tage, an denen
+#: irgendein erster Absender desselben Streams gemessen hat.
+ENDED_QUIET_DAYS = 2
 
 #: Ab diesem Anteil zählt ein Format der Artikel-ID als eigener Absender.
 MIN_FORMAT_SHARE = 0.10
@@ -94,12 +123,56 @@ def signature(app_name: str | None, host_name: str | None) -> dict:
     }
 
 
+def _as_date(value: str):
+    """Ein Tag aus dem Pull als `date`, egal ob `20260914` oder `2026-09-14`."""
+    if not value:
+        return None
+    text = str(value).replace("-", "")
+    if len(text) != 8 or not text.isdigit():
+        return None
+    return _date(int(text[:4]), int(text[4:6]), int(text[6:]))
+
+
+def _quiet_days(last_active: str, last_data: str):
+    """Tage zwischen dem letzten aktiven Tag eines Absenders und dem Ende der
+    Daten. None, wenn eines der beiden Daten nicht lesbar ist."""
+    a, b = _as_date(last_active), _as_date(last_data)
+    if a is None or b is None:
+        return None
+    return (b - a).days
+
+
 def _event_order(event: str) -> tuple:
     return (SENDER_EVENTS.index(event) if event in SENDER_EVENTS else len(SENDER_EVENTS), event)
 
 
 def _top(counter: dict, limit: int = 3) -> list:
     return [value for value, _ in sorted(counter.items(), key=lambda kv: -kv[1])[:limit]]
+
+
+def _last_of(days: list):
+    """Der letzte Tag einer aktiven Liste, oder None."""
+    return days[-1] if days else None
+
+
+def _ended(second: dict, measured_days: set):
+    """Der Tag, an dem der zweite Absender zuletzt gesendet hat, sofern der
+    Stream seitdem belegt weitergemessen hat. Sonst None: er sendet weiter,
+    oder die Daten reichen nicht weit genug, um das zu unterscheiden.
+
+    `measured_days` sind die Tage, an denen irgendein erster Absender dieses
+    Streams gesendet hat; sie belegen, dass für diese Tage Daten vorliegen.
+    """
+    last_active = second.get("last_day")
+    if not last_active:
+        return None
+    witness = [d for d in measured_days if d > last_active]
+    if len(witness) < ENDED_QUIET_DAYS:
+        return None
+    # Der zweite darf danach nicht doch noch einmal aufgetaucht sein.
+    if any(d > last_active for d in second.get("_active", [])):
+        return None
+    return last_active
 
 
 def _judge_event(entries: dict, day_totals: dict) -> dict:
@@ -164,12 +237,43 @@ def _judge_event(entries: dict, day_totals: dict) -> dict:
         "primary": primary["signature"],
         "second": second["signature"],
         "onset": second["first_day"],
+        "ended": None,
+        "_primary_active": primary["_active"],
+        "_second_active": second["_active"],
         "overlap": {"days": len(both), "sessions_primary": sessions_primary,
                     "sessions_second": sessions_second, "sessions_event": sessions_event,
                     "ratio": ratio},
         "uplift": round(events_second / events_primary, 4) if events_primary else None,
     })
     return result
+
+
+def event_period(section: dict, event: str) -> dict:
+    """Von wann bis wann ein Ereignis doppelt gezählt wurde, über alle Streams.
+
+    `onset` ist der früheste Beginn, `ended` der späteste letzte Tag, und
+    `ended` steht nur, wenn das Ereignis in KEINEM Stream mehr doppelt
+    ankommt. Der Report braucht das je Ereignis, weil ein Satz über Käufe
+    nicht davon abhängen darf, ob auch Seitenaufrufe noch doppelt zählen.
+    """
+    judged = [s.get("events", {}).get(event) for s in section.get("streams") or []]
+    doubled = [v for v in judged if v and v.get("status") == "duplicated"]
+    if not doubled:
+        # Snapshots von vor dem 17.09.2026 tragen `onset` nur auf der obersten
+        # Ebene und kennen kein Ende. Für sie gilt weiter, was sie belegen: die
+        # Doppelzählung läuft, denn ein Ende hat damals niemand gemessen.
+        if event in (section.get("double_counted_events") or []):
+            return {"doubled": True, "onset": section.get("onset"),
+                    "ended": section.get("ended"),
+                    "still_duplicating": not section.get("ended")}
+        return {"doubled": False, "onset": None, "ended": None, "still_duplicating": False}
+    onsets = [v["onset"] for v in doubled if v.get("onset")]
+    ends = [v.get("ended") for v in doubled]
+    all_ended = all(ends)
+    return {"doubled": True,
+            "onset": min(onsets) if onsets else None,
+            "ended": max(ends) if all_ended else None,
+            "still_duplicating": not all_ended}
 
 
 def analyze(event_rows: list[dict], signature_rows: list[dict]) -> dict:
@@ -184,13 +288,17 @@ def analyze(event_rows: list[dict], signature_rows: list[dict]) -> dict:
     if not signature_rows:
         return {"measurable": False, "reason": "keine Ereigniszeilen im Zeitraum",
                 "streams": [], "multiple_senders": False,
-                "double_counted_events": [], "onset": None}
+                "double_counted_events": [], "onset": None, "ended": None,
+                "still_duplicating": False}
 
     totals = {}
     for row in event_rows:
         key = (row["stream_id"], row["event"])
         totals.setdefault(key, {})[row["date"]] = (row.get("events") or 0,
                                                    row.get("sessions") or 0)
+
+    last_data_day = max((row["date"] for row in signature_rows if row.get("date")),
+                        default=None)
 
     grouped = {}
     for row in signature_rows:
@@ -208,8 +316,18 @@ def analyze(event_rows: list[dict], signature_rows: list[dict]) -> dict:
 
     streams = []
     for stream_id in sorted(grouped):
-        events = {event: _judge_event(grouped[stream_id][event], totals.get((stream_id, event), {}))
+        events = {event: _judge_event(grouped[stream_id][event],
+                                      totals.get((stream_id, event), {}))
                   for event in sorted(grouped[stream_id], key=_event_order)}
+        # Die Tage, an denen irgendein erster Absender dieses Streams gesendet
+        # hat. Sie belegen je Tag, dass Daten vorliegen, und zwar auch für ein
+        # Ereignis, dessen eigener erster Absender am Rand noch nachliefert.
+        measured_days = {d for v in events.values() for d in v.pop("_primary_active", [])}
+        for judged in events.values():
+            second_active = judged.pop("_second_active", [])
+            if judged["status"] == "duplicated":
+                judged["ended"] = _ended({"last_day": _last_of(second_active),
+                                          "_active": second_active}, measured_days)
         streams.append({
             "stream_id": stream_id,
             "events": events,
@@ -218,13 +336,22 @@ def analyze(event_rows: list[dict], signature_rows: list[dict]) -> dict:
         })
 
     double = sorted({e for s in streams for e in s["double_counted_events"]}, key=_event_order)
-    onsets = [v["onset"] for s in streams for v in s["events"].values() if v.get("onset")]
+    doubled_events = [v for s in streams for e, v in s["events"].items()
+                      if v["status"] == "duplicated"]
+    onsets = [v["onset"] for v in doubled_events if v.get("onset")]
+    # Die Doppelzählung gilt erst als beendet, wenn KEIN doppelt gezähltes
+    # Ereignis mehr läuft. Solange eines weiter doppelt kommt, bleibt `ended`
+    # leer, sonst liest der Report Entwarnung, wo noch eine Stufe doppelt zählt.
+    ended_days = [v.get("ended") for v in doubled_events]
+    all_ended = bool(doubled_events) and all(ended_days)
     return {
         "measurable": True,
         "streams": streams,
         "multiple_senders": any(s["multiple_senders"] for s in streams),
         "double_counted_events": double,
         "onset": min(onsets) if onsets else None,
+        "ended": max(ended_days) if all_ended else None,
+        "still_duplicating": bool(doubled_events) and not all_ended,
     }
 
 

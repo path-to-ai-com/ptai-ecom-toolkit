@@ -115,3 +115,44 @@ test('unbekannte Linse verschwindet nicht still', () => {
   assert.equal(r.ohne_saeule.length, 1);
   assert.equal(r.ohne_saeule[0].lens, 'tippfehler-linse');
 });
+
+// --- Das Ziel, seit 16.09.2026 ---------------------------------------------
+// Bis dahin galt `score + min(24, 8 + quickWins*3)`, wobei quickWins das Wort
+// "woche" im Feld `effort` suchte. Dort steht laut Vertrag ein Label aus einer
+// festen Liste, in dem es nie vorkommt: das Ziel war damit in jedem Report
+// exakt score+24. Diese drei Tests halten die neue Regel fest.
+
+test('ohne bleibende Befunde ist das Ziel der Deckel, nicht score+24', () => {
+  const r = computeScores([f('vertrauen', 'crit'), f('vertrauen', 'crit'), f('vertrauen', 'warn')]);
+  assert.ok(r.scores.vertrauen < 80, 'Ausgangswert soll deutlich unter dem Deckel liegen');
+  assert.equal(r.targets.vertrauen, 92, 'alles umsetzbar, also der Deckel');
+  assert.notEqual(r.targets.vertrauen - r.scores.vertrauen, 24, 'der feste Abstand von 24 ist weg');
+});
+
+test('ein bleibender Befund drueckt das Ziel unter den Deckel', () => {
+  const bleibt = { ...f('vertrauen', 'crit'), persists: true };
+  const r = computeScores([bleibt, f('vertrauen', 'crit'), f('vertrauen', 'warn')]);
+  assert.ok(r.targets.vertrauen < 92, 'was bleibt, kostet auch im Ziel Punkte');
+  assert.ok(r.targets.vertrauen > r.scores.vertrauen, 'das Ziel liegt trotzdem ueber dem Ausgangswert');
+});
+
+test('das Ziel faellt nie unter den Ausgangswert', () => {
+  // Konstruiert: jeder Befund bleibt, das Ziel waere sonst der Ausgangswert selbst.
+  const alle = [1, 2, 3, 4].map(() => ({ ...f('kaufstrecke', 'crit'), persists: true }));
+  const r = computeScores(alle);
+  assert.ok(r.targets.kaufen >= r.scores.kaufen);
+});
+
+test('unterschiedliche Saeulen bekommen unterschiedliche Zielabstaende', () => {
+  const r = computeScores([
+    f('auffindbarkeit', 'warn'),
+    f('kaufstrecke', 'crit'), f('kaufstrecke', 'crit'), f('kaufstrecke', 'crit'),
+    { ...f('vertrauen', 'crit'), persists: true },
+  ]);
+  const abstaende = new Set([
+    r.targets.gefunden - r.scores.gefunden,
+    r.targets.kaufen - r.scores.kaufen,
+    r.targets.vertrauen - r.scores.vertrauen,
+  ]);
+  assert.ok(abstaende.size > 1, 'drei identische Abstaende waren der alte Fehler');
+});

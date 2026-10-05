@@ -223,6 +223,12 @@ Die Snapshots sind nur als Zeitreihe etwas wert. Deshalb:
    - `evidence`: ein Satz, was die Antwort inhaltlich enthielt, plus bis zu 3
      Citation-Hosts. Beispiel: "Antwort nennt drei Anbieter, Beispielshop
      nicht darunter; Quellen: wikipedia.org, fachportal.example, ndr.de".
+   - `brand_excerpt`: steht `brand_mentioned` auf `true`, die Stelle der
+     Antwort, an der die Brand vorkommt, **wörtlich** aus `answer_text`,
+     höchstens 300 Zeichen, sonst `null`. Nicht zusammenfassen: das Feld ist
+     der Beleg für das Kriterium `geo.answer-accuracy` im Agent `audit-geo`
+     (beschreibt die Antwort Marke, Sortiment und Preise richtig), und eine
+     Zusammenfassung prüft niemand gegen den Shop.
 
    Scheitert ein Call technisch (Exit 1): einmal wiederholen (Regel 4);
    scheitert er erneut, Zeile "nicht prüfbar: API-Fehler: <Meldung>".
@@ -245,7 +251,9 @@ Die Snapshots sind nur als Zeitreihe etwas wert. Deshalb:
 
    Im Browser-Weg gilt für `other_citations` dasselbe wie im API-Weg, nur aus
    dem Sichtbaren: die Hosts der Quellen, die am Antwortblock stehen, ohne die
-   eigene Domain, dedupliziert. Sind keine Quellen sichtbar, `[]`.
+   eigene Domain, dedupliziert. Sind keine Quellen sichtbar, `[]`. Ebenso
+   `brand_excerpt`: wörtlich aus dem sichtbaren Antwortblock, höchstens 300
+   Zeichen, `null` ohne Erwähnung.
 
    Captcha oder fehlender Login: nicht lösen, nicht einloggen, betroffene
    Zeilen "nicht prüfbar: <Grund>" nach Regel 6.
@@ -294,7 +302,8 @@ keinen Fehler, sondern rechnet ohne ihn weiter.
       "brand_mentioned": true,
       "domain_cited": false,
       "other_citations": ["wikipedia.org", "ndr.de"],
-      "evidence": "Antwort beschreibt Beispielshop als Outdoor-Anbieter; Quellen: wikipedia.org, ndr.de; Domain nicht dabei"
+      "evidence": "Antwort beschreibt Beispielshop als Outdoor-Anbieter; Quellen: wikipedia.org, ndr.de; Domain nicht dabei",
+      "brand_excerpt": "Beispielshop ist ein Hamburger Versender für Outdoor-Bekleidung mit Jacken ab rund 80 Euro."
     },
     {
       "query": "Outdoorjacke kaufen",

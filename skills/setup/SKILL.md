@@ -13,6 +13,34 @@ eingerichtet, nichts geht durch einen Re-Run verloren.
 
 Arbeitsverzeichnis ist der Kunden-Workspace (dort, wo `reporting/` liegen soll).
 
+## Shop aus dem Cockpit (`--from-portal <brand> <shop>`)
+
+Hat der Kunde Shopify, Google Analytics und Search Console selbst im Cockpit
+verbunden, liegen seine Zugänge dort und nicht im Workspace. Dann ersetzt ein
+Befehl die Fragen nach Domain, Store, Properties und Dienstkonto:
+
+```bash
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal setup --brand <brand> --shop <shop>
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal check --brand <brand> --shop <shop>
+```
+
+- `setup` schreibt in `reporting/config.json`, was das Cockpit weiß (Domain,
+  `shopify_store`, `ga4_property_id`, `gsc_site`, `google_ads_customer_id`,
+  die Schalter unter `sources` und den Block `portal`), und lässt alle anderen
+  Felder stehen. In die `.env` kommt `PTAI_GOOGLE_CREDENTIALS=portal:<brand>/<shop>`
+  statt eines Pfads: GA4, Search Console und Google Ads holen ihren Zugang damit
+  beim Cockpit, je Abruf und nur für eine Stunde gültig.
+- `check` zeigt je Quelle den Stand im Cockpit und holt einmal jeden Zugang,
+  ohne einen Wert auszugeben.
+- Angemeldet wird mit `PTAI_PORTAL_URL` und `PTAI_PORTAL_TOKEN` aus der zentralen
+  `~/.config/ptai-ecom/.env`. Fehlen sie, bricht der Befehl ab.
+- **Kein Rückfall:** Ist eine Quelle im Cockpit nicht verbunden, steht sie in
+  der Config auf `false`, und ein Pull darauf bricht ab, statt ein Dienstkonto
+  zu nehmen. Kein Zugang aus dem Cockpit landet in `reporting/`.
+- Was das Cockpit nicht kennt (`cwv_urls`, `account_slug`, `drive_path`,
+  `market`), fragt der Wizard danach wie gewohnt ab; der Ablauf unten beginnt
+  dafür beim Check.
+
 ## Ablauf
 
 1. **Check laufen lassen und Haken-Liste zeigen:**
@@ -42,7 +70,7 @@ Arbeitsverzeichnis ist der Kunden-Workspace (dort, wo `reporting/` liegen soll).
    Fehlt `~/.config/ptai-ecom/.env`, legt der Wizard den Ordner und die Datei
    mit leeren Zeilen für `PTAI_PSI_KEY`, `PTAI_DFS_LOGIN`,
    `PTAI_DFS_PASSWORD`, `PTAI_OPENAI_KEY`, `PTAI_PERPLEXITY_KEY`,
-   `PTAI_GEMINI_KEY`, `PTAI_GOOGLE_ADS_TOKEN`, `PTAI_ACCOUNTS_ROOT`,
+   `PTAI_GEMINI_KEY`, `PTAI_ACCOUNTS_ROOT`,
    `PTAI_OPERATOR_NAME`, `PTAI_OPERATOR_CONTACT`, `PTAI_OPERATOR_EMAIL`,
    `PTAI_OPERATOR_BOOKING_URL` und `PTAI_CLOSING_FILE` an und setzt die Rechte
    auf `600` (`chmod 600`). Eine
@@ -53,10 +81,11 @@ Arbeitsverzeichnis ist der Kunden-Workspace (dort, wo `reporting/` liegen soll).
    2. PageSpeed-Key (Abschnitt "PSI-Key" unten).
    3. DataForSEO (Abschnitt "DataForSEO" unten).
    4. GEO-Keys (Abschnitt "GEO" unten, Teil "Keys anlegen").
-   5. Am Ende, nur wenn es fehlt, ein Angebot zum Google-Ads-Entwicklertoken
+   5. Am Ende, nur wenn der Google-Ads-Test-Call an der Freigabe des
+      Cloud-Projekts scheitert, ein Angebot dazu
       (`${CLAUDE_PLUGIN_ROOT}/reference/access.md` Teil A, Schritt 6), mit dem Satz, dass die
-      Freigabe durch Google dauert und der Audit ohne Token läuft. Ein
-      fehlendes Token allein lässt Teil 1 nicht erscheinen.
+      Freigabe bei Google liegen kann und der Audit ohne Google Ads läuft. Eine
+      fehlende Freigabe allein lässt Teil 1 nicht erscheinen.
    6. Sechs Einstellungen, alle nur auf Wunsch. Zwei haben eine Vorgabe und
       erscheinen im Check deshalb nur als Hinweis: `PTAI_ACCOUNTS_ROOT`, der
       Ordner mit den Kundenordnern (Vorgabe `~/ptai-ecom/accounts`; audit-light
@@ -253,7 +282,6 @@ PTAI_DFS_PASSWORD=<DataForSEO-API-Passwort, nicht das Konto-Passwort>
 PTAI_OPENAI_KEY=<optional, GEO über die ChatGPT-API>
 PTAI_PERPLEXITY_KEY=<optional, GEO über die Perplexity-API>
 PTAI_GEMINI_KEY=<optional, GEO über Gemini-Grounding>
-PTAI_GOOGLE_ADS_TOKEN=<Google-Ads-Entwicklertoken, sobald freigegeben>
 PTAI_ACCOUNTS_ROOT=<optional, Ordner mit den Kundenordnern, Vorgabe ~/ptai-ecom/accounts>
 PTAI_OPERATOR_NAME=<optional, eigener Name oder Firmenname in Maßnahmen und Report, Zeile Unternehmen>
 PTAI_OPERATOR_CONTACT=<optional, Zeile Ansprechpartner im Schluss von Audit, Monats-Report und audit-light>
@@ -285,12 +313,13 @@ Datei (`scripts/audit/env.py`). `PTAI_GOOGLE_CREDENTIALS` steht nie zentral.
   den Zugang, falls noch nicht geschehen, zentral eintragen. Ein `PTAI_DFS_*`-Paar
   in der Workspace-`.env` schlägt das zentrale und gehört nur dorthin, wenn der
   Kunde ein eigenes Konto mitbringt.
-- `PTAI_GOOGLE_ADS_TOKEN` ist das Google-Ads-Entwicklertoken. Es gehört
-  ebenfalls dem Betreiber und steht zentral. Beantragt wird es im eigenen
-  Verwaltungskonto; der **Zugang zum Werbekonto des Kunden** ist etwas anderes
-  und kommt vom Kunden.
-  Fehlt der Schlüssel, fällt `pull-ads` als "nicht verfügbar" aus und der Lauf
-  geht weiter. Das ist kein Fehler, sondern der dokumentierte Stand.
+- Google Ads hat keinen eigenen Schlüssel mehr. Google hat das
+  Entwicklertoken am 09.09.2026 abgeschafft; auf Betreiberseite zählt nur die
+  Freigabe des Cloud-Projekts für echte Konten (`reference/access.md` Teil A,
+  Schritt 6). Der **Zugang zum Werbekonto des Kunden** ist etwas anderes und
+  kommt vom Kunden. Steht eins von beidem nicht, fällt `pull-ads` als "nicht
+  verfügbar" aus und der Lauf geht weiter. Ein altes `PTAI_GOOGLE_ADS_TOKEN`
+  in einer `.env` stört nicht, es wird nur nicht mehr gelesen.
 - `.env` muss in der `.gitignore` des Kunden-Workspace stehen. `check_env.sh`
   prüft das; fehlt der Eintrag, legt der Wizard ihn an (die eine Zeile `.env`),
   bevor irgendein Secret geschrieben wird.
@@ -331,7 +360,7 @@ späterer Lauf jederzeit neu ziehen kann, darf ignoriert bleiben.
 |---|---|
 | `reporting/config.json` | `reporting/data/<run-id>/` eines **Report**-Laufs |
 | `reporting/baseline/` | `reporting/**/*.pdf` (liegt im Kundenordner) |
-| `reporting/measures.json` | |
+| `reporting/measures.json` | `reporting/runs/**/proof/` (Belegbilder, liegen im Bucket) |
 | `reporting/runs/<run-id>/` | |
 | `reporting/data/<run-id>/` eines **Audit**-Laufs | |
 
@@ -341,6 +370,11 @@ seine Snapshots wegwerfen, der nächste zieht sie neu. Ein Audit-Lauf nicht:
 fest, und danach stellt ihn keine Abfrage mehr her. Trägt die `.gitignore`
 eines Kunden-Repos ein pauschales `reporting/data/`, gehört vor dem Audit eine
 Ausnahme dazu, etwa `!reporting/data/*-audit/`.
+
+Belegbilder zu Befunden (`proof/` im Lauf) sind Shop-Screenshots und gehören
+nicht ins Repo des Kunden. Ihre Quelle ist der Bucket, `publish` lädt sie mit
+dem Lauf hoch. Die Zeile `reporting/runs/**/proof/` in der `.gitignore` erfasst
+auch die Bilder älterer Fassungen unter `revisions/`.
 
 `check_env.sh` prüft das mit `git check-ignore` und meldet jede Abweichung. Ist
 der Workspace gar kein git-Repo, sagt der Check auch das: dann wird nirgends

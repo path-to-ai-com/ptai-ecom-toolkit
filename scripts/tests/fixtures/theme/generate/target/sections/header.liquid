@@ -1,0 +1,36 @@
+<header>{{ shop.name }}</header>
+
+{% schema %}
+{
+  "name": "Kopfzeile",
+  "settings": [
+    {
+      "type": "range",
+      "id": "logo_width",
+      "label": "Logobreite",
+      "min": 40,
+      "max": 240,
+      "step": 4,
+      "unit": "px",
+      "default": 120
+    },
+    {
+      "type": "select",
+      "id": "sticky_header",
+      "label": "Mitlaufend",
+      "default": "always",
+      "options": [
+        {
+          "value": "always",
+          "label": "Immer"
+        },
+        {
+          "value": "never",
+          "label": "Nie"
+        }
+      ]
+    }
+  ],
+  "max_blocks": 3
+}
+{% endschema %}

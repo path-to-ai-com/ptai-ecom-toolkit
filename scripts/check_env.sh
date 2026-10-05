@@ -439,6 +439,7 @@ CFG_DRIVE_PATH=""
 # behandelt, siehe unten beim customer_ask. Die Vorbelegung muss hier stehen:
 # ohne sie bricht das Script unter set -u ab, sobald keine Config existiert.
 CFG_ADS="unbekannt"
+CFG_ADS_CUSTOMER=""
 if [[ "$CONFIG_OK" -eq 1 ]]; then
   CFG_STORE="$(jq -r '.shopify_store // empty' "$CONFIG" 2>/dev/null || true)"
   CFG_GA4="$(jq -r '.ga4_property_id // empty' "$CONFIG" 2>/dev/null || true)"
@@ -451,6 +452,7 @@ if [[ "$CONFIG_OK" -eq 1 ]]; then
   # viel in der Kundenanforderung kostet eine Rückfrage, eine fehlende Zeile
   # kostet den ganzen SEA-Block.
   CFG_ADS="$(jq -r 'if has("sources") and (.sources | has("ads")) then (.sources.ads | tostring) else "unbekannt" end' "$CONFIG" 2>/dev/null || echo "unbekannt")"
+  CFG_ADS_CUSTOMER="$(jq -r '.google_ads_customer_id // empty' "$CONFIG" 2>/dev/null || true)"
   CFG_ACCOUNT_SLUG="$(jq -r '.account_slug // empty' "$CONFIG" 2>/dev/null || true)"
   CFG_DRIVE_PATH="$(jq -r '.drive_path // empty' "$CONFIG" 2>/dev/null || true)"
 fi
@@ -912,17 +914,31 @@ esac
 source_section ads
 
 # Google Ads ist der Fall, für den customer_ask gebaut wurde: der Operator
-# sieht das Konto vielleicht, freischalten kann es nur der Kunde. Das
-# Entwicklertoken ist davon getrennt und gehört dem Betreiber.
+# sieht das Konto vielleicht, freischalten kann es nur der Kunde. Der Teil des
+# Betreibers ist seit dem 09.09.2026 kein Entwicklertoken mehr, sondern die
+# Zugriffsstufe des Cloud-Projekts, dem das Dienstkonto gehört. Beides prüft
+# nur ein echter Aufruf: die Fehlerzeile nennt Googles Grund, und der sagt,
+# wessen Seite fehlt (CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION ist unsere).
+ADS_SCRIPT="${PLUGIN_ROOT}/skills/pull-ads/scripts/ads_pull.py"
+ADS_ASK="Google Ads: das Dienstkonto mit der Zugriffsebene Nur Lesen als Nutzer hinzufügen (Tools und Einstellungen, Zugriff und Sicherheit, Nutzer) und die Kundennummer des Werbekontos nennen. Ohne diesen Zugang bleibt der Baseline-Block SEA leer und wird später nachgetragen."
 if switched_off ads; then
   report_switched_off ads
-elif [[ -n "$(env_get PTAI_GOOGLE_ADS_TOKEN)" ]]; then
-  ok "Google Ads: PTAI_GOOGLE_ADS_TOKEN gefunden ($(env_origin PTAI_GOOGLE_ADS_TOKEN))"
+elif [[ -z "$CFG_ADS_CUSTOMER" ]]; then
+  missing "Google Ads: google_ads_customer_id fehlt in der Config"
+  customer_ask "$ADS_ASK"
+elif [[ -n "$check_reason" ]]; then
+  # Der Grund zählt schon oben (Dienstkonto, google-auth, Python).
+  hint "Google-Ads-Test-Call: nicht möglich (${check_reason}, siehe oben)"
+  mark_open
+elif [[ "$OFFLINE" == "1" ]]; then
+  offline_skip "Google-Ads-Test-Call"
+elif check_out="$(python3 "$ADS_SCRIPT" --customer-id "$CFG_ADS_CUSTOMER" --creds "$CREDS_PATH" --check 2>&1)"; then
+  ok "Google-Ads-Test-Call: $(last_line "$check_out")"
+elif grep -q "CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION\|SERVICE_DISABLED\|has not been used in project" <<<"$check_out"; then
+  broken "Google-Ads-Test-Call: fehlgeschlagen ($(last_line "$check_out")). Im Cloud-Projekt des Dienstkontos die Google Ads API aktivieren und mindestens die Zugriffsstufe Explorer beantragen"
 else
-  missing "Google Ads: PTAI_GOOGLE_ADS_TOKEN nicht gesetzt. Das Entwicklertoken gehört dem Betreiber und wird im eigenen Google-Ads-Verwaltungskonto beantragt (API-Center). Ohne es bleibt der Baseline-Block SEA leer und wird später nachgetragen"
-fi
-if [[ "$CFG_ADS" != "false" ]]; then
-  customer_ask "Google Ads: das Dienstkonto mit der Zugriffsebene Nur Lesen als Nutzer hinzufügen (Tools und Einstellungen, Zugriff und Sicherheit, Nutzer). Ohne diesen Zugang bleibt der Baseline-Block SEA leer und wird später nachgetragen."
+  broken "Google-Ads-Test-Call: fehlgeschlagen ($(last_line "$check_out")). Nutzer-Freigabe für die Service-Account-Mail im Werbekonto prüfen"
+  customer_ask "$ADS_ASK"
 fi
 
 # --- Workspace: Versionierung von reporting/ -------------------------------

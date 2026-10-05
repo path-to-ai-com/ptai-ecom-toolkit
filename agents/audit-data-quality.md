@@ -222,11 +222,12 @@ ersetzen.
    einer Einbindung an dieselbe Mess-ID kommt:
 
    ```bash
-   jq '.senders | {variant, measurable, note, notes, onset, multiple_senders,
-       double_counted_events,
+   jq '.senders | {variant, measurable, note, notes, onset, ended, still_duplicating,
+       multiple_senders, double_counted_events,
        item_ids: (.item_ids // {} | {basis, multiple_formats, formats}),
        streams: [.streams[] | {stream_id, measurement_id, double_counted_events,
-         events: (.events | map_values({status, onset, uplift, overlap, primary, second}))}]}' \
+         events: (.events | map_values({status, onset, ended, uplift, overlap,
+                                        primary, second}))}]}' \
       reporting/data/<run-id>/ga4.json
    ```
 
@@ -243,9 +244,24 @@ ersetzen.
    | `status: "duplicated"` | ein zweiter Absender meldet das Ereignis in Besuchen, in denen der erste es schon gemeldet hat: Doppelzählung |
    | `status: "separate_sessions"` | ein zweiter Absender bringt eigene Sitzungen mit: keine Doppelzählung desselben Besuchs, aber auch keine Summe, die eine Kennzahl ist |
    | `onset` | erster Tag des zweiten Absenders |
+   | `ended` | letzter Tag des zweiten Absenders, wenn er seitdem still ist. Leer heißt: er sendet weiter |
+   | `still_duplicating` | `true`, solange mindestens eine Stufe weiter doppelt ankommt |
    | `uplift` | Ereignisse des zweiten je Ereignis des ersten, an den Tagen, an denen beide senden |
    | `overlap.ratio` | Anteil der Sitzungen des zweiten, in denen der erste dasselbe Ereignis schon gemeldet hat |
    | `item_ids.multiple_formats` | zwei Formate der Artikel-ID mit Gewicht: die Gegenprobe, unabhängig von den Merkmalen |
+
+   **Steht `ended`, gilt der Befund für einen Abschnitt des Zeitraums, nicht für
+   heute.** Am 17.09.2026 verschwand in einem echten Shop der zweite Absender,
+   weil jemand beim Kunden den Vertriebskanal deinstalliert hatte, und die
+   Zahlen der letzten Tage waren sauber. Ein Befund, der dann "zählt doppelt"
+   schreibt, ist falsch, und die Maßnahme dazu wäre schon erledigt. Schreib in
+   diesem Fall den Zeitraum in den Befund (`von onset bis ended`), setz
+   `severity` auf `mittel` statt `hoch`, weil nichts mehr kaputtgeht, und nenn
+   als Folge die zerschnittene Zeitreihe: vor `onset` einfach gezählt, dazwischen
+   doppelt, danach wieder einfach. Genau darauf fällt jeder
+   Vorher-Nachher-Vergleich herein, der über eine dieser Kanten läuft. Die
+   Maßnahme heißt dann nicht "abschalten", sondern "die betroffenen Monate in
+   der Baseline kennzeichnen".
 
    **Jede doppelt zählende Stufe gehört in den Befund, nicht nur der Kauf.**
    Ein Befund je Mess-ID, mit `onset` und `uplift` je Stufe in `metrics`.
@@ -374,6 +390,34 @@ anderen Laufs.
 (`ga4.json > bot_profiles.without`), sonst `all_sessions`. Ein Befund ohne
 GA4-Zahl trägt `null`.
 
+**Vier Felder machen den Befund im Portal anschaulich.** Der Vertrag steht in
+`${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Lies ihn, bevor du den
+ersten Befund schreibst; er gilt, nicht eine Kopie hier. Für den vollen Audit
+heißt das je Befund:
+
+- **`facts`:** `{"kind": "effect", "text": ...}` immer, `{"kind": "cause",
+  "text": ...}` nur, wenn die Ursache belegt ist. Sonst nichts, auch kein
+  `now`: die Handlung ist die eine Maßnahme zum Befund. Jeder Text ein ganzer
+  Satz, höchstens 160 Zeichen.
+- **`evidence_text`:** der Beleg als ein Satz für den Kunden, mit den Zahlen,
+  die ihn tragen, etwa "318 von 1.204 Produktseiten haben keinen internen Link
+  aus einer Kategorieseite." Nie ein Pfad, der bleibt in `evidence`. Phase 3
+  übernimmt den Satz in die Maßnahme.
+- **`url`:** die eine Seite im Shop, um die es geht, nur `https`. Fehlt, wenn
+  der Befund den ganzen Shop betrifft.
+- **`proof`:** der Beleg aus Bausteinen. Eine Kennzahl ist `{"type": "metric",
+  "ref": <Index in metrics>}` und wird nie ein zweites Mal ausgeschrieben; eine
+  Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
+  Typisch hier: `pairs` für denselben Wert aus zwei Quellen, etwa Shopify und
+  Analytics, `rows` für fehlende Ereignisse.
+- **`decision`:** nur, wenn es zwei echte, verschiedene Wege gibt, mit
+  `recommended` und `reason`. Phase 3 macht die empfohlene Option zur
+  Maßnahme, die andere zeigt das Portal als Geprüfte Alternative.
+
+**Bilder schreibst du keine.** Bild-Aufträge (`capture`) kommen nur aus den
+Analysen für Conversion, Content und Vertrauen, die als einzige Screenshots
+lesen. Dein Beleg sind Kennzahl, Tabelle, Verteilung oder Liste.
+
 **Zwei Felder tragen, was der Report bisher nicht hatte:**
 
 **`explanation` ist die Erklärung, nicht die Wiederholung.** Sie sagt, was der Fachbegriff
@@ -480,12 +524,13 @@ Kundendokument. Ein Wort je Sache, und keines aus der Werkzeugwelt:
 | die erfassten Seiten | Seiten im Shop, geoeffnet und geprueft | gecrawlte Seiten, URLs, Adressen |
 | die eingefrorenen Zahlen | Baseline | Nullpunkt, Ausgangswerte, Startwerte |
 | die Kennzahl je Bestellung | Bestellwert | Warenkorbwert |
-| fremde Skripte | Skripte fremder Anbieter | Fremdtechnik, Third-Party-Skripte |
+| fremde Skripte | Drittanbieter-Dienste | Fremdtechnik, Skripte fremder Anbieter |
 | der naechste Lauf | der spaetere Report | Folgereport |
 
 **Dateinamen und Feldpfade gehoeren ausschliesslich in `evidence`.** Dort
 stehen sie, damit ein Mensch nachrechnen kann. In `statement`, `effect`,
-`why`, `fix` und in jedem `metrics`-Eintrag stehen sie nie: der Leser hat
+`why`, `fix`, `facts`, `evidence_text`, den Texten im `proof` und in jedem
+`metrics`-Eintrag stehen sie nie: der Leser hat
 Fragen zu seinem Shop, keine zu unseren Snapshots.
 
 **Deutsch mit echten Umlauten.** ä, ö, ü, ß, nie ae, oe, ue oder ss. Das gilt

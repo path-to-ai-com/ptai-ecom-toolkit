@@ -34,7 +34,7 @@ from collections import deque
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
 from xml.etree import ElementTree as ET
 
 #: Robots-Direktiven, die eine Seite von der Indexierung ausschließen.
@@ -99,13 +99,45 @@ def script_host(src: str, base: str) -> str | None:
     return None if _same_shop(host, urlparse(base).hostname) else host
 
 
+#: Der einzige Query-Parameter, der eine eigene Seite ergibt: die Blätterseite
+#: einer Liste (`/collections/<handle>?page=2`, ebenso Blog-Übersichten).
+PAGE_PARAM = "page"
+
+
+def _page_query(query: str) -> str:
+    """Die Query, die von einer gefundenen URL stehen bleibt: `page=<n>` ab
+    Seite 2, sonst nichts.
+
+    Bis zum 02.10.2026 fiel jede Query weg, auch `?page=2`. Damit rief der
+    Crawl nie eine Folgeseite einer Kategorie ab, und jedes Produkt, das erst
+    ab Seite 2 verlinkt ist, galt als unverlinkt und stand zu tief. Belegt am
+    02.10.2026 an einem echten Shopify-Shop, bei dem eine Kategorie live
+    `?page=2` bis `?page=24` verlinkt.
+
+    Alle übrigen Parameter fallen weiter weg (`variant`, `sort_by`, Filter,
+    Tracking), weil sie dieselbe Seite anders zeigen und keine eigene Adresse
+    ergeben. `page=1` ist die erste Seite selbst und fällt deshalb auch weg,
+    ebenso ein Wert, der keine ganze Zahl ab 2 ist. Steht `page` mehrfach in
+    der Query, gilt der letzte Wert. Führende Nullen fallen weg (`page=02`
+    wird `page=2`), sonst stünde dieselbe Seite zweimal im Snapshot.
+    """
+    pages = [value for key, value in parse_qsl(query) if key == PAGE_PARAM]
+    if not pages or not re.fullmatch(r"[0-9]+", pages[-1]):
+        return ""
+    number = int(pages[-1])
+    return f"{PAGE_PARAM}={number}" if number >= 2 else ""
+
+
 def normalize(url: str, base: str) -> str | None:
     """Normalisiert eine im HTML gefundene URL gegen die Basis-Domain.
 
-    Query und Anker fallen weg, weil sie dieselbe Seite referenzieren und
-    keine eigene URL ergeben (`?variant=1` ist dieselbe Seite). Fremde
-    Schemata (`mailto:`, `tel:`, `javascript:`) und fremde Hosts liefern
-    `None`, ein relativer Pfad wird gegen die Basis absolut aufgelöst.
+    Anker und Query fallen weg, weil sie dieselbe Seite referenzieren und
+    keine eigene URL ergeben (`?variant=1` ist dieselbe Seite). Die eine
+    Ausnahme ist die Blätterseite einer Liste: `?page=2` ist eine eigene
+    Seite mit eigenen Produktlinks und bleibt stehen, siehe `_page_query`.
+    Fremde Schemata (`mailto:`, `tel:`, `javascript:`) und fremde Hosts
+    liefern `None`, ein relativer Pfad wird gegen die Basis absolut
+    aufgelöst.
 
     Der Host-Vergleich läuft über `_same_shop` (case-insensitiv, mit
     `www`-Ausnahme). Das Ergebnis trägt dabei immer die Schreibweise der
@@ -133,7 +165,8 @@ def normalize(url: str, base: str) -> str | None:
     if path != "/" and path.endswith("/"):
         path = path.rstrip("/")
 
-    return urlunparse((target.scheme, reference.netloc, path, "", "", ""))
+    return urlunparse((target.scheme, reference.netloc, path, "",
+                       _page_query(target.query), ""))
 
 
 class _PageParser(HTMLParser):
@@ -156,6 +189,11 @@ class _PageParser(HTMLParser):
         self.images = {"total": 0, "without_alt": 0, "empty_alt": 0}
         self.raw_links: list[str] = []
         self.schema_types: set[str] = set()
+        # Welche Pflicht- und Empfehlungsfelder die Product- und
+        # Organization-Auszeichnung trägt. Nur ja/nein plus Preis und
+        # Verfügbarkeit, nie das ganze JSON-LD: die Seitenliste ist mit rund
+        # 6,8 KB je Seite schon an der Grenze dessen, was ein Lauf tragen kann.
+        self.markup: dict = {}
         self.indexable = True
         self.word_count = 0
 
@@ -304,6 +342,7 @@ class _PageParser(HTMLParser):
             if tag == "script" and self._in_ldjson:
                 self._in_ldjson = False
                 _collect_schema_types(self._ldjson_buffer, self.schema_types)
+                _collect_markup(self._ldjson_buffer, self.markup)
         elif tag == "svg":
             self._svg_depth = max(0, self._svg_depth - 1)
         elif tag == "title":
@@ -364,6 +403,156 @@ def _collect_schema_node(node, target: set[str]) -> None:
             _collect_schema_node(entry, target)
 
 
+#: Typen, die als Produktauszeichnung zählen. ProductGroup trägt bei Themes
+#: mit Varianten die gemeinsamen Felder, die Angebote hängen dann an den
+#: Varianten in `hasVariant`.
+PRODUCT_TYPES = {"Product", "ProductGroup"}
+
+#: Typen, die als Auszeichnung des Händlers zählen.
+ORGANIZATION_TYPES = {"Organization", "OnlineStore", "OnlineBusiness", "Corporation", "Store"}
+
+#: Produktkennungen, von denen Google im Merchant Listing eine empfiehlt.
+PRODUCT_IDENTIFIERS = ("gtin", "gtin8", "gtin12", "gtin13", "gtin14", "isbn", "mpn", "sku")
+
+
+def _node_types(node: dict) -> set[str]:
+    kind = node.get("@type")
+    if isinstance(kind, str):
+        return {kind}
+    if isinstance(kind, list):
+        return {k for k in kind if isinstance(k, str)}
+    return set()
+
+
+def _top_level_nodes(data) -> list[dict]:
+    """Die Knoten auf oberster Ebene eines JSON-LD-Blocks, `@graph` aufgelöst.
+
+    Bewusst dieselbe Tiefe wie `_collect_schema_node`: eine Kategorieseite
+    listet ihre Produkte oft als `ItemList` mit verschachtelten
+    `Product`-Knoten. Die sind keine Produktauszeichnung der Seite, sonst trüge
+    jede Kategorieseite scheinbar ein Produkt-Schema.
+    """
+    nodes = []
+    for node in data if isinstance(data, list) else [data]:
+        if not isinstance(node, dict):
+            continue
+        graph = node.get("@graph")
+        if isinstance(graph, list):
+            nodes.extend(entry for entry in graph if isinstance(entry, dict))
+        nodes.append(node)
+    return nodes
+
+
+def _first_dict(value) -> dict | None:
+    if isinstance(value, list):
+        value = next((entry for entry in value if isinstance(entry, dict)), None)
+    return value if isinstance(value, dict) else None
+
+
+def _present(value) -> bool:
+    """Feld gepflegt? Leerstring, leere Liste und `null` zählen nicht."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value not in (None, [], {})
+
+
+def _schema_value(value) -> str | None:
+    """`https://schema.org/InStock` wird zu `InStock`, wie Google es liest."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip().rsplit("/", 1)[-1]
+
+
+def _offer_price(offer: dict) -> tuple[str | None, str | None]:
+    """Preis und Währung eines Angebots, auch aus `priceSpecification` und
+    `AggregateOffer` (`lowPrice`)."""
+    spec = _first_dict(offer.get("priceSpecification")) or {}
+    price = next((offer.get(key) for key in ("price", "lowPrice")
+                  if _present(offer.get(key))), None)
+    if price is None and _present(spec.get("price")):
+        price = spec.get("price")
+    currency = offer.get("priceCurrency") or spec.get("priceCurrency")
+    return (str(price) if price is not None else None,
+            str(currency) if _present(currency) else None)
+
+
+def _product_fields(node: dict) -> dict:
+    variants = node.get("hasVariant")
+    variants = [v for v in (variants if isinstance(variants, list) else [variants])
+                if isinstance(v, dict)]
+    offer = _first_dict(node.get("offers"))
+    if offer is None:
+        # ProductGroup: das Angebot steht an der ersten Variante, die eins hat.
+        offer = next((o for o in (_first_dict(v.get("offers")) for v in variants) if o), None)
+    price, currency = _offer_price(offer) if offer else (None, None)
+    identified = any(_present(node.get(k)) for k in PRODUCT_IDENTIFIERS) or any(
+        _present(v.get(k)) for v in variants for k in PRODUCT_IDENTIFIERS)
+    return {
+        "has_name": _present(node.get("name")),
+        "has_image": _present(node.get("image")),
+        "has_brand": _present(node.get("brand")),
+        "has_identifier": identified,
+        "has_offers": offer is not None,
+        "price": price,
+        "currency": currency,
+        "availability": _schema_value(offer.get("availability")) if offer else None,
+        "has_shipping_details": bool(offer) and _present(offer.get("shippingDetails")),
+        "has_return_policy": bool(offer) and _present(offer.get("hasMerchantReturnPolicy")),
+        "has_aggregate_rating": _present(node.get("aggregateRating")),
+        "has_variants": bool(variants),
+    }
+
+
+def _merge_product(current: dict | None, new: dict) -> dict:
+    """Mehrere Product-Knoten auf einer Seite (Theme plus App) zu einer Zeile.
+
+    Ein Feld gilt als vorhanden, wenn es in irgendeinem Knoten steht: Google
+    liest alle Blöcke der Seite. Werte (Preis, Währung, Verfügbarkeit) nimmt
+    der erste Knoten, der einen trägt. `count` hält fest, wie viele Knoten es
+    waren, denn doppelte Produktauszeichnung ist selbst ein Befund.
+    """
+    if current is None:
+        return {**new, "count": 1}
+    merged = {"count": current["count"] + 1}
+    for key, value in new.items():
+        old = current.get(key)
+        merged[key] = (old or value) if isinstance(value, bool) else (old if old is not None else value)
+    return merged
+
+
+def _collect_markup(raw_json: str, target: dict) -> None:
+    """Trägt die Felder der Product- und Organization-Auszeichnung ein.
+
+    Ergebnis unter `target["product"]` und `target["organization"]`, nur wenn
+    die Seite so einen Knoten trägt. Kaputtes JSON-LD wird wie bei
+    `_collect_schema_types` verschluckt.
+
+    Die Feldliste folgt Google Search Central, Merchant Listing (Pflicht:
+    name, image, offers mit price und priceCurrency; empfohlen: availability,
+    Kennung, shippingDetails, hasMerchantReturnPolicy). Versand und Rückgabe
+    dürfen stattdessen global an der Organization stehen, als
+    `hasShippingService` und `hasMerchantReturnPolicy`; deshalb werden beide
+    Stellen erfasst.
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return
+    for node in _top_level_nodes(data):
+        kinds = _node_types(node)
+        if kinds & PRODUCT_TYPES:
+            target["product"] = _merge_product(target.get("product"), _product_fields(node))
+        if kinds & ORGANIZATION_TYPES and "organization" not in target:
+            same_as = node.get("sameAs")
+            target["organization"] = {
+                "has_logo": _present(node.get("logo")),
+                "same_as": (len(same_as) if isinstance(same_as, list)
+                            else int(_present(same_as))),
+                "has_shipping_service": _present(node.get("hasShippingService")),
+                "has_return_policy": _present(node.get("hasMerchantReturnPolicy")),
+            }
+
+
 def parse_page(html: str, url: str) -> dict:
     """Parst eine Seite und liefert ein JSON-fähiges Ergebnis-Dict.
 
@@ -420,6 +609,11 @@ def parse_page(html: str, url: str) -> dict:
         "h1": parser.h1,
         "images": parser.images,
         "schema_types": sorted(parser.schema_types),
+        # Felder der Product- und Organization-Auszeichnung, nur wenn es sie
+        # gibt. Aus statischem HTML: per JavaScript eingefügtes JSON-LD fehlt
+        # hier, bevor ein Befund "fehlt" entsteht, prüft die Analyse
+        # gerendert gegen (Kriterium tec.rendered-check).
+        "markup": parser.markup,
         # Fremde Skripte, die die Seite lädt. Nicht ihr Inhalt: der bleibt
         # inert. Daran hängen Preistest-Werkzeuge, Bewertungs-Apps,
         # Consent-Banner und doppelte Analytics-Einbindungen, und genau die
@@ -469,6 +663,12 @@ def sitemap_urls(xml_bytes: bytes) -> list[str]:
 # Abruf-Hälfte: robots.txt, Sitemap-Baum, Redirect-Ketten, Breitensuche, CLI.
 # ---------------------------------------------------------------------------
 
+#: Der Name, unter dem eine robots.txt diesen Crawler anspricht, im Sinn von
+#: RFC 9309 das Produkt-Token. So schreibt ihn ein Shop in seine Gruppe:
+#: `User-agent: ptai-audit`. Welche Gruppe gilt, entscheidet
+#: `select_robots_group`.
+ROBOTS_TOKEN = "ptai-audit"
+
 #: Eigener User-Agent, damit der Kunde und Dritte den Audit-Bot erkennen.
 #:
 #: **Die `Mozilla/5.0 (compatible; ...)`-Form ist Absicht, keine Tarnung.** Sie
@@ -477,7 +677,10 @@ def sitemap_urls(xml_bytes: bytes) -> list[str]:
 #: Bot-Management-Systeme werten ein nacktes Kuerzel wie "ptai-audit/1.0" als
 #: unidentifiziertes Skript. Der Name und die Kontakt-URL stehen unveraendert
 #: darin: wer wissen will, wer da crawlt, liest es im Log.
-USER_AGENT = ("Mozilla/5.0 (compatible; ptai-audit/1.0; "
+#:
+#: Der Name kommt aus `ROBOTS_TOKEN`, damit eine robots.txt-Gruppe, die ein
+#: Shop nach seinem Log schreibt, auch die ist, die der Crawl befolgt.
+USER_AGENT = (f"Mozilla/5.0 (compatible; {ROBOTS_TOKEN}/1.0; "
               "+https://path-to-ai.com/crawler)")
 
 #: Timeout je einzelnem Abruf, Sekunden.
@@ -714,8 +917,9 @@ def parse_robots(text: str) -> dict:
     wörtlichen Gruppen und ihre `Disallow`-Zeilen. Für die Report-Anzeige
     unter `disallow_rules` reicht der wörtliche Text, das behauptet dieses
     Feld nicht mehr als "dieser Crawler ist genannt und das ist sein
-    Regelsatz". Die Wildcard-Auswertung, die den Crawl tatsächlich lenkt,
-    sitzt getrennt davon in `robots_path_blocked`.
+    Regelsatz". Welche Gruppe den Crawl lenkt, entscheidet
+    `select_robots_group`, die Wildcard-Auswertung ihrer Regeln sitzt
+    getrennt davon in `robots_path_blocked`.
 
     Eine neue `User-agent`-Zeile beginnt eine neue Gruppe, sobald für die
     vorherige schon eine Regel (`Disallow`/`Allow`) gesehen wurde; mehrere
@@ -761,6 +965,63 @@ def parse_robots(text: str) -> dict:
             ai_rules[known] = "disallow" if "/" in groups[match] else "allowed"
 
     return {"sitemaps": sitemaps, "disallow_rules": groups, "ai_crawler_rules": ai_rules}
+
+
+#: Die Zeichen, aus denen ein Produkt-Token nach RFC 9309 bestehen darf.
+_PRODUCT_TOKEN = re.compile(r"[A-Za-z_-]*")
+
+
+def robots_product_token(value: str) -> str:
+    """Der vergleichbare Teil einer `User-agent`-Zeile, kleingeschrieben.
+
+    RFC 9309 erlaubt im Produkt-Token nur Buchstaben, Bindestrich und
+    Unterstrich, und Googles Referenz-Parser liest eine Zeile genau bis zum
+    ersten anderen Zeichen. So trifft `User-agent: ptai-audit/1.0` denselben
+    Crawler wie `User-agent: ptai-audit`, `User-agent: ptai-audit-beta` aber
+    nicht: das ist ein anderer Name, kein Präfix. Kleingeschrieben, weil der
+    Vergleich laut RFC nicht auf Groß- und Kleinschreibung achtet.
+    """
+    return _PRODUCT_TOKEN.match(value.strip()).group(0).lower()
+
+
+def select_robots_group(disallow_rules: dict[str, list[str]],
+                        token: str = ROBOTS_TOKEN) -> tuple[str | None, list[str]]:
+    """Welche robots.txt-Gruppe für diesen Crawler gilt, und ihre Disallow-Regeln.
+
+    Die Reihenfolge schreibt RFC 9309 in Abschnitt 2.2.1 vor. Gibt es eine
+    Gruppe für den eigenen Namen, gilt nur sie, und die Gruppe `*` ist für
+    diesen Crawler bedeutungslos, auch wenn sie mehr sperrt. Erst ohne
+    eigene Gruppe gilt `*`. Gibt es beides nicht, gilt keine Regel.
+
+    Eine eigene Gruppe ist der übliche Weg, auf dem die IT eines Shops einen
+    bestimmten Bot aussperrt: `User-agent: ptai-audit` mit `Disallow: /`.
+    Bis zum 23.09.2026 las der Crawl nur die Gruppe `*` und ging über genau
+    diese Absage hinweg.
+
+    Die eigene Gruppe wird über `robots_product_token` gefunden, also
+    unabhängig von Groß- und Kleinschreibung und einer Versionsangabe. Stehen
+    mehrere solche Gruppen in der Datei, gelten ihre Regeln zusammen, wie es
+    die RFC verlangt. Eine eigene Gruppe ohne Regel ist eine Freigabe: sie
+    sperrt nichts, auch nicht das, was `*` sperrt.
+
+    `Allow` bleibt wie überall in dieser Datei unausgewertet. Das irrt in die
+    vorsichtige Richtung: der Crawl ruft dann eher zu wenig ab als zu viel.
+
+    Rückgabe ist `(group, rules)`: `token` für die eigene Gruppe, `"*"` für
+    die allgemeine, `None`, wenn keine gilt.
+    """
+    wanted = token.lower()
+    own = [agent for agent in disallow_rules if robots_product_token(agent) == wanted]
+    if own:
+        rules: list[str] = []
+        for agent in own:
+            for rule in disallow_rules[agent]:
+                if rule not in rules:
+                    rules.append(rule)
+        return token, rules
+    if "*" in disallow_rules:
+        return "*", list(disallow_rules["*"])
+    return None, []
 
 
 #: Erkennt eine Prozent-Kodierung (zwei Hex-Ziffern nach `%`).
@@ -817,6 +1078,41 @@ def robots_path_blocked(path_and_query: str, disallow_rules: list[str]) -> bool:
     """
     target = _percent_uppercase(path_and_query)
     return any(_disallow_pattern(rule).match(target) for rule in disallow_rules)
+
+
+def _robots_target(url: str) -> str:
+    """Pfad samt Query einer Adresse, so wie `robots_path_blocked` ihn prüft.
+
+    Seit `normalize` die Blätterseite behält (`?page=2`), kann eine Adresse
+    eine Query tragen. Eine Regel wie `Disallow: /*?page=` greift nur, wenn
+    die Query mitgeprüft wird; mit dem Pfad allein riefe der Crawl gesperrte
+    Folgeseiten ab.
+    """
+    parts = urlparse(url)
+    return f"{parts.path}?{parts.query}" if parts.query else parts.path
+
+
+def is_home_blocked(home: str, group: str | None, rules: list[str]) -> bool:
+    """Ob der Crawl gar nicht erst starten darf, weil die eigene Gruppe die
+    Startseite sperrt.
+
+    Nur die eigene Gruppe hat diese Wirkung. Ein `Disallow: /` unter `*`
+    richtet sich an alle Suchmaschinen und ist selbst ein Befund, den der
+    Audit zeigen muss: ein Shop, der sich aus Google aussperrt. Dort ruft der
+    Crawl die Startseite weiter ab, wie es `crawl` beschreibt. Eine eigene
+    Gruppe richtet sich an genau diesen Crawler, und dann heißt die Antwort
+    nein.
+
+    Geprüft wird der Pfad der Startseite gegen die Regeln, nicht das
+    wörtliche `/`, denn auch `/*`, `*` und `/$` sperren sie. Sperrt die
+    Gruppe die Startseite, läuft der Crawl auch dann nicht, wenn sie andere
+    Pfade offen ließe. Ohne Startseite gibt es keine Klicktiefe, jede Seite
+    aus der Sitemap stünde als verwaist im Snapshot, und das wäre ein
+    Falschbefund.
+    """
+    if group is None or group == "*":
+        return False
+    return robots_path_blocked(urlparse(home).path or "/", rules)
 
 
 def fetch_robots(base: str, fetch) -> dict:
@@ -1000,6 +1296,311 @@ def _count_script_hosts(pages: list[dict]) -> dict:
     return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
+#: Ab dieser Länge schneidet Google einen Title in der Ergebnisliste meist ab.
+#: Eine Faustregel in Zeichen, Google misst in Pixeln; deshalb steht der Wert
+#: mit im Snapshot, und das Kriterium tec.title-length ordnet fest als
+#: "gering" ein.
+TITLE_MAX_CHARS = 60
+
+#: Shopify-Produktadresse im Kontext einer Collection. Kanonisch ist die
+#: Adresse ohne Collection-Präfix, Themes verlinken Produktkarten trotzdem oft
+#: auf diese Form.
+COLLECTION_PRODUCT_PATH = re.compile(r"/collections/[^/]+/products/")
+
+#: Seitenmarker paginierter Listen: `?page=2` (Shopify) oder `/page/2`.
+PAGINATION_MARK = re.compile(r"(?:[?&]page=\d+|/page/\d+)")
+
+#: Felder der Produktauszeichnung, deren Fehlen der Index je Feld zählt.
+PRODUCT_MARKUP_FLAGS = ("has_name", "has_image", "has_brand", "has_identifier",
+                        "has_offers", "has_shipping_details", "has_return_policy")
+PRODUCT_MARKUP_VALUES = ("price", "currency", "availability")
+
+
+def _url_key(url: str | None) -> str | None:
+    """Vergleichsform einer Adresse: Schema und Host klein, leerer Pfad als
+    "/", ohne Fragment.
+
+    Google behandelt die Startseite mit und ohne Schrägstrich gleich. Ohne
+    diese Angleichung stünde jede Startseite, deren hreflang auf
+    `https://shop.de` statt `https://shop.de/` zeigt, als "ohne
+    Selbstreferenz" im Index, ein Falschbefund auf jeder Sprachversion.
+    """
+    if not url:
+        return None
+    parts = urlparse(url)
+    return urlunparse((parts.scheme.lower(), parts.netloc.lower(),
+                       parts.path or "/", "", parts.query, ""))
+
+
+def _self_canonical(p: dict, target) -> bool:
+    """Kein Canonical oder eines auf die Seite selbst (vor oder nach einer
+    Weiterleitung), in der Vergleichsform von `_url_key`."""
+    canonical = _url_key(p.get("canonical"))
+    return canonical is None or canonical in {_url_key(p.get("url")), _url_key(target(p))}
+
+
+def _depth_key(url: str) -> str:
+    """Vergleichsform einer Adresse im Linkgraphen: `_url_key` plus
+    Prozent-Kodierung in Großbuchstaben.
+
+    Shopify schreibt das Canonical eines Handles mit Sonderzeichen klein
+    kodiert (`%c2%ae` für ®), die Links im Theme groß (`%C2%AE`). Ohne die
+    Angleichung fände ein Canonical seine Zielseite nicht, belegt am
+    02.10.2026 an 15 von 516 Produktadressen im Collection-Kontext eines
+    echten Shops.
+    """
+    return _percent_uppercase(_url_key(url))
+
+
+def _canonical_elsewhere(p: dict) -> str | None:
+    """Vergleichsform der Adresse, auf die die Seite kanonisiert, sofern das
+    eine andere Adresse im Shop ist; sonst `None`.
+
+    Andere Adresse heißt: weder die aufgerufene URL noch `end_url`. Ein
+    Canonical auf die Endadresse einer Weiterleitung gilt als Selbstverweis,
+    wie in `_self_canonical`. Ein fremder Host liefert `None`, weil keine
+    erfasste Seite dessen Inhalt trägt.
+    """
+    base = p.get("end_url") or p.get("url")
+    if not p.get("canonical") or not base:
+        return None
+    target = normalize(p["canonical"], base)
+    if target is None:
+        return None
+    key = _depth_key(target)
+    own = {_depth_key(url) for url in (p.get("url"), base) if url}
+    return None if key in own else key
+
+
+def _shortest_depths(pages: list[dict], home: str, via_canonical: bool) -> dict[str, int]:
+    """Kürzeste Klickzahl je Adresse ab der Startseite, als `_depth_key`.
+
+    Jeder interne Link kostet einen Klick. Mit `via_canonical` kommt je Seite
+    eine Kante ohne Klick zu ihrem Canonical-Ziel dazu (`_canonical_elsewhere`):
+    wer die Seite erreicht, hat dessen Inhalt vor sich. Das ist eine
+    Breitensuche mit Kanten der Länge null und eins; eine Kante der Länge null
+    stellt ihr Ziel vorn in die Warteschlange, damit die Reihenfolge nach
+    Tiefe sortiert bleibt.
+
+    Gezählt wird nur über erfasste Seiten. Steht dieselbe Adresse mehrfach in
+    `pages` (in der Vergleichsform), tragen alle Einträge zusammen ihre Kanten
+    bei: ein gedrosselter Eintrag ohne Links verdeckt so nicht den
+    abgerufenen.
+    """
+    links: dict[str, list[str]] = {}
+    canonical_of: dict[str, str] = {}
+    for p in pages:
+        key = _depth_key(p["url"])
+        links.setdefault(key, []).extend(p.get("internal_links") or [])
+        target = _canonical_elsewhere(p) if via_canonical else None
+        if target is not None:
+            canonical_of[key] = target
+
+    start = _depth_key(home)
+    if start not in links:
+        return {}
+    depths = {start: 0}
+    queue: deque[str] = deque([start])
+    done: set[str] = set()
+    while queue:
+        key = queue.popleft()
+        if key in done:
+            continue
+        done.add(key)
+        depth = depths[key]
+        target = canonical_of.get(key)
+        if target in links and depths.get(target, depth + 1) > depth:
+            depths[target] = depth
+            queue.appendleft(target)
+        for link in links[key]:
+            target = _depth_key(link)
+            if target in links and target not in depths:
+                depths[target] = depth + 1
+                queue.append(target)
+    return depths
+
+
+def assign_click_depths(pages: list[dict], home: str) -> None:
+    """Setzt je Seite `link_depth` und `click_depth`.
+
+    `link_depth` ist die reine Linktiefe: die kürzeste Zahl interner Links ab
+    der Startseite. `click_depth` ist die Tiefe des Inhalts: zusätzlich
+    reicht eine Seite ihre Tiefe an die Adresse weiter, auf die sie
+    kanonisiert. `click_depth` ist damit nie größer als `link_depth`. Keine
+    Tiefe heißt `None`, auf keinem Weg von der Startseite erreicht.
+
+    Der Anlass, belegt am 02.10.2026 an einem echten Shopify-Shop: die
+    Produktkarten einer Kategorie verlinken `/collections/<c>/products/<h>`.
+    Das ist schon die Produktseite, ihr Canonical ist `/products/<h>`. Die
+    reine Linktiefe gab dieser kanonischen Adresse erst über den Link von
+    dort eine Ebene mehr, und so stand der Inhalt einen Klick tiefer, als
+    eine Kundin klicken muss: 262 von 512 Produkten auf Tiefe 4 oder tiefer,
+    über das Canonical 75.
+
+    Die Regel gilt für jedes Canonical, nicht nur für dieses Muster: eine
+    Seite zeigt den Inhalt ihres Canonical-Ziels, egal wie die Adresse
+    gebaut ist (Varianten, Kategoriepfade anderer Shopsysteme). Ein falsch
+    gesetztes Canonical kann eine Tiefe dabei nur senken, nie heben; es
+    steht ohnehin unter `canonical_mismatch`. Eine Weiterleitung zählt hier
+    nicht mit. Eine nicht abgerufene Seite (429, Bot-Challenge) trägt kein
+    Canonical und reicht deshalb nichts weiter.
+
+    Beide Werte entstehen aus demselben erfassten Graphen (`internal_links`
+    und `canonical` je Seite), nicht während der Breitensuche: so hängt keine
+    Tiefe davon ab, in welcher Reihenfolge der Crawl die Seiten abgerufen hat.
+    """
+    links = _shortest_depths(pages, home, via_canonical=False)
+    contents = _shortest_depths(pages, home, via_canonical=True)
+    for p in pages:
+        key = _depth_key(p["url"])
+        p["link_depth"] = links.get(key)
+        p["click_depth"] = contents.get(key)
+
+
+def _content_depth_pages(pages: list[dict]) -> list[dict]:
+    """Seiten mit Klicktiefe, deren Inhalt keine andere erfasste Adresse trägt.
+
+    Eine Seite, deren Canonical-Ziel selbst im Crawl steht, fällt heraus:
+    ihr Inhalt steht dort mit höchstens derselben Tiefe (siehe
+    `assign_click_depths`). Zählte sie mit, stünde jedes Produkt in
+    `deepest` zweimal, einmal als `/collections/<c>/products/<h>` und einmal
+    als `/products/<h>`.
+    """
+    crawled = {_depth_key(p["url"]) for p in pages if p.get("url")}
+    return [p for p in pages if p.get("click_depth") is not None
+            and _canonical_elsewhere(p) not in crawled]
+
+
+def _examples(pages: list[dict], cap: int) -> dict:
+    return {"count": len(pages), "examples": [p["url"] for p in pages[:cap]]}
+
+
+def _duplicate_groups(pages: list[dict], field: str, cap: int) -> dict:
+    """Gruppen gleicher Texte in `field`, mit Gruppengröße und drei Beispielen.
+
+    `pages` sind die Seiten, über die gezählt wird. Wer hier alle erfassten
+    Seiten übergibt statt der kanonischen, zählt jede Produktadresse im
+    Collection-Kontext als eigene Dublette: an einem echten Shopify-Shop
+    ergab das mehr als zwölfmal so viele Seiten mit doppelter Meta-Description
+    wie über die kanonischen Seiten.
+    """
+    by_text: dict[str, list[str]] = {}
+    for p in pages:
+        text = (p.get(field) or "").strip()
+        if text:
+            by_text.setdefault(text, []).append(p["url"])
+    groups = [{"text": text[:120], "count": len(urls), "examples": urls[:3]}
+              for text, urls in by_text.items() if len(urls) > 1]
+    groups.sort(key=lambda g: (-g["count"], g["text"]))
+    return {"count": len(groups), "pages": sum(g["count"] for g in groups),
+            "groups": groups[:cap]}
+
+
+def _hreflang_index(pages: list[dict], ok: list[dict], target, cap: int) -> dict:
+    """Sprach- und Ländervarianten: Selbstreferenz, x-default, Erreichbarkeit
+    der Ziele, Gegenseitigkeit.
+
+    "Ziel nicht erreicht" heißt: die Adresse kam bis zur Crawl-Grenze weder
+    über interne Links noch über die Sitemap vor. Ist der Crawl an
+    `--max-urls` gestoßen, kann das auch an der Grenze liegen; das muss die
+    Analyse gegen `summary.url_count` halten, bevor sie einen Befund daraus
+    macht.
+    """
+    by_key: dict[str, dict] = {}
+    for p in pages:
+        for url in (p.get("url"), p.get("end_url")):
+            key = _url_key(url)
+            if key and key not in by_key:
+                by_key[key] = p
+
+    def own(p: dict) -> set:
+        return {k for k in (_url_key(p.get("url")), _url_key(target(p)),
+                            _url_key(p.get("canonical"))) if k}
+
+    with_tags = [p for p in ok if p.get("hreflang")]
+    languages = Counter(code for p in with_tags for code in p["hreflang"])
+    missing_x_default = [p for p in with_tags
+                         if "x-default" not in {c.lower() for c in p["hreflang"]}]
+    missing_self = [p for p in with_tags
+                    if not own(p) & {_url_key(t) for t in p["hreflang"].values()}]
+
+    not_crawled: dict[str, str] = {}
+    not_indexable: dict[str, dict] = {}
+    not_reciprocal: dict[tuple, dict] = {}
+    for p in with_tags:
+        mine = own(p)
+        for code, href in p["hreflang"].items():
+            key = _url_key(href)
+            if not key or key in mine:
+                continue
+            other = by_key.get(key)
+            if other is None:
+                not_crawled.setdefault(key, href)
+                continue
+            status = other.get("status")
+            if (status is None or status >= 400 or not other.get("indexable")
+                    or not _self_canonical(other, target)):
+                not_indexable.setdefault(key, {"url": href, "status": status})
+                continue
+            back = {_url_key(t) for t in (other.get("hreflang") or {}).values()}
+            if other.get("hreflang") and not mine & back:
+                not_reciprocal.setdefault((_url_key(p["url"]), key),
+                                          {"url": p["url"], "target": href})
+
+    return {
+        "pages_with_hreflang": len(with_tags),
+        "languages": dict(sorted(languages.items())),
+        "missing_x_default": _examples(missing_x_default, cap),
+        "missing_self_reference": _examples(missing_self, cap),
+        "targets_not_crawled": {"count": len(not_crawled),
+                                "examples": list(not_crawled.values())[:cap]},
+        "targets_not_indexable": {"count": len(not_indexable),
+                                  "examples": list(not_indexable.values())[:cap]},
+        "not_reciprocal": {"count": len(not_reciprocal),
+                           "examples": list(not_reciprocal.values())[:cap]},
+    }
+
+
+def _product_markup_index(canonical: list[dict], cap: int) -> dict:
+    """Vollständigkeit der Produktauszeichnung je Feld, über kanonische Seiten.
+
+    Drei Beispiele je Feld reichen als Beleg; bei sieben Feldern plus drei
+    Werten wäre der Index mit `cap` Beispielen je Feld sonst zur Hälfte eine
+    URL-Liste.
+    """
+    with_product = [p for p in canonical if (p.get("markup") or {}).get("product")]
+    missing = {}
+    for flag in PRODUCT_MARKUP_FLAGS:
+        lacking = [p for p in with_product if not p["markup"]["product"].get(flag)]
+        missing[flag] = {"count": len(lacking), "examples": [p["url"] for p in lacking[:3]]}
+    for value in PRODUCT_MARKUP_VALUES:
+        lacking = [p for p in with_product if p["markup"]["product"].get(value) is None]
+        missing[value] = {"count": len(lacking), "examples": [p["url"] for p in lacking[:3]]}
+    multiple = [p for p in with_product if p["markup"]["product"].get("count", 1) > 1]
+    availability = Counter(p["markup"]["product"].get("availability") or "none"
+                           for p in with_product)
+    return {
+        "pages": len(with_product),
+        "missing": missing,
+        "multiple_nodes": _examples(multiple, cap),
+        "availability": dict(sorted(availability.items())),
+    }
+
+
+def _organization_markup_index(ok: list[dict]) -> dict:
+    with_org = [p for p in ok if (p.get("markup") or {}).get("organization")]
+    home = next((p for p in ok if p.get("click_depth") == 0), None)
+    return {
+        "pages": len(with_org),
+        "home_url": home["url"] if home else None,
+        "home": (home.get("markup") or {}).get("organization") if home else None,
+        "with_return_policy": sum(1 for p in with_org
+                                  if p["markup"]["organization"].get("has_return_policy")),
+        "with_shipping_service": sum(1 for p in with_org
+                                     if p["markup"]["organization"].get("has_shipping_service")),
+    }
+
+
 def build_findings_index(pages: list[dict], cap: int = FINDINGS_CAP) -> dict:
     """Befundklassen als Anzahl plus begrenzte Beispielliste.
 
@@ -1050,10 +1651,20 @@ def build_findings_index(pages: list[dict], cap: int = FINDINGS_CAP) -> dict:
               for t, urls in by_title.items() if len(urls) > 1]
     groups.sort(key=lambda g: (-g["count"], g["title"]))
 
-    linked = [p for p in ok if p.get("click_depth") is not None]
+    # Tiefe des Inhalts: eine Adresse, deren Canonical-Ziel im Crawl steht,
+    # zählt dort und nicht hier (`_content_depth_pages`).
+    linked = _content_depth_pages(ok)
     linked.sort(key=lambda p: p["click_depth"], reverse=True)
 
-    parameters = [p for p in ok if "?" in (p.get("url") or "")]
+    def is_paginated(p):
+        """Folgeseite einer Liste (`?page=2`, `/page/2`)."""
+        return bool(PAGINATION_MARK.search(p.get("url") or ""))
+
+    # Folgeseiten tragen eine Query, sind aber keine Parameter-Variante: sie
+    # kanonisieren richtigerweise auf sich selbst und stehen unter
+    # `pagination`. Zählten sie hier mit, wäre jede korrekt ausgezeichnete
+    # Folgeseite ein Befund "ohne konsolidierendes Canonical".
+    parameters = [p for p in ok if "?" in (p.get("url") or "") and not is_paginated(p)]
     indexable_parameters = [p for p in parameters if p.get("indexable")]
     unconsolidated = [p for p in indexable_parameters
                       if not p.get("canonical") or p["canonical"] == target(p)]
@@ -1068,6 +1679,71 @@ def build_findings_index(pages: list[dict], cap: int = FINDINGS_CAP) -> dict:
     for p in ok:
         key = _path_prefix(p["url"])
         prefixes[key] = prefixes.get(key, 0) + 1
+
+    # Grundgesamtheit der Inhaltskriterien (H1, Title, Description,
+    # Produktauszeichnung): indexierbare Seiten, die auf sich selbst
+    # kanonisieren. Eine Produktadresse im Collection-Kontext teilt Title,
+    # Description und H1 mit ihrer kanonischen Seite; zählte sie mit, stünde
+    # derselbe Mangel mehrfach im Befund. Dasselbe gilt für die Folgeseiten
+    # einer Liste: `?page=2` bis `?page=24` tragen dieselbe H1 und meist
+    # dieselbe Description wie Seite 1, und eine fehlende Description der
+    # Kategorie stünde sonst 24-mal im Befund. Folgeseiten bewertet
+    # `pagination`.
+    # Zwei erfasste Adressen, die in der Vergleichsform dieselbe sind (die
+    # Startseite mit und ohne Schrägstrich), zählen einmal.
+    canonical, seen = [], set()
+    for p in ok:
+        key = _url_key(target(p))
+        if (p.get("indexable") and _self_canonical(p, target) and not is_paginated(p)
+                and key not in seen):
+            seen.add(key)
+            canonical.append(p)
+
+    linked_elsewhere = [p for p in ok if p.get("click_depth") is not None
+                        and not _self_canonical(p, target)]
+    collection_products = [p for p in linked_elsewhere
+                           if COLLECTION_PRODUCT_PATH.search(p["url"])]
+
+    paginated = [p for p in ok if is_paginated(p)]
+    to_first_page = [p for p in paginated
+                     if p.get("canonical") and not PAGINATION_MARK.search(p["canonical"])]
+
+    criteria_blocks = {
+        # Ab hier die Blöcke der Kriterienliste vom 27.09.2026 (Agents
+        # audit-seo-technical und audit-geo). Jede Zählregel steht hier im
+        # Code statt in einer jq-Abfrage des Agents: zwei Läufe desselben
+        # Moduls auf demselben Snapshot sollen dieselbe Zahl liefern.
+        "canonical_pages": len(canonical),
+        "h1": {
+            "multiple": _examples([p for p in canonical if len(p.get("h1") or []) > 1], cap),
+            "missing": _examples([p for p in canonical if not p.get("h1")], cap),
+        },
+        "titles": {
+            "missing": _examples([p for p in canonical if not (p.get("title") or "").strip()], cap),
+            "too_long": {**_examples([p for p in canonical
+                                      if len((p.get("title") or "").strip()) > TITLE_MAX_CHARS], cap),
+                         "max_chars": TITLE_MAX_CHARS},
+            "duplicate_groups": _duplicate_groups(canonical, "title", cap),
+        },
+        "descriptions": {
+            "missing": _examples([p for p in canonical
+                                  if not (p.get("description") or "").strip()], cap),
+            "duplicate_groups": _duplicate_groups(canonical, "description", cap),
+        },
+        "non_canonical_linked": {
+            **_examples(linked_elsewhere, cap),
+            "share_of_crawl": round(len(linked_elsewhere) / len(ok), 4) if ok else None,
+            "collection_product_urls": len(collection_products),
+        },
+        "pagination": {
+            **_examples(paginated, cap),
+            "indexable": sum(1 for p in paginated if p.get("indexable")),
+            "canonical_to_first_page": _examples(to_first_page, cap),
+        },
+        "hreflang": _hreflang_index(pages, ok, target, cap),
+        "product_markup": _product_markup_index(canonical, cap),
+        "organization_markup": _organization_markup_index(ok),
+    }
 
     return {
         "cap": cap,
@@ -1097,10 +1773,13 @@ def build_findings_index(pages: list[dict], cap: int = FINDINGS_CAP) -> dict:
         "pages_without_schema": {"count": len(without_schema),
                                   "examples": without_schema[:cap]},
         "path_prefixes": prefixes,
+        **criteria_blocks,
     }
 
 
-def build_summary(pages: list[dict], blocked_links: int = 0, base: str = "") -> dict:
+def build_summary(pages: list[dict], blocked_links: int = 0, base: str = "",
+                  robots_group: str | None = None,
+                  home_blocked_by_robots: bool = False) -> dict:
     """Aggregiert die Kennzahlen aus der Seitenliste zu `summary`.
 
     `successful` sind die Seiten, die `parse_page` durchlaufen haben
@@ -1115,6 +1794,12 @@ def build_summary(pages: list[dict], blocked_links: int = 0, base: str = "") -> 
     auftaucht: sie hier mitzuzählen wäre falsch, sie fehlt hier komplett zum
     Zählen. Wie oft der Shop dennoch in gesperrten Raum verlinkt, ist selbst
     ein Befund, kein stilles Wegfiltern.
+
+    `robots_group` und `home_blocked_by_robots` kommen ebenfalls von außen
+    (aus `build_snapshot`). Das erste sagt, welche robots.txt-Gruppe der
+    Crawl befolgt hat. Das zweite erklärt einen leeren Snapshot: ohne das
+    Feld sähe eine Absage des Shops an diesen Crawler aus wie ein kaputter
+    Lauf oder ein Shop ohne Seiten.
     """
     status_code_distribution: dict[str, int] = {}
     for s in pages:
@@ -1131,7 +1816,7 @@ def build_summary(pages: list[dict], blocked_links: int = 0, base: str = "") -> 
     longest_redirect_chain = max(
         (len(s.get("redirects") or []) for s in pages), default=0
     )
-    depths = [s["click_depth"] for s in pages if s.get("click_depth") is not None]
+    depths = [s["click_depth"] for s in _content_depth_pages(pages)]
 
     return {
         "url_count": len(pages),
@@ -1143,6 +1828,8 @@ def build_summary(pages: list[dict], blocked_links: int = 0, base: str = "") -> 
         "longest_redirect_chain": longest_redirect_chain,
         "max_click_depth": max(depths, default=None),
         "blocked_links": blocked_links,
+        "robots_group": robots_group,
+        "home_blocked_by_robots": home_blocked_by_robots,
         "third_party_script_hosts": third_party_script_hosts(pages, base),
         "throttled_pages": sum(1 for p in pages if p.get("throttled")),
         "bot_challenge_pages": sum(1 for p in pages if p.get("bot_challenge")),
@@ -1227,25 +1914,29 @@ FORTSCHRITT_SEKUNDEN = 20.0
 def crawl(home: str, normalized_sitemap_urls: list[str], fetch,
           max_urls: int, delay: float,
           disallow_rules: list[str] = (), blocked_target: set[str] | None = None) -> list[dict]:
-    """Führt die Breitensuche aus: Startseite bei Klicktiefe 0, dazu die
-    komplette Sitemap-Menge als zusätzlich zu besuchende Seiten.
+    """Führt die Breitensuche aus: ab der Startseite über interne Links, dazu
+    die komplette Sitemap-Menge als zusätzlich zu besuchende Seiten.
 
     Die Klicktiefe kommt ausschließlich aus der Verlinkung ab der Startseite,
-    nie aus der Position in der Sitemap: die Link-Warteschlange (`queue`)
-    wird deshalb vollständig geleert, bevor je eine reine Sitemap-URL
-    (`sitemap_rest`) an die Reihe kommt. Das garantiert, dass jede über Links
-    von der Startseite erreichbare Seite ihre echte, minimale Klicktiefe
-    bekommt, bevor eine gleichnamige Sitemap-URL sie mit einer unbekannten
-    Tiefe "verbraucht". Eine Sitemap-URL, die dabei nie über einen Link
-    erreicht wird, bekommt `click_depth: None`, selbst ein Befund: eine
-    verwaiste, aber indexierte Seite.
+    nie aus der Position in der Sitemap. Gesetzt wird sie erst nach dem
+    Abruf, aus dem erfassten Graphen (`assign_click_depths`): `link_depth`
+    über Links allein, `click_depth` zusätzlich über Canonicals. Eine Seite,
+    die auf keinem Weg von der Startseite erreicht wird, bekommt
+    `click_depth: None`, selbst ein Befund: eine verwaiste, aber indexierte
+    Seite.
+
+    Die Link-Warteschlange (`queue`) wird trotzdem vollständig geleert, bevor
+    je eine reine Sitemap-URL (`sitemap_rest`) an die Reihe kommt: reicht
+    `max_urls` nicht für alles, stehen so die verlinkten Seiten im Snapshot,
+    nicht die nur aus der Sitemap bekannten.
 
     `max_urls` ist eine harte Obergrenze über alle besuchten URLs, `delay`
     die Pause zwischen zwei Abrufen (nicht vor dem allerersten).
 
-    `disallow_rules` sind die Disallow-Zeilen der robots.txt-Gruppe
-    `User-agent: *` (leer per Default, dann ändert sich nichts an bestehenden
-    Aufrufen). Eine neu entdeckte URL, deren Pfad darauf passt, wird nie in
+    `disallow_rules` sind die Disallow-Zeilen der robots.txt-Gruppe, die für
+    diesen Crawler gilt: die eigene `ptai-audit`, sonst `*` (siehe
+    `select_robots_group`; leer per Default, dann ändert sich nichts an
+    bestehenden Aufrufen). Eine neu entdeckte URL, deren Pfad darauf passt, wird nie in
     die Warteschlange aufgenommen und nie abgerufen, zählt aber als
     entdeckter Link: bei Beispielshop (siehe `robots_path_blocked`) sind die
     Filter- und Sortier-Permutationen praktisch unbegrenzt, ohne dieses
@@ -1253,17 +1944,21 @@ def crawl(home: str, normalized_sitemap_urls: list[str], fetch,
     echten Produktseiten. `blocked_target`, wenn übergeben, sammelt diese
     Adressen dedupliziert für die Zusammenfassung (`blocked_links`); die
     Startseite selbst ist der angeforderte Einstiegspunkt, keine entdeckte
-    Verlinkung, und wird deshalb nie gegen `disallow_rules` geprüft.
+    Verlinkung, und wird deshalb hier nie gegen `disallow_rules` geprüft.
+    Ob die eigene Gruppe den ganzen Lauf untersagt, entscheidet vorher
+    `build_snapshot` über `is_home_blocked`. Hier kommt die Startseite also
+    nur an, wenn die eigene Gruppe sie erlaubt oder die Regeln aus `*`
+    stammen.
     """
     visited: set[str] = set()
     planned: set[str] = {home}
-    queue: deque[tuple[str, int | None]] = deque([(home, 0)])
+    queue: deque[str] = deque([home])
 
     sitemap_rest: deque[str] = deque()
     for u in normalized_sitemap_urls:
         if u == home:
             continue
-        if disallow_rules and robots_path_blocked(urlparse(u).path, disallow_rules):
+        if disallow_rules and robots_path_blocked(_robots_target(u), disallow_rules):
             planned.add(u)
             if blocked_target is not None:
                 blocked_target.add(u)
@@ -1284,7 +1979,7 @@ def crawl(home: str, normalized_sitemap_urls: list[str], fetch,
     gedrosselt = 0
     abgewiesen = 0
     pause_max = min(PAUSE_MAX, max(delay * 8, 1.0))
-    geparkt: list[tuple[str, int | None]] = []
+    geparkt: list[str] = []
     begonnen = time.monotonic()
 
     zuletzt_gemeldet = begonnen
@@ -1322,10 +2017,7 @@ def crawl(home: str, normalized_sitemap_urls: list[str], fetch,
           f"{int(FORTSCHRITT_SEKUNDEN)}s.", file=sys.stderr, flush=True)
 
     while (queue or sitemap_rest) and len(visited) < max_urls:
-        if queue:
-            url, depth = queue.popleft()
-        else:
-            url, depth = sitemap_rest.popleft(), None
+        url = queue.popleft() if queue else sitemap_rest.popleft()
         if url in visited:
             continue
         visited.add(url)
@@ -1367,25 +2059,23 @@ def crawl(home: str, normalized_sitemap_urls: list[str], fetch,
             if versuch < RETRY_429:
                 time.sleep(aktuelle_pause)
         else:
-            geparkt.append((url, depth))
+            geparkt.append(url)
             visited.discard(url)
             fortschritt()
             continue
-        entry["click_depth"] = depth
         pages.append(entry)
         fortschritt()
 
-        next_depth = None if depth is None else depth + 1
         for link in entry.get("internal_links") or []:
             if link in visited or link in planned:
                 continue
-            if disallow_rules and robots_path_blocked(urlparse(link).path, disallow_rules):
+            if disallow_rules and robots_path_blocked(_robots_target(link), disallow_rules):
                 planned.add(link)
                 if blocked_target is not None:
                     blocked_target.add(link)
                 continue
             planned.add(link)
-            queue.append((link, next_depth))
+            queue.append(link)
 
     # Nachlauf: die geparkten URLs, mit der hoechsten Pause und in Ruhe. Der
     # Hauptdurchgang ist durch, der Shop hatte also Zeit, sich zu erholen.
@@ -1395,30 +2085,29 @@ def crawl(home: str, normalized_sitemap_urls: list[str], fetch,
         diesmal, geparkt = geparkt, []
         print(f"Nachlauf {runde + 1}: {len(diesmal)} gedrosselte Seiten, "
               f"Pause {pause_max:.1f}s", file=sys.stderr, flush=True)
-        for url, depth in diesmal:
+        for url in diesmal:
             if len(pages) >= max_urls:
-                geparkt.append((url, depth))
+                geparkt.append(url)
                 continue
             time.sleep(pause_max)
             entry = process_page(url, fetch)
-            entry["click_depth"] = depth
             if entry.get("status") == 429:
                 gedrosselt += 1
-                geparkt.append((url, depth))
+                geparkt.append(url)
                 continue
             visited.add(url)
             pages.append(entry)
             fortschritt(nachlauf=True)
 
-    for url, depth in geparkt:
-        pages.append({"url": url, "status": 429, "throttled": True,
-                      "click_depth": depth})
+    for url in geparkt:
+        pages.append({"url": url, "status": 429, "throttled": True})
 
     if abgewiesen:
         print(f"Warnung: {abgewiesen} Seiten wurden als Bot abgewiesen und "
               f"fehlen im Snapshot. Das ist keine Drosselung: ein höherer "
-              f"--delay hilft nicht. Der Crawler muss in der WAF des Shops "
-              f"freigegeben werden (User-Agent \"ptai-audit\"), sonst bleibt "
+              f"--delay hilft nicht. Die IP-Adresse des Betreibers muss in "
+              f"der WAF des Shops befristet freigegeben werden "
+              f"(reference/access.md, Teil B, \"Eure Firewall\"), sonst bleibt "
               f"dieser Teil des Shops unmessbar.")
     if geparkt:
         print(f"Warnung: {len(geparkt)} Seiten blieben auch im Nachlauf "
@@ -1429,6 +2118,7 @@ def crawl(home: str, normalized_sitemap_urls: list[str], fetch,
         print(f"Hinweis: {gedrosselt} Abrufe wurden mit HTTP 429 abgewiesen und "
               f"später erfolgreich nachgeholt.")
     fortschritt(immer=True)
+    assign_click_depths(pages, home)
     return pages
 
 
@@ -1437,7 +2127,18 @@ def check(base: str, robots: dict, roots: list[str], fetch) -> int:
     wie viele URLs zu erwarten sind. Exit-Code 0 bei Erfolg, 1 wenn keine
     einzige Sitemap-Wurzel erreichbar war, dann ist die Domain selbst
     vermutlich falsch oder nicht erreichbar.
+
+    Exit-Code 1 auch dann, wenn die eigene robots.txt-Gruppe die Startseite
+    sperrt (`is_home_blocked`). Die Sitemap wird dann nicht mehr abgerufen:
+    eine Zahl erwarteter URLs wäre eine falsche Zusage, denn der Crawl ruft
+    keine einzige davon ab. Genau dafür läuft `--check` vor Gate A.
     """
+    group, rules = select_robots_group(robots.get("disallow_rules") or {})
+    if is_home_blocked(_home_url(base), group, rules):
+        print(f"Fehler: robots.txt sperrt den Crawler {ROBOTS_TOKEN} mit einer "
+              f"eigenen Gruppe ab der Startseite. Ein Crawl ruft keine Seite ab.")
+        return 1
+
     urls, errors = resolve_sitemap_tree(roots, fetch)
     source = "robots.txt" if robots.get("found") and robots.get("sitemaps") else "Fallback /sitemap.xml"
 
@@ -1452,6 +2153,73 @@ def check(base: str, robots: dict, roots: list[str], fetch) -> int:
         reasons = "; ".join(f"{f['sitemap']}: {f['reason']}" for f in errors)
         print(f"Warnung: {len(errors)} Sitemap(s) fehlgeschlagen: {reasons}")
     return 0
+
+
+def _home_url(base: str) -> str:
+    """Die Startseite als normalisierte Adresse.
+
+    Explizit mit Schluss-Slash normalisiert: sonst können die Startseite (aus
+    `base` ohne Pfad) und eine Sitemap- oder Link-Referenz auf "/" nach
+    `normalize` zwei verschiedene Strings ergeben (dessen Wurzel-Regel
+    behält den Slash), obwohl beide dieselbe Seite meinen.
+    """
+    return normalize(base + "/", base) or base
+
+
+def build_snapshot(base: str, robots: dict, roots: list[str], fetch,
+                   max_urls: int, delay: float) -> dict:
+    """Der ganze Lauf nach robots.txt: Sitemap, Crawl, Zusammenfassung.
+
+    Aus `main` herausgelöst, damit die Entscheidung, welche robots.txt-Gruppe
+    gilt und ob der Crawl überhaupt starten darf, mit einem injizierten
+    `fetch` testbar ist. Bis zum 23.09.2026 stand sie ungetestet in `main`
+    und las dort nur die Gruppe `*`.
+
+    Sperrt die eigene Gruppe die Startseite (`is_home_blocked`), ruft der
+    Lauf nichts mehr ab, auch die Sitemap nicht: die Absage gilt für jeden
+    Pfad des Shops, und robots.txt ist die einzige Datei, die ein Crawler
+    immer lesen darf. Der Snapshot entsteht trotzdem und sagt in
+    `summary.home_blocked_by_robots`, warum er leer ist.
+    """
+    home = _home_url(base)
+    robots_group, disallow_rules = select_robots_group(robots.get("disallow_rules") or {})
+    home_blocked = is_home_blocked(home, robots_group, disallow_rules)
+    blocked_links: set[str] = set()
+
+    if home_blocked:
+        sitemap_errors: list[dict] = []
+        pages: list[dict] = []
+        print(f"Kein Crawl: robots.txt sperrt {ROBOTS_TOKEN} mit einer eigenen "
+              f"Gruppe ab der Startseite. Abgerufen wurde nur robots.txt.",
+              file=sys.stderr, flush=True)
+    else:
+        print(f"Sitemap: {len(roots)} Wurzel(n), wird aufgeloest ...",
+              file=sys.stderr, flush=True)
+        raw_urls, sitemap_errors = resolve_sitemap_tree(roots, fetch)
+        sitemap_seeds = normalize_sitemap_seeds(raw_urls, base)
+        print(f"Sitemap: {len(sitemap_seeds)} URLs, {len(sitemap_errors)} Fehler. "
+              f"robots.txt-Gruppe: {robots_group or 'keine'}.",
+              file=sys.stderr, flush=True)
+        pages = crawl(home, sitemap_seeds, fetch, max_urls, delay,
+                      disallow_rules=disallow_rules, blocked_target=blocked_links)
+
+    summary = build_summary(pages, blocked_links=len(blocked_links), base=base,
+                            robots_group=robots_group,
+                            home_blocked_by_robots=home_blocked)
+    # Ob der Lauf an seiner Obergrenze aufgehört hat. Ohne dieses Feld sieht
+    # ein gekappter Crawl aus wie ein vollständiger: verwaiste Seiten und nie
+    # erreichte hreflang-Ziele wären dann Befunde über den Shop, obwohl sie
+    # nur hinter der Grenze lagen.
+    summary["max_urls"] = max_urls
+    summary["hit_url_limit"] = len(pages) >= max_urls
+    return {
+        "domain": base,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "robots": {**robots, "sitemap_errors": sitemap_errors},
+        "summary": summary,
+        "findings_index": build_findings_index(pages),
+        "pages": pages,
+    }
 
 
 def main() -> None:
@@ -1484,34 +2252,7 @@ def main() -> None:
     if args.check:
         sys.exit(check(base, robots, roots, fetch))
 
-    print(f"Sitemap: {len(roots)} Wurzel(n), wird aufgeloest ...",
-          file=sys.stderr, flush=True)
-    raw_urls, sitemap_errors = resolve_sitemap_tree(roots, fetch)
-    sitemap_seeds = normalize_sitemap_seeds(raw_urls, base)
-    print(f"Sitemap: {len(sitemap_seeds)} URLs, {len(sitemap_errors)} Fehler.",
-          file=sys.stderr, flush=True)
-    # Root explizit mit Schluss-Slash normalisieren: sonst kann "home" (aus
-    # `base` ohne Pfad) und eine Sitemap- oder Link-Referenz auf "/" nach
-    # `normalize` zwei verschiedene Strings ergeben (dessen Wurzel-Regel
-    # behält den Slash), obwohl beide dieselbe Seite meinen.
-    home = normalize(base + "/", base) or base
-
-    # Nur die Gruppe "*" gilt für diesen Crawler: er tritt nicht als einer
-    # der in AI_CRAWLERS gelisteten Bots auf, sondern als eigener User-Agent
-    # (USER_AGENT), für den robots.txt so gut wie nie eine eigene Gruppe hat.
-    disallow_rules_star = robots.get("disallow_rules", {}).get("*", [])
-    blocked_links: set[str] = set()
-    pages = crawl(home, sitemap_seeds, fetch, args.max_urls, args.delay,
-                  disallow_rules=disallow_rules_star, blocked_target=blocked_links)
-
-    snapshot = {
-        "domain": base,
-        "collected_at": datetime.now(timezone.utc).isoformat(),
-        "robots": {**robots, "sitemap_errors": sitemap_errors},
-        "summary": build_summary(pages, blocked_links=len(blocked_links), base=base),
-        "findings_index": build_findings_index(pages),
-        "pages": pages,
-    }
+    snapshot = build_snapshot(base, robots, roots, fetch, args.max_urls, args.delay)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1520,6 +2261,15 @@ def main() -> None:
                         encoding="utf-8")
 
     summary = snapshot["summary"]
+    if summary["home_blocked_by_robots"]:
+        # Exit 1, damit ein Aufrufer den leeren Snapshot nicht als
+        # erfolgreichen Crawl weiterreicht. Die Datei entsteht trotzdem,
+        # sie belegt die Absage.
+        print(f"Geschrieben: {out_path} ohne eine einzige Seite. robots.txt "
+              f"sperrt den Crawler {ROBOTS_TOKEN} mit einer eigenen Gruppe ab "
+              f"der Startseite. Das ist eine Absage des Shops, kein leerer Shop "
+              f"und kein Fehler des Laufs.")
+        sys.exit(1)
     print(f"Geschrieben: {out_path} ({summary['url_count']} URLs, "
           f"{summary['status_code_distribution'].get('200', 0)} mit Status 200)")
 

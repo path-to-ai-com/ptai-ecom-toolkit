@@ -222,8 +222,16 @@ lightconf.write(cfg, '<run>/run-config.json')
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/crawl-site/scripts/crawl.py" \
-  --domain <domain> --out "<run>/data" --max-urls 300
+  --domain https://<host> --out "<run>/data" --max-urls 300
 ```
+
+**`--domain` will die vollständige URL mit Schema, nicht den Host.** Das Script
+hängt nichts an: mit `beispielshop.de` bekommt jeder Abruf
+`unknown url type: 'beispielshop.de'`, und der Lauf endet mit einer `crawl.json`
+über eine einzige Seite mit Status `error`. **Eine Erfolgsmeldung kommt
+trotzdem**, sie lautet dann "1 URLs, 0 mit Status 200". Belegt am 17.09.2026 in
+einem Lauf, in dem genau diese Zeile als erfolgreicher Crawl gelesen wurde. Prüf nach dem Crawl `summary.url_count` und
+`summary.status_code_distribution`, bevor du weitergehst.
 
 `--max-urls 300` statt der 5000 des großen Audits: hier zählt Tiefe vor Breite,
 und ein ungebremster Crawl kostet ein Vielfaches des restlichen Laufs.
@@ -456,6 +464,110 @@ dasteht.**
 L6 speist keinen Score. Eine Marktposition ist keine Note; sie liefert Quadrant,
 Matrix und das Markt-Narrativ.
 
+**Die Säulen-Datei trägt dieselben Befund-Felder wie die Linsen, keins weniger:**
+`severity`, `title`, `body`, `evidence`, `recommendation`, `url`, `impact`,
+`effort`, `confidence`, `lens`. Dazu `persists: true` bei einem Befund, den die
+Maßnahmen dieses Bereichs nicht abstellen. Zwei Felder fallen beim
+Zusammenführen regelmäßig hinten runter, und beide fallen still:
+
+- **`url` ist der eine klickbare Deep-Link.** Der Renderer macht daraus im PDF
+  die Zeile "zur Stelle ansehen", und ohne ihn ist im ganzen Report kein
+  einziger Beleg anklickbar. Genau das ist die erste Frage der Übergabe.
+  Beim Zusammenlegen zweier Befunde entscheidet der Agent, welcher der beiden
+  Links die Sache besser zeigt; bei einem seitenweiten Fund bleibt das Feld
+  weg, statt auf eine beliebige Seite zu zeigen. Belegt am 17.09.2026: dieser
+  Abschnitt zählte nur `skills` und `methoden` auf, und alle drei Säulen-Agents
+  haben `url` weggelassen, weil es im Vertrag nicht stand.
+- **`lens` trägt genau den kurzen Linsennamen**, kleingeschrieben und ohne
+  Präfix: `auffindbarkeit`, `ki-sichtbarkeit`, `kaufstrecke`, `sortiment`,
+  `vertrauen`. Die Score-Engine vergleicht das Feld **exakt** gegen diese
+  Zeichenketten (`score.mjs`, `saeuleVon`). Steht dort "L1 Auffindbarkeit",
+  landet der Befund in keiner Säule, jede Säule kommt auf 100 Punkte, und es
+  gibt keine Fehlermeldung. Das Feld `ohne_saeule` in der Score-Ausgabe listet
+  genau diese Zeilen auf, und es wird nach jedem Lauf angesehen.
+
+**`impact` ist ein ganzer Satz, kein Stufenwort.** Der Renderer setzt ihn im PDF
+als eigene Zeile mit dem Label "Wirkung". Steht dort "hoch", verbraucht eine
+beschriftete Zeile Platz für eine Angabe, die Farbstrich und Schwere-Badge
+schon zweimal daneben zeigen. Der Satz benennt, was sich geschäftlich ändert,
+**wenn die Empfehlung umgesetzt ist**, nicht was heute schiefgeht, und hängt wo
+möglich an einer Zahl aus demselben Befund.
+
+### Die ausführlichen Befunde sind Entscheidungsvorlagen
+
+**Die `topN` Befunde je Kapitel (Vorgabe 4) bekommen drei weitere Felder:
+`facts`, `proof` und, wo es zwei echte Wege gibt, `decision`.** Der Leser ist
+Geschäftsführer und will wissen, was er entscheiden soll, nicht einen Absatz
+lesen, in dem die Messwerte stehen. Das Feedback aus einem Gespräch am
+30.09.2026: Entscheidungsvorlagen statt Informationen, ein Entweder-oder. Am
+01.10.2026 entstanden zwei Audits in diesem Format, aber nur als Einzelskripte
+im Kundenordner, und der nächste Lauf am 02.10.2026 kam wieder mit der
+Textlatte. Yves: *"Da sind immer noch die riesigen Texte."* Seitdem kann der
+Renderer das Format selbst, und dieser Vertrag erzeugt es.
+
+**Das vollständige Format steht in `reference/finding-format.md`**, gemeinsam
+mit dem vollen Audit und dem Kundenportal. Was hier folgt, ist die Kurzfassung
+für das Audit Light; widerspricht sie dem Vertrag, gilt der Vertrag.
+
+`body`, `recommendation`, `impact` und `evidence` bleiben gefüllt. Sie stehen im
+PDF zugeklappt unter "+ Herleitung und Belege" und im Portal zum Aufklappen. Was
+neu dazukommt, ist das, was der Leser zuerst sieht:
+
+- **`facts`**, zwei bis vier Zeilen `{label, text}`, je höchstens 160 Zeichen,
+  ein ganzer Satz. `WARUM ES ZÄHLT` ist Pflicht und nennt die Folge für den
+  Kunden, nicht den Mechanismus. Dazu nach Bedarf `URSACHE`, `VORHANDEN`,
+  `OFFEN`, `NÄCHSTER SCHRITT`. Was ohne Entscheidung sofort geht, steht als
+  `{now: true, text}` und wird "SOFORT UMSETZBAR". Statt des Labels geht
+  `{kind, text}` mit `effect`, `cause`, `present`, `open` oder `next`; der
+  Renderer setzt das Label dann selbst, und das Portal versteht dieselbe Datei.
+- **`proof`**, der Beleg als Bild: `{columns: [{label, blocks: [...]}]}`, eine
+  oder zwei Spalten. Jede Zahl darin ist gemessen. Blocktypen:
+  `metric` `{value, unit, label}`, `note` `{text}`, `quote` `{text, source}`
+  (mit `<ins>` für eine vorgeschlagene Ergänzung, `<mark>` für eine Abweichung),
+  `chips` `{groups: [{label, items, own}]}`, `rows` `{rows: [{label, sub, text|quote}]}`,
+  `pairs` `{rows: [{from, to}]}`, `grid` `{columns, rows: [{label, cells}]}` mit
+  Zellen `both|brand|other|domain|none|x|check`, `dist` `{total, parts: [{value, label, tone}]}`,
+  `image` `{src, alt, rings, addition, caption}` und `phone`
+  `{src, width, height, fold, markers: [{y, label, text}]}`. Steht ein `phone`
+  vorn, stehen Kennzahlen und `facts` rechts daneben.
+- **`decision`**, nur wo es zwei echte, verschiedene Wege gibt, nie als
+  Pflichtfeld: `{question, options: [{title, text, effort, result, image}, {…}],
+  recommended: 0|1, reason}`. Die Frage ist ein ganzer Satz mit "oder". `reason`
+  beginnt mit dem empfohlenen Buchstaben ("A, weil …") und hat einen Satz.
+  Typisch sind zwei bis vier Entscheidungen im ganzen Report, nicht je Befund
+  eine. Ein Befund, der nur eine sinnvolle Maßnahme hat, bekommt keine
+  `decision`, sondern eine Zeile `SOFORT UMSETZBAR`.
+
+Belegbilder liegen als Dateien vor, `src` relativ zur `content.json` oder
+absolut; der Renderer bettet sie ein. Für Handy und Kaufbereich taugen nur
+Aufnahmen ohne Cookie-Dialog, siehe Stufe 4. Ein Befund mit `decision` bekommt
+im PDF eine eigene Seite, einer ohne bleibt kompakt. Ton und Länge: ein Befund
+mit Entscheidung passt auf eine Seite, ein kompakter auf eine halbe.
+
+**Jede Säulen-Datei trägt zwei getrennte Herkunftslisten, nie eine gemischte.**
+`skills` sind die Skills, die die Linsen in Stufe 1 **tatsächlich über das
+Skill-Werkzeug geladen haben**, mit vollem Namen (`claude-seo:seo-technical`,
+`ptai-ecom:lens-trust`). `methoden` ist die Messgrundlage, also was geprüft wurde
+und woher die Zahlen kommen. Der Renderer setzt sie als "Geprüft mit" und
+"Grundlage" nebeneinander.
+
+**Welche Skills geladen wurden, wird nachgesehen, nicht aus dem eigenen Prompt
+abgeschrieben.** Ein Agent, der die Skill nicht aufgerufen hat, taucht sonst im
+Report als geprüft auf. Der Nachweis steht in den Agenten-Protokollen des Laufs:
+
+```bash
+for f in <agent-ids>; do printf "%-20s " "$f"
+  grep -o '"name":"Skill","input":{"skill":"[^"]*"' \
+    "$HOME/.claude/projects/<projekt>/<session>/subagents/agent-$f.jsonl" \
+    | sed 's/.*skill":"//' | sort -u | tr '\n' ' '; echo; done
+```
+
+Am 16.09.2026 stand in allen drei Kapiteln die Messgrundlage im Feld `skills`,
+weil der Orchestrator sie als "die genutzten Methoden" angefordert hatte. Yves:
+*"Wurden da jetzt wirklich Skills geladen, weil da stehen: keine mehr?"* Sie
+waren geladen, alle acht; nur stand es nirgends. Ein Report, der die eigene
+Methode belegen soll, darf an dieser Stelle nicht raten.
+
 Danach den Score rechnen lassen, nicht schätzen. Das zweite Argument ist der
 Ordner mit den `L<n>-<lens>.coverage.json`-Dateien aus Stufe 1, `<run>/findings/`
 selbst; ohne dieses Argument bleibt `coverage` leer und die Abdeckungs-Regel
@@ -484,8 +596,51 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/report/sales/render.mjs" \
 bash "${CLAUDE_PLUGIN_ROOT}/skills/report/scripts/render_pdf.sh" \
      "<run>/report.html" "<run>/report.pdf"
 mkdir -p "<account_dir>/deliverables"
-cp "<run>/report.pdf" "<account_dir>/deliverables/<datum>-audit-light.pdf"
+cp "<run>/report.pdf" "<account_dir>/deliverables/<datum>-path-to-ai-ecom-audit-<domain>.pdf"
 ```
+
+**Der Dateiname des Deliverables ist kein interner Name.** Yves lädt das PDF herunter und
+verschickt es weiter, und dann steht dieser Name im Postfach des Empfängers. Das Schema ist
+deshalb fest und in allen Report-Skills gleich: **Datum, Absender und Dokumentart, Domain**, also
+`2026-09-20-path-to-ai-ecom-audit-beispielshop.de.pdf`. Die Domain bleibt als Domain lesbar, mit
+Punkt, damit der Empfänger auf einen Blick sieht, um welchen Shop es geht. `<datum>` ist das Datum
+des Laufs, nicht das Datum des Kopierens.
+
+**Die Datei im Lauf-Ordner heißt weiter `report.pdf`**, das ist der Arbeitsstand. Wer Yves eine
+Datei schickt oder verlinkt, schickt die aus `deliverables/`, nie die aus dem Lauf-Ordner: sonst
+landet bei ihm eine Datei namens `report.pdf`. Belegt am 21.09.2026, genau so passiert.
+
+`audit-light-send` hängt denselben Namen an die Mail; er entsteht dort in `send-report.mjs` aus
+`content.json`. Damit dort das Lauf-Datum steht und nicht das Versanddatum, trägt `content.json`
+das Feld `meta.datei_datum` mit dem Datum des Laufs.
+
+**Die Seite "Entscheidungen" baut der Renderer selbst.** Sobald ein Befund eine
+`decision` trägt (Stufe 3), steht hinter der Zusammenfassung eine Seite mit
+allen Entscheidungen, je Zeile Frage, Herkunft und beide Wege, der Vorschlag
+markiert. Die Seite "Worauf es jetzt ankommt" (`triage`) entfällt dann; ihre
+Spalte "Nicht verfolgen" zieht auf die Entscheidungsseite. Wer sie gezielt
+setzen will, schreibt `decisions.avoid` als `[{title, text}]`; sonst liest der
+Renderer die triage-Spalte, deren Label "NICHT" oder "IGNOR" enthält, mit
+Einträgen der Form "Titel: Satz". `decisions.headline`, `decisions.lead` und
+`decisions.pointer` überschreiben bei Bedarf die Vorgaben.
+
+**Belegbilder vom Handy nur ohne Cookie-Dialog.** Die Aufnahmen aus Stufe 0
+zeigen den Shop, wie ein Erstbesucher ihn sieht; auf dem Handy verdeckt der
+Dialog dort oft die ganze Seite. Für `proof` werden die Seiten deshalb ein
+zweites Mal aufgenommen, mit abgelehntem Dialog, und für den Belegtyp `phone`
+gleich als Streifen in der gezeigten Höhe:
+
+```bash
+PY=$(for p in "$PTAI_PLAYWRIGHT_PYTHON" python3 python3.11 /opt/homebrew/opt/python@3.11/bin/python3.11; do
+  [ -n "$p" ] && "$p" -c 'import playwright' 2>/dev/null && echo "$p" && break; done)
+cd "<account_dir>" && "$PY" "${CLAUDE_PLUGIN_ROOT}/skills/capture-screens/scripts/shoot_declined.py" \
+  --target "<account_dir>/material/<datum>-audit-screenshots" \
+  --url start=<url> --url product=<url> --url collection=<url> --strip product=1800
+```
+
+Meldet das Skript "Kein Ablehnen-Knopf gefunden", kennt es das Consent-Tool
+nicht: den Knopf im HTML suchen, seinen Selektor in `DECLINE_SELECTORS`
+ergänzen und neu aufnehmen. Nie die Aufnahme mit Dialog als Beleg nehmen.
 
 **Die letzte Seite kommt nicht aus `content.json`.** Ist `PTAI_CLOSING_FILE`
 gesetzt, setzt `render.mjs` diese Datei unverändert als Schlussseite ein,
@@ -501,7 +656,7 @@ wird ignoriert. Der Kleindruck zur Datengrundlage steht am Ende der letzten
 Inhaltsseite davor. Er endet mit `© <Jahr> <PTAI_OPERATOR_NAME>.`, gesucht wie
 der Schluss; ohne ausdrücklich gesetzten Namen entfällt dieser Satz.
 
-**Drei Feldfehler, die den Report im ersten Lauf zerlegt haben:**
+**Sieben Feldfehler, die den Report in den ersten Läufen zerlegt haben:**
 
 - **`market.callouts[].value` ist eine kurze Zahl, keine Überschrift.** Der
   Renderer setzt sie im Display-Schnitt über die halbe Spalte. Ein Befund-Titel
@@ -513,6 +668,97 @@ der Schluss; ohne ausdrücklich gesetzten Namen entfällt dieser Satz.
 - **`meta.erstelltFuer` ist die Firma, nicht die Domain.** Steht es nicht drin,
   fällt der Renderer auf `shop` zurück, und im Kopf jeder Seite steht dann eine
   URL statt eines Namens.
+- **`chapters[].effort` ist ein Label, kein Satz.** Der Renderer setzte es bis
+  zum 21.09.2026 als kleinen Kasten neben den Befundtitel, wo ein ganzer Satz
+  gequetscht wurde und dasselbe sagte wie die Empfehlung darunter. Seitdem steht
+  dort die Schwere, und `effort` erscheint im PDF nicht mehr. Feste Werteliste: Sehr
+  gering, Gering, Gering bis mittel, Mittel, Gering bis hoch, Hoch, Kein
+  Handlungsbedarf. Was der Aufwand konkret umfasst, gehört ans Ende der
+  `recommendation`.
+- **`sources.groups[].items` sind Objekte mit `label`, keine Zeichenketten.**
+  Der Renderer liest `it.label` und optional `it.url`. Eine Liste aus Strings
+  rendert als Folge leerer Zeilen mit Trennlinien: die Gruppentitel stehen da,
+  darunter nichts. Es gibt keine Fehlermeldung, und im PDF sieht die Seite
+  Quellen und Methodik nach einem Layoutfehler aus. Belegt am 17.09.2026.
+- **HTML gilt nur in den Feldern, die der Renderer durch `safeHtml` schickt.**
+  Das sind `cover.intro`, die Absätze in `exec.summary`, `chapters[].intro`,
+  `chapters[].about`, `chapters[].findings[].body`, die Absätze in `market.narrative`,
+  `market.callouts[].body`, `matrix.intro`, `matrix.takeaway`,
+  `positioning.intro`, `positioning.positioningLine`, `geoGrid.intro` und
+  `fahrplan.proj.text`. **Alles andere wird maskiert**, also stehen `<b>` und
+  `<i>` dort im PDF als sichtbarer Code auf der Seite. Getroffen hat es am
+  17.09.2026 `sources.methodik` und zwei `evidence`-Felder, in denen ein
+  Subagent ein Anker-Element wörtlich zitiert hatte. In einem Beleg wird das
+  Element deshalb benannt und sein sichtbarer Text zitiert, nicht sein Markup;
+  die Zieladresse gehört ohnehin in `url`.
+- **`exec.teaserFindings` steht in keinem gerenderten Report und ist trotzdem
+  Pflicht.** Dieser Renderer setzt das Feld nicht, es trägt den Drei-Punkte-Block
+  der Teaser-Mail in `audit-light-send`. Wer es weglässt, weil es im PDF nirgends
+  auftaucht, verschickt eine Mail mit einem leeren Block, und auch das meldet
+  nichts. Drei Einträge `{title, body}`, `body` ein bis zwei Sätze, **reiner
+  Plaintext**: die Mail maskiert HTML und zeigte die Tags sonst als Text.
+
+**Jeder einleitende Fließtext hat ein Zeichenbudget, und es wird gezählt, bevor gerendert wird.**
+`cover.intro` bis 200, jeder Absatz in `exec.summary` bis 250 bei zwei Absätzen, jeder
+`chapters[].intro` und `geoGrid.intro` bis 250, jeder Absatz in `market.narrative` bis 400.
+Befundtexte haben kein Budget. Am 20.09.2026 war der Einstieg eines Laufs auf 4.057 Zeichen
+gewachsen, jeder Absatz für sich belegt und richtig; im PDF schob die Zusammenfassung ihre eigene
+Merksatzliste auf eine zweite, fast leere Seite. Yves: *"Wer soll den lesen? Den liest doch
+niemand."* Ist die Skill `workos:report` installiert, hält sie Tabelle, Prüfbefehl und
+Herleitung dazu; ohne sie gelten die Budgets hier.
+
+**Fünf Blöcke tragen die Zahlen, damit der Fließtext sie nicht tragen muss.**
+Am 16.09.2026 stand ein fertiger Report mit rund 59.000 Zeichen Befundtext und drei
+Kapiteln aus reiner Prosa. Yves dazu: *"Das ist viel zu viel Text. Bspw. in den
+Sektionen. Können wir da nicht noch mit weiteren visuellen Elementen arbeiten. Also
+vielleicht grafisch anzeigen, was schon funktioniert oder andere reporting elemente
+nutzen, wie graphen etc.?"* Alle fünf sind optional, und alle fünf verlangen dieselbe
+Disziplin: **jede Zahl darin ist im Lauf belegt, keine ist geschätzt.**
+
+- **`chapters[].signals`**, drei bis vier Kacheln je `{value, unit, label}`, gesetzt
+  unter der Kapitelüberschrift als Leiste "Was hier trägt". **Sie ersetzen die
+  Stärken-Befunde als Text:** ein `ok`-Befund kostet als Block so viel Platz wie ein
+  kritischer und wiegt beim Lesen genauso schwer. Nach dem Setzen der Kacheln fliegen
+  die `ok`-Befunde aus `findings` heraus. Ein Eintrag ohne gemessene Zahl gehört nicht
+  in eine Kachel, sondern bleibt ein Befund.
+- **`chapters[].bars`** mit `chapters[].barsTitle`, zwei bis vier Einträge je
+  `{label, value, total, tone}`, `tone` aus `good`, `bad`, `neutral`. Der Balken zeigt
+  immer Zähler und Nenner im Klartext daneben, damit die Grafik nichts verbirgt. Ein
+  Anteil ohne belegten Nenner wird nicht gezeichnet.
+- **`geoGrid`** auf oberster Ebene: das Raster der KI-Sichtbarkeit, je Frage eine
+  Zeile, je Plattform eine Spalte, Zellwerte `both`, `brand`, `other`, `domain`, `none`. Der
+  Kernbefund dieses Audits ist ein Muster über 27 Antworten, und ein Muster gehört in
+  ein Raster, nicht in einen Absatz. Gebaut wird es aus `geo.json > queries` über
+  `brand_mentioned` und `domain_cited`, nie aus dem Fließtext eines früheren Reports.
+- **`chapters[].score` und `chapters[].target`**, der Bereichswert im Kapitelkopf, in
+  derselben Optik wie die Säulenkarte auf Seite eins. Yves am 16.09.2026: *"Können wir
+  noch den ptai score in jedes Kapitel integrieren. Damit man noch mal weiss, wie die
+  einzelnen Unterpunkte scoren."* Die Werte kommen aus demselben Lauf der Score-Engine
+  wie `exec.scores`, nie von Hand.
+- **`chapters[].about`**, zwei bis drei Sätze direkt unter der Kapitelüberschrift, vor dem
+  Score: was der Bereich ist, was darin geprüft wurde und was der Leser im Kapitel findet.
+  Kein Befund, keine Zahl, kein Urteil; das trägt `intro` darunter. Gilt für jedes Kapitel.
+  Eingeführt am 24.09.2026 nach einem Lauf, Yves: *"Was ist das eigentlich? Was
+  wird in der Sektion ausgegeben? Was wurde hier geprüft?"* HTML wie in `intro`.
+- **Zellwert `other` im `geoGrid`** heißt: die Marke wird genannt, als Quelle stehen aber
+  fremde Seiten (`other_citations` nicht leer, `domain_cited` false). `brand` bleibt für
+  Antworten ganz ohne Quellenliste. Ohne diese Trennung sahen im Raster eines Laufs
+  ChatGPT ohne Quellen und Perplexity mit einem Händler und einem Wettbewerber als Quelle
+  gleich aus. Yves:
+  *"Das sieht ja aus, als würden die in AI echt gut dastehen, weil die Marke genannt wurde."*
+  Die Farben laufen seit dem 24.09.2026 als Blau-Abstufung, je dunkler desto besser; rot ist
+  nur `other`, der Zustand mit Handlungsbedarf.
+- **`chapters[].methoden`**, fünf kurze Einträge, nicht sieben lange. Der Block steht
+  seit dem 24.09.2026 am Kapitelende, nach den Befunden, wie eine Quellenangabe. Vor den
+  Befunden brach er über den Seitenumbruch. Was ausführlich hingehört, steht in "Quellen
+  und Methodik".
+
+**Der Score wird auf den konsolidierten Befunden gerechnet, nicht auf den Linsen-Befunden.**
+Die Säulen-Agents in Stufe 3 führen zusammen, was zwei Linsen gefunden haben; wer danach
+`findings.json` aus Stufe 1 in die Engine gibt, zählt jede Dublette doppelt. Am 16.09.2026
+kostete das einen Shop zehn Punkte (30 statt 40), und der Fehler fiel nur auf, weil Yves
+die Zahl nicht glaubte. Bau die Score-Eingabe aus `chapters[].findings` und gib jedem
+Eintrag seine `confidence` mit, sonst rechnet die Engine mit dem Vorgabewert 0,7.
 
 **Ist `workos:report` installiert, lädt der Lauf sie für Tonfall und Prüfungen**,
 bevor der erste Satz entsteht. Sie hält die vier Textarten im Report auseinander

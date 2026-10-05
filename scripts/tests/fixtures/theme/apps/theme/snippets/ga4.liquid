@@ -1,0 +1,10 @@
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-BEISPIEL01"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-BEISPIEL01');
+  {% if template contains 'thank' %}
+  gtag('event', 'purchase', { value: 1 });
+  {% endif %}
+</script>

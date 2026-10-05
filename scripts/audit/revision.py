@@ -28,9 +28,11 @@ import shutil
 import sys
 from pathlib import Path
 
-#: Was eine Fassung ausmacht: die Befunde je Disziplin und was daraus gerendert
-#: wurde. Verzeichnisse wandern als Ganzes, Dateien einzeln.
-BEWEGT_ORDNER = ("findings",)
+#: Was eine Fassung ausmacht: die Befunde je Disziplin, ihre Belegbilder und
+#: was daraus gerendert wurde. Verzeichnisse wandern als Ganzes, Dateien
+#: einzeln. `proof/` gehört dazu, weil die Befunde einer Fassung auf genau
+#: diese Bilder zeigen; eine neue Fassung nimmt ihre eigenen auf.
+BEWEGT_ORDNER = ("findings", "proof")
 BEWEGT_DATEIEN = ("audit.pdf", "audit.html", "audit-web.html")
 
 #: Der Backlog liegt eine Ebene höher als der Lauf, weil er über alle Läufe
@@ -53,8 +55,13 @@ def next_number(workspace, run_id: str) -> str:
     return f"{max(genutzt, default=0) + 1:02d}"
 
 
-def archive(workspace, run_id: str) -> Path | None:
+def archive(workspace, run_id: str, copy: bool = False) -> Path | None:
     """Legt die aktuelle Fassung nach `revisions/NN/` und gibt den Pfad zurück.
+
+    `copy=True` kopiert statt zu verschieben. Das braucht der Nachlauf einer
+    einzelnen Disziplin (`audit.rerun`): er ersetzt nur deren Befund-Datei,
+    die übrigen Befunde und `report-text.json` müssen im Lauf stehen bleiben,
+    sonst hat der neu gebaute Gesamtreport nur noch eine Disziplin.
 
     `None` heisst: es gab nichts zu archivieren, der Lauf hat noch keine
     Befunde und keinen Report. Das ist kein Fehler, sondern der Normalfall beim
@@ -72,8 +79,14 @@ def archive(workspace, run_id: str) -> Path | None:
     ziel = revisions_dir(workspace, run_id) / next_number(workspace, run_id)
     ziel.mkdir(parents=True)
     for quelle in quellen:
-        if quelle.exists():
+        if not quelle.exists():
+            continue
+        if not copy:
             shutil.move(str(quelle), str(ziel / quelle.name))
+        elif quelle.is_dir():
+            shutil.copytree(quelle, ziel / quelle.name)
+        else:
+            shutil.copy2(quelle, ziel / quelle.name)
     for name in BACKLOG:
         datei = workspace / "reporting" / name
         if datei.exists():
@@ -116,16 +129,21 @@ def main(argv=None) -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--keep-measures", action="store_true",
                         help="den Backlog nicht anfassen")
+    parser.add_argument("--copy", action="store_true",
+                        help="Fassung kopieren statt verschieben, für den Nachlauf "
+                             "einer Disziplin; lässt den Backlog immer stehen")
     args = parser.parse_args(argv)
 
     workspace = Path(args.workspace)
-    ziel = archive(workspace, args.run_id)
+    ziel = archive(workspace, args.run_id, copy=args.copy)
     if ziel is None:
         print("Nichts zu archivieren: dieser Lauf hat noch keine Fassung.")
     else:
         print(f"Fassung liegt in {ziel.relative_to(workspace)}")
 
-    if args.keep_measures:
+    # Der Nachlauf einer Disziplin setzt nie den Backlog zurück: die Maßnahmen
+    # der anderen Disziplinen gelten weiter, auch die unberührten.
+    if args.keep_measures or args.copy:
         return 0
     datei = workspace / "reporting" / "measures.json"
     if not datei.exists():

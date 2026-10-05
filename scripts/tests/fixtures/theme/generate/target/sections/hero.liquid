@@ -1,0 +1,63 @@
+<div class="hero hero--{{ section.settings.section_width }}">
+  {% content_for 'block', type: 'text', id: 'heading' %}
+  {% content_for 'blocks' %}
+</div>
+
+{% schema %}
+{
+  "name": "Hero",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "show_title",
+      "label": "Titel zeigen",
+      "default": true
+    },
+    {
+      "type": "range",
+      "id": "padding-block-start",
+      "label": "Abstand oben",
+      "min": 0,
+      "max": 60,
+      "step": 2,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "select",
+      "id": "section_width",
+      "label": "Breite",
+      "default": "page-width",
+      "options": [
+        {
+          "value": "page-width",
+          "label": "Seitenbreite"
+        },
+        {
+          "value": "full-width",
+          "label": "Volle Breite"
+        }
+      ]
+    },
+    {
+      "type": "checkbox",
+      "id": "show_divider",
+      "label": "Trennlinie zeigen",
+      "default": true
+    }
+  ],
+  "blocks": [
+    {
+      "type": "@theme"
+    },
+    {
+      "type": "@app"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Hero"
+    }
+  ]
+}
+{% endschema %}

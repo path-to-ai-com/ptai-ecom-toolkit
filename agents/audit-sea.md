@@ -26,16 +26,22 @@ Lies genau diese vier Dateien über ihren vollen Pfad, nie das Verzeichnis
 Alle vier sind klein genug zum normalen Lesen; ihre langen Listen sind bereits
 gekappt und tragen den zugehörigen `_truncated`-Merker.
 
-**`ads.json` ist bis heute nicht gegen ein echtes Google-Ads-Konto geprüft.**
-Der Snapshot trägt diesen Vorbehalt selbst in seinem `notes`-Feld. Solange er
-dort steht, gilt: du wertest die Zahlen aus, aber jeder Befund, der auf einer
-Ads-Zahl allein steht, bekommt höchstens `confidence: "plausible"`. Das ist
-keine Förmlichkeit. Ein falsch gelesenes Feld in einer ungeprüften
-API-Anbindung liefert eine Zahl, die plausibel aussieht und trotzdem falsch
-ist, und die geht sonst ungebremst in ein Kundendokument.
+**Trägt `ads.json > notes` einen Vorbehalt zur Prüfung des Pulls**, bekommt
+jeder Befund, der auf einer Ads-Zahl allein steht, höchstens
+`confidence: "plausible"`. Seit dem 02.10.2026 ist der Pull gegen ein echtes
+Konto geprüft und setzt diesen Vorbehalt nicht mehr; ältere Snapshots tragen
+ihn noch.
+
+**Zwei Zeiträume stehen in `ads.json`.** `by_month[]` geht über die ganze
+Kontohistorie, `campaigns[]`, `ad_groups` und die Suchbegriffe über
+`detail_period`. Wer Kampagnen- oder Suchbegriff-Summen mit Monatsausgaben
+vergleicht, nimmt nur die Monate aus `detail_period`. Ein Monat am Ende der
+Reihe kann unvollständig sein (er endet am Vortag des Pulls); prüf das an
+`period.end`, bevor du ihn als Monat liest.
 
 **Fehlt `ads.json` ganz**, hatte der Lauf keinen Zugang zum Konto
-(`PTAI_GOOGLE_ADS_TOKEN` fehlt, oder das Dienstkonto ist nicht freigeschaltet).
+(das Cloud-Projekt ist nicht für echte Konten freigegeben, oder das Dienstkonto
+ist im Werbekonto nicht eingetragen).
 Dann fallen die Kernfragen 1 bis 4 aus, und zwar als **eine**
 `blocked_question` je Frage mit derselben `missing_input`. Frage 5 (Shopping-
 Abdeckung) beantwortest du trotzdem, sie hängt nicht an Google Ads.
@@ -67,8 +73,12 @@ Abdeckung) beantwortest du trotzdem, sie hängt nicht an Google Ads.
    `search_terms_without_conversion` ist der Beleg, nie die Grundgesamtheit;
    `search_terms_truncated` sagt dir, ob du alles siehst.
 
-   Setz `cost_without_conversion` ins Verhältnis zu den Gesamtausgaben aus
-   `by_month[]`. Ein Anteil ohne Bezugsgröße ist keine Aussage.
+   Setz `cost_without_conversion` ins Verhältnis zu
+   `summary_search_terms.cost_total`, nicht zu den Gesamtausgaben aus
+   `by_month[]`: die Suchbegriff-Ansicht deckt Suche und Shopping ab, nicht
+   Performance Max, und Google blendet seltene Begriffe aus. Nenn zusätzlich,
+   welcher Anteil der Ausgaben aus `detail_period` damit überhaupt abgedeckt
+   ist. Ein Anteil ohne Bezugsgröße ist keine Aussage.
 
    Nicht jeder Begriff ohne Conversion ist Verschwendung: ein Begriff mit drei
    Klicks im Zeitraum hat schlicht keine Chance gehabt, eine Conversion zu
@@ -89,9 +99,12 @@ Abdeckung) beantwortest du trotzdem, sie hängt nicht an Google Ads.
    Das ist die eine Stelle, an der ein SEA-Befund direkt eine Handlung nennt,
    und deshalb gehört die Richtung ausdrücklich in `effect`.
 
-   **Diese drei Werte sind impressionsgewichtet über den Monat gemittelt.**
-   Sind sie `null`, hat die API sie für keinen Tag geliefert, meist weil der
-   Kontotyp sie nicht führt. Auch hier: `null` ist nicht 0.
+   **Der Share ist Summe der Impressionen durch Summe der möglichen**, die
+   Verlustanteile sind mit den möglichen Impressionen gewichtet.
+   `search_impression_share_coverage` sagt, welcher Anteil der Impressionen
+   des Monats aus Zeilen mit Share stammt; liegt er deutlich unter 1, ist der
+   Monatswert nicht belastbar. Sind die Werte `null`, hat die API sie für
+   keinen Tag geliefert. Auch hier: `null` ist nicht 0.
 
 4. **Überschneidung mit den organischen Rankings.** Nimm die Suchbegriffe aus
    `ads.json > search_terms_without_conversion[].term` und aus den
@@ -214,6 +227,34 @@ Schreibe `reporting/runs/<run-id>/findings/sea.json`. Existiert der Ordner
 }
 ```
 
+**Vier Felder machen den Befund im Portal anschaulich.** Der Vertrag steht in
+`${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Lies ihn, bevor du den
+ersten Befund schreibst; er gilt, nicht eine Kopie hier. Für den vollen Audit
+heißt das je Befund:
+
+- **`facts`:** `{"kind": "effect", "text": ...}` immer, `{"kind": "cause",
+  "text": ...}` nur, wenn die Ursache belegt ist. Sonst nichts, auch kein
+  `now`: die Handlung ist die eine Maßnahme zum Befund. Jeder Text ein ganzer
+  Satz, höchstens 160 Zeichen.
+- **`evidence_text`:** der Beleg als ein Satz für den Kunden, mit den Zahlen,
+  die ihn tragen, etwa "318 von 1.204 Produktseiten haben keinen internen Link
+  aus einer Kategorieseite." Nie ein Pfad, der bleibt in `evidence`. Phase 3
+  übernimmt den Satz in die Maßnahme.
+- **`url`:** die eine Seite im Shop, um die es geht, nur `https`. Fehlt, wenn
+  der Befund den ganzen Shop betrifft.
+- **`proof`:** der Beleg aus Bausteinen. Eine Kennzahl ist `{"type": "metric",
+  "ref": <Index in metrics>}` und wird nie ein zweites Mal ausgeschrieben; eine
+  Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
+  Typisch hier: `rows` für Suchbegriffe mit Kosten ohne Bestellung, `dist` für die
+  Verteilung des Budgets.
+- **`decision`:** nur, wenn es zwei echte, verschiedene Wege gibt, mit
+  `recommended` und `reason`. Phase 3 macht die empfohlene Option zur
+  Maßnahme, die andere zeigt das Portal als Geprüfte Alternative.
+
+**Bilder schreibst du keine.** Bild-Aufträge (`capture`) kommen nur aus den
+Analysen für Conversion, Content und Vertrauen, die als einzige Screenshots
+lesen. Dein Beleg sind Kennzahl, Tabelle, Verteilung oder Liste.
+
 **Zwei Felder tragen, was der Report bisher nicht hatte:**
 
 **`explanation` ist die Erklärung, nicht die Wiederholung.** Sie sagt, was der Fachbegriff
@@ -320,12 +361,13 @@ Kundendokument. Ein Wort je Sache, und keines aus der Werkzeugwelt:
 | die erfassten Seiten | Seiten im Shop, geoeffnet und geprueft | gecrawlte Seiten, URLs, Adressen |
 | die eingefrorenen Zahlen | Baseline | Nullpunkt, Ausgangswerte, Startwerte |
 | die Kennzahl je Bestellung | Bestellwert | Warenkorbwert |
-| fremde Skripte | Skripte fremder Anbieter | Fremdtechnik, Third-Party-Skripte |
+| fremde Skripte | Drittanbieter-Dienste | Fremdtechnik, Skripte fremder Anbieter |
 | der naechste Lauf | der spaetere Report | Folgereport |
 
 **Dateinamen und Feldpfade gehoeren ausschliesslich in `evidence`.** Dort
 stehen sie, damit ein Mensch nachrechnen kann. In `statement`, `effect`,
-`why`, `fix` und in jedem `metrics`-Eintrag stehen sie nie: der Leser hat
+`why`, `fix`, `facts`, `evidence_text`, den Texten im `proof` und in jedem
+`metrics`-Eintrag stehen sie nie: der Leser hat
 Fragen zu seinem Shop, keine zu unseren Snapshots.
 
 **Deutsch mit echten Umlauten.** ä, ö, ü, ß, nie ae, oe, ue oder ss. Das gilt

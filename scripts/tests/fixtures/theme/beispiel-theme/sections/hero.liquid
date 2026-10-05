@@ -1,0 +1,13 @@
+<section class="beispiel-hero">
+  <h2>{{ section.settings.title }}</h2>
+  {% content_for 'blocks' %}
+</section>
+
+{% schema %}
+{
+  "name": "Hero",
+  "settings": [{"type": "text", "id": "title", "label": "Titel", "default": "Willkommen"}],
+  "blocks": [{"type": "@theme"}],
+  "presets": [{"name": "Hero"}]
+}
+{% endschema %}

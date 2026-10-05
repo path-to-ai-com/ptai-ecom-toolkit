@@ -85,11 +85,30 @@ Diese Skills brauchen keine Zugänge und sehen deinen Shop so, wie ein Besucher 
 | `ptai-ecom:lens-trust` | Du siehst, ob Impressum, Widerruf, AGB, Datenschutz, Preis- und Versandangaben, Bewertungen und Siegel vorhanden und auffindbar sind; eine juristische Prüfung ersetzt die Skill nicht. |
 | `ptai-ecom:lens-assortment` | Du siehst, ob Filter, Varianten, Produkttexte, Bilder, Empfehlungen und der Umgang mit ausverkauften Artikeln Besuchern das Finden und Kaufen leicht machen. |
 
+### Theme-Migration
+
+Neu seit Oktober 2026 und noch in Erprobung: Rückmeldungen nehme ich gern auf. Mit diesen Skills hebst du dein Theme auf ein aktuelles 2.0-Theme wie Horizon, ohne dass Templates, Funktionen, Apps, Tracking oder SEO verloren gehen. `theme-migration` führt durch alle Phasen, die anderen Skills lassen sich auch einzeln nutzen. Geschrieben wird nur in ein unveröffentlichtes Theme, veröffentlichen tust du selbst.
+
+| Skill | Wofür |
+|---|---|
+| `ptai-ecom:theme-migration` | Du hebst dein Theme Schritt für Schritt auf ein aktuelles 2.0-Theme wie Horizon, mit Freigaben an den entscheidenden Stellen, einem Abgleich mit dem Live-Shop vor dem Launch und einem Prüfplan danach. |
+| `ptai-ecom:snapshot-theme` | Du sicherst ein Theme vollständig und belegt, bevor jemand es anfasst. |
+| `ptai-ecom:inventory-theme` | Du siehst, welche Templates wirklich leben, was am Theme angepasst ist und was es auf jeder Seite kann. |
+| `ptai-ecom:inventory-apps` | Du siehst jede App und jeden Dienst mit Einbindungsweg, was den Theme-Wechsel überlebt und wer an welches Messziel sendet. |
+| `ptai-ecom:compare-themes` | Du misst die Gestaltung deines Shops und legst zwei Themes als Bildpaare nebeneinander. |
+| `ptai-ecom:map-theme` | Du legst fest, was aus dem alten Theme im neuen wird, mit jeder Entscheidung festgehalten. |
+| `ptai-ecom:build-theme` | Du baust das neue Theme reproduzierbar und updatefähig, ohne den Shop anzufassen. |
+| `ptai-ecom:upload-theme` | Du lädst in ein unveröffentlichtes Theme hoch und siehst, dass jede Datei angekommen ist. |
+| `ptai-ecom:verify-theme` | Du lässt den Entwurf je Disziplin gegen den heutigen Shop prüfen und bekommst danach die Testrunde für dein Team. |
+| `ptai-ecom:sync-live-theme` | Du siehst, was sich im Live-Shop seit der Sicherung geändert hat und was davon ins neue Theme muss. |
+
 ### Im Hintergrund
 
 | Skill | Wofür |
 |---|---|
 | `ptai-ecom:ecom-language` | Audit, Report und die Analyse-Agents nutzen diese Skill, damit jeder Befund dieselbe Fachsprache spricht und jeder Fachbegriff beim ersten Auftreten erklärt ist. |
+| `ptai-ecom:match-feedback` | Du hältst eine Liste mit Änderungswünschen aus deinem Team gegen die Maßnahmen aus dem Audit und siehst je Punkt, ob es ihn schon gibt, ob er vermutlich dazugehört, ob er neu ist, ob erst eine Rückfrage an dein Team nötig ist oder ob er nicht in dieses Projekt fällt. Danach steht an jeder Maßnahme, welchen Wunsch sie beantwortet. |
+| `ptai-ecom:test-round` | Du schreibst die Testrunde vor einem Launch: eine Anleitung, mit der das Team deines Kunden den neuen Shop testet, dazu die Schwerpunkte, die es bewertet und kommentiert. |
 
 Für den großen Audit werten elf Analyse-Agents die Daten aus, jeder für eine Disziplin:
 `audit-data-quality` (Messqualität), `audit-commerce` (Umsatz, Warenkorb, Wiederkäufer),
@@ -125,8 +144,8 @@ bereit.
 
 **Teil 1, einmal je Rechner.** `/ptai-ecom:setup` legt `~/.config/ptai-ecom/.env`
 mit den Rechten `600` an und führt durch die Schlüssel des Betreibers:
-PageSpeed-Key, DataForSEO, die GEO-Keys und optional das Entwicklertoken für
-Google Ads. Dazu kommen sechs Einstellungen, alle optional:
+PageSpeed-Key, DataForSEO und die GEO-Keys. Google Ads braucht keinen
+Schlüssel mehr, nur die freigeschaltete API im Cloud-Projekt. Dazu kommen sechs Einstellungen, alle optional:
 
 | Einstellung | Vorgabe | Wofür |
 |---|---|---|
@@ -157,7 +176,7 @@ Kunden: nur die Zugänge, die noch fehlen, als Text zum Verschicken.
 | Empfohlen | DataForSEO | SEO-Sichtbarkeit, Wettbewerb und Shopping-Präsenz |
 | Empfohlen | PageSpeed-Key | Core Web Vitals, der Block Technik bleibt leer |
 | Empfohlen | GEO-Keys | GEO-Sichtbarkeit per API. Es bleibt der Browser-Weg mit Login in jedem Lauf |
-| Optional | Google Ads | SEA. Betrifft nur Shops mit Suchanzeigen, und das Token muss Google erst freigeben |
+| Optional | Google Ads | SEA. Betrifft nur Shops mit Suchanzeigen, und Google muss das Cloud-Projekt erst für echte Konten freigeben |
 
 Eine fehlende Quelle bricht keinen Lauf ab: sie erscheint im Dokument als nicht
 verfügbar, mit Grund. Jeder bezahlte DataForSEO-Aufruf landet mit Kosten in
@@ -179,7 +198,7 @@ Formeln, Schwellen und Benchmarks stehen in `reference/metrics.md`.
 
 ## Was nicht passiert
 
-- **Kein Schreiben in Kundensysteme.** Alle Skills lesen nur.
+- **Kein Schreiben in Kundensysteme.** Alle Skills lesen nur, außer `upload-theme`, und auch die schreibt nur in ein unveröffentlichtes Theme. Veröffentlicht wird nie von einer Skill.
 - **Keine Secrets in Git.** `.env` und `secrets/` sind ignoriert, das Setup prüft das.
 - **Keine Datenbank, keine Infrastruktur.** Die Historie liegt als Dateien unter `reporting/`.
 

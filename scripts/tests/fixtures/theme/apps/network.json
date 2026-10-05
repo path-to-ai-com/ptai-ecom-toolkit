@@ -1,0 +1,75 @@
+{
+ "tool": "capture_network",
+ "base_url": "https://beispielshop.example",
+ "theme_id": "000000000000",
+ "consent_mode": "declined",
+ "captured_at": "2026-01-01T09:00:00+00:00",
+ "devices": ["desktop", "mobile"],
+ "runs_per_page": 1,
+ "baseline_globals": {"chromium": ["window", "document", "location"], "webkit": ["window", "document", "location"]},
+ "runs": [
+  {
+   "page_id": "home", "template": "index", "path": "/", "device": "desktop", "browser": "chromium", "run": 1,
+   "consent": "declined", "state": "ok", "status": 200,
+   "url": "https://beispielshop.example/?preview_theme_id=000000000000&pb=0",
+   "theme_check": {"expected": "000000000000", "found": "000000000000", "ok": true, "state": "ok"},
+   "consent_result": {"mode": "declined", "result": "declined", "how": "[data-cookiefirst-action='reject']"},
+   "requests": [
+    {"url": "https://beispielshop.example/?preview_theme_id=000000000000&pb=0", "method": "GET", "resource_type": "document", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://www.googletagmanager.com/gtm.js?id=GTM-BEISP01", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://www.googletagmanager.com/gtag/js?id=G-BEISPIEL01", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://region1.google-analytics.com/g/collect?v=2&tid=G-BEISPIEL01&gcs=G100&en=page_view", "method": "POST", "resource_type": "fetch", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 204, "failure": null},
+    {"url": "https://region1.google-analytics.com/g/collect?v=2&tid=G-BEISPIEL01&en=page_view", "method": "POST", "resource_type": "fetch", "frame_url": "https://beispielshop.example/web-pixels@0000/app/web-pixel-2@1/sandbox/modern/", "consent_phase": "pre", "status": 204, "failure": null},
+    {"url": "https://www.facebook.com/tr/?id=100000000000001&ev=PageView&noscript=1", "method": "GET", "resource_type": "image", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://connect.facebook.net/en_US/fbevents.js", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://judge.me/api/reviews?shop=beispiel", "method": "GET", "resource_type": "fetch", "frame_url": "https://beispielshop.example/", "consent_phase": "post", "status": 200, "failure": null},
+    {"url": "https://tracker.unbekannt.example/t.js", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://t.beispielshop.example/collect", "method": "POST", "resource_type": "fetch", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 204, "failure": null, "post_data": "{\"event\":\"page_viewed\"}"},
+    {"url": "https://beispielshop.example/apps/beispiel-proxy/wishlist", "method": "GET", "resource_type": "fetch", "frame_url": "https://beispielshop.example/", "consent_phase": "post", "status": 200, "failure": null},
+    {"url": "https://bat.bing.com/action/0?ti=000000000&evt=pageLoad", "method": "GET", "resource_type": "image", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://cdn.shopify.com/extensions/00000000-0000-0000-0000-000000000008/judgeme-1/assets/loader.js", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://cdn.shopify.com/s/files/1/0000/0000/t/1/assets/theme.js", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://static.klaviyo.com/onsite/js/klaviyo.js?company_id=BSP123&shop=beispiel.myshopify.com", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "post", "status": 200, "failure": null},
+    {"url": "https://scripts.unbekannt-app.example/loader.js?shop=beispiel.myshopify.com", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "post", "status": 404, "failure": null},
+    {"url": "https://collector.unbekannt.example/e", "method": "POST", "resource_type": "fetch", "frame_url": "https://beispielshop.example/web-pixels@0000/custom/web-pixel-3@1/sandbox/modern/", "consent_phase": "pre", "status": 200, "failure": null, "post_data": "{\"name\":\"page_viewed\"}"},
+    {"url": "https://cdn.jsdelivr.net/npm/beispiel-lib@1/dist/lib.min.js", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://fonts.googleapis.com/css2?family=Beispiel+Sans", "method": "GET", "resource_type": "stylesheet", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "data:image/svg+xml;base64,AAAA", "method": "GET", "resource_type": "image", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null}
+   ],
+   "frames": [{"url": "https://beispielshop.example/", "parent_url": null}],
+   "cookies": [
+    {"name": "_ga", "domain": ".beispielshop.example"},
+    {"name": "_fbp", "domain": ".beispielshop.example"},
+    {"name": "_shopify_y", "domain": ".beispielshop.example"},
+    {"name": "beispiel_rest", "domain": "beispielshop.example"}
+   ],
+   "local_storage": {"https://beispielshop.example": ["jdgm-session", "zz_unbekannt_key"]},
+   "session_storage": {},
+   "new_globals": ["fbq", "google_tag_manager", "unbekanntesGlobal", "123", "location"],
+   "privacy": {"customer_privacy": {"analytics": "no", "marketing": "no", "preferences": "no", "sale_of_data": "no"},
+               "google_consent": {"ad_storage": {"default": false, "update": false}}},
+   "html_file": "html/home-desktop-1.html"
+  },
+  {
+   "page_id": "home", "template": "index", "path": "/", "device": "mobile", "browser": "webkit", "run": 1,
+   "consent": "declined", "state": "ok", "status": 200,
+   "theme_check": {"expected": "000000000000", "found": "000000000000", "ok": true, "state": "ok"},
+   "requests": [
+    {"url": "https://beispielshop.example/?preview_theme_id=000000000000&pb=0", "method": "GET", "resource_type": "document", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://www.googletagmanager.com/gtm.js?id=GTM-BEISP01", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null},
+    {"url": "https://region1.google-analytics.com/g/collect?v=2&tid=G-BEISPIEL01&en=page_view", "method": "POST", "resource_type": "fetch", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 204, "failure": null},
+    {"url": "https://www.facebook.com/tr/?id=100000000000001&ev=PageView", "method": "GET", "resource_type": "image", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null}
+   ],
+   "cookies": [], "local_storage": {}, "session_storage": {}, "new_globals": []
+  },
+  {
+   "page_id": "product", "template": "product", "path": "/products/beispiel", "device": "desktop", "browser": "chromium", "run": 1,
+   "consent": "declined", "state": "wrong_theme", "status": 200,
+   "theme_check": {"expected": "000000000000", "found": "111111111111", "ok": false, "state": "wrong_theme", "reason": "Seite zeigt Theme 111111111111"},
+   "requests": [
+    {"url": "https://widget.altanbieter.example/w.js", "method": "GET", "resource_type": "script", "frame_url": "https://beispielshop.example/", "consent_phase": "pre", "status": 200, "failure": null}
+   ],
+   "cookies": [], "local_storage": {}, "session_storage": {}, "new_globals": []
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+<div class="product-information">
+  {% content_for 'block', type: '_product-title', id: 'title' %}
+  {% content_for 'blocks' %}
+</div>
+
+{% schema %}
+{
+  "name": "Produktinformation",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "zoom",
+      "label": "Zoom",
+      "default": false
+    }
+  ],
+  "blocks": [
+    {
+      "type": "@theme"
+    },
+    {
+      "type": "@app"
+    }
+  ]
+}
+{% endschema %}

@@ -86,7 +86,7 @@ class TestPdfTemplate(unittest.TestCase):
 
     def test_the_five_summary_labels_are_the_ones_the_playbook_fixes(self):
         text = template()
-        for label in ("Was du hier siehst", "Warum", "Status quo",
+        for label in ("Was ihr hier seht", "Warum", "Status quo",
                       "Das Problem", "Was möglich ist"):
             with self.subTest(label=label):
                 self.assertIn(f">{label}<", text)

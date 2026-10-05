@@ -1,0 +1,166 @@
+{
+  "source": {
+    "theme": "Quellthema",
+    "version": "1.x"
+  },
+  "target": {
+    "theme": "Zielthema",
+    "version": "4.x"
+  },
+  "sections": {
+    "banner": {
+      "action": "configure",
+      "target": "hero",
+      "settings": {
+        "show_heading": {
+          "to": "show_title",
+          "transform": "identity"
+        },
+        "hide_divider": {
+          "to": "show_divider",
+          "transform": "bool_invert"
+        },
+        "padding_top": {
+          "to": "padding-block-start",
+          "transform": "px_to_number"
+        },
+        "layout_width": {
+          "to": "section_width",
+          "transform": "map_values",
+          "values": {
+            "wrapper--narrow": "page-width",
+            "wrapper--full": "full-width"
+          }
+        },
+        "heading": {
+          "transform": "drop",
+          "note": "im Ziel nicht vorgesehen"
+        },
+        "color_scheme": {
+          "to": "color_scheme",
+          "transform": "identity"
+        }
+      },
+      "blocks": {
+        "button": {
+          "target": "button",
+          "settings": {
+            "label": {
+              "to": "label",
+              "transform": "identity"
+            },
+            "link": {
+              "to": "link",
+              "transform": "identity"
+            }
+          }
+        },
+        "text": {
+          "target": "text",
+          "static_id": "heading",
+          "settings": {
+            "text": {
+              "to": "text",
+              "transform": "identity"
+            }
+          }
+        }
+      },
+      "notes": "Überschrift kommt im Ziel aus dem statischen Textblock"
+    },
+    "main-product": {
+      "action": "configure",
+      "target": "product-information",
+      "settings": {
+        "enable_zoom": {
+          "to": "zoom",
+          "transform": "identity"
+        }
+      },
+      "custom_css": "source",
+      "blocks": {
+        "title": {
+          "target": "_product-title",
+          "settings": {
+            "show_vendor": {
+              "to": "show_vendor",
+              "transform": "identity"
+            }
+          },
+          "static": true
+        },
+        "price": {
+          "target": "price",
+          "settings": {
+            "show_compare": {
+              "transform": "drop",
+              "note": "im Ziel nicht vorgesehen"
+            }
+          }
+        }
+      }
+    },
+    "header": {
+      "action": "configure",
+      "target": "header",
+      "settings": {
+        "logo_width": {
+          "to": "logo_width",
+          "transform": "px_to_number"
+        },
+        "sticky": {
+          "to": "sticky_header",
+          "transform": "map_values",
+          "values": {
+            "true": "always",
+            "false": "never"
+          }
+        }
+      }
+    },
+    "slider": {
+      "action": "build",
+      "notes": "Karussell gibt es im Ziel nur als eigene Section mit Präfix"
+    }
+  },
+  "settings_data": {
+    "color_primary": {
+      "to": "colors",
+      "transform": "color_to_palette",
+      "key": "primary"
+    },
+    "color_accent": {
+      "to": "colors",
+      "transform": "color_to_palette",
+      "key": "accent"
+    },
+    "type_heading_font": {
+      "to": "type_font_heading",
+      "transform": "font_handle",
+      "replace": {
+        "assistant_n7": "inter_n7"
+      }
+    },
+    "page_width_px": {
+      "to": "page_width",
+      "transform": "px_to_number"
+    }
+  },
+  "templates": {
+    "index": {
+      "action": "configure"
+    },
+    "product": {
+      "action": "configure"
+    },
+    "page.alt": {
+      "action": "drop",
+      "notes": "keinem Objekt zugewiesen"
+    }
+  },
+  "section_groups": {
+    "*": {
+      "action": "configure"
+    }
+  }
+}

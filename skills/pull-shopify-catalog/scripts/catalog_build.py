@@ -25,12 +25,16 @@ Drei Regeln tragen dieses Script:
 Nur Standardbibliothek.
 """
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
 
 #: Obergrenze jeder Beispielliste im Snapshot.
 MAX_LIST = 200
+
+#: Obergrenze der Gruppenliste doppelter Beschreibungen, je Gruppe fünf Handles.
+MAX_GROUPS = 50
 
 #: Felder, die die Abfrage je Produkt liefern muss. Fehlt eins in **allen**
 #: Produkten, ist nicht der Katalog leer, sondern die Query unvollständig.
@@ -100,6 +104,34 @@ def _has_text(value) -> bool:
     return bool(str(value or "").strip())
 
 
+def description_hash(text) -> str | None:
+    """Fingerabdruck einer Produktbeschreibung, damit gleiche Texte zählbar
+    werden, ohne dass der Text selbst in den Snapshot geht (Regel 1).
+
+    Vor dem Hashen klein geschrieben und Leerraum vereinheitlicht: ein
+    doppeltes Leerzeichen oder ein Zeilenumbruch aus dem Editor macht aus
+    demselben Herstellertext sonst zwei verschiedene.
+    """
+    normalized = " ".join(str(text or "").lower().split())
+    if not normalized:
+        return None
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+
+def sold_out(variants: list) -> bool | None:
+    """Keine Variante verkäuflich? `None`, wenn die Abfrage das Feld nicht
+    geliefert hat.
+
+    `None` statt `False`, weil ein Rohdatensatz aus einer älteren Abfrage
+    ohne `availableForSale` sonst "nichts ausverkauft" meldete, eine
+    erfundene Null.
+    """
+    flags = [v.get("availableForSale") for v in variants if "availableForSale" in v]
+    if not variants or not flags:
+        return None
+    return not any(flags)
+
+
 def flatten(product: dict) -> dict:
     """Ein Produkt auf die Zähler eindampfen, die der Snapshot braucht."""
     seo = product.get("seo") or {}
@@ -125,6 +157,8 @@ def flatten(product: dict) -> dict:
         "product_type": product.get("productType"),
         "vendor": product.get("vendor"),
         "description_length": len(product.get("description") or ""),
+        "description_hash": description_hash(product.get("description")),
+        "sold_out": sold_out(variants),
         "seo_title": _has_text(seo.get("title")),
         "seo_description": _has_text(seo.get("description")),
         "images": len(images),
@@ -162,6 +196,18 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
     missing_image = [p for p in products if not p["images"]]
     missing_cost = [p for p in products if p["variants_without_cost"]]
 
+    # Doppelte Beschreibungen und Ausverkauftes nur unter aktiven Produkten:
+    # ein Entwurf oder ein archiviertes Produkt steht in keinem Shop.
+    active = [p for p in products if p["status"] == "ACTIVE"]
+    by_hash: dict[str, list] = {}
+    for p in active:
+        if p.get("description_hash"):
+            by_hash.setdefault(p["description_hash"], []).append(p["handle"])
+    duplicate_groups = sorted((handles for handles in by_hash.values() if len(handles) > 1),
+                              key=lambda handles: (-len(handles), handles[0] or ""))
+    measured = [p for p in active if p.get("sold_out") is not None]
+    sold_out_rows = [p for p in measured if p["sold_out"]]
+
     summary = {
         "products_total": len(products),
         "products_active": sum(1 for p in products if p["status"] == "ACTIVE"),
@@ -183,6 +229,11 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
         "variants_total": variants_total,
         "variants_without_sku": sum(p["variants_without_sku"] for p in products),
         "variants_without_cost": sum(p["variants_without_cost"] for p in products),
+        "products_with_duplicate_description": sum(len(g) for g in duplicate_groups),
+        "duplicate_description_groups": len(duplicate_groups),
+        # None, wenn die Abfrage `availableForSale` nicht geliefert hat: dann
+        # ist Ausverkauf nicht gemessen, nicht null.
+        "products_sold_out": len(sold_out_rows) if measured else None,
         "collections_total": len(collections),
         "collections_without_description": sum(
             1 for c in collections if not _has_text(c.get("description"))),
@@ -193,6 +244,10 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
     result.update(_capped(missing_seo_description, "products_without_seo_description"))
     result.update(_capped(missing_alt, "products_with_missing_alt"))
     result.update(_capped(missing_cost, "products_without_cost"))
+    result.update(_capped(sold_out_rows, "products_sold_out"))
+    result["duplicate_descriptions"] = [
+        {"count": len(handles), "handles": handles[:5]} for handles in duplicate_groups[:MAX_GROUPS]]
+    result["duplicate_descriptions_truncated"] = len(duplicate_groups) > MAX_GROUPS
     # Spec Abschnitt 19: Marge nur, wenn `cost per item` gepflegt ist.
     #
     # Bis 07.09.2026 stand hier Gleichheit statt einer Schwelle. Ein Shop, bei

@@ -1,6 +1,6 @@
 ---
 name: audit
-description: Einmaligen Ecommerce-Audit für einen Shop fahren, den Nullpunkt vor einem Relaunch oder für eine erste vollständige Bestandsaufnahme. Zieht alle verfügbaren Quellen maximal (volle Historie statt Berichtsmonat), lässt die Analysen als eigene Subagents laufen, verdichtet die Befunde zu einem priorisierten Maßnahmen-Backlog, friert die Baseline blockweise ein und rendert das Kunden-PDF. Nutzen bei /ptai-ecom:audit, bei einem Erstaudit, einer Bestandsaufnahme vor einem Theme- oder Relaunch, oder wenn der Nutzer den Nullpunkt für einen Shop will. Hält zweimal an (Gate A nach den Rohdaten, Gate B nach den Analysen) und lässt den Rest erst nach ausdrücklicher Freigabe laufen. Läuft je Shop nur einmal vollständig durch, ein zweiter Aufruf verweigert und verweist auf report, --backfill (leere Baseline-Blöcke nachtragen) oder --reanalyze (Phase 2 bis 4 auf denselben Rohdaten wiederholen, wenn sich eine Analyse geändert hat). Liest reporting/config.json im Kunden-Workspace, schreibt reporting/runs/<run-id>/ (Zustand, Datenlage, Screenshots-Index, Befunde, Kunden-PDF) sowie reporting/baseline/01/ und reporting/measures.json.
+description: Einmaligen Ecommerce-Audit für einen Shop fahren, den Nullpunkt vor einem Relaunch oder für eine erste vollständige Bestandsaufnahme. Zieht alle verfügbaren Quellen maximal (volle Historie statt Berichtsmonat), lässt die Analysen als eigene Subagents laufen, verdichtet die Befunde zu einem priorisierten Maßnahmen-Backlog, friert die Baseline blockweise ein und rendert das Kunden-PDF. Nutzen bei /ptai-ecom:audit, bei einem Erstaudit, einer Bestandsaufnahme vor einem Theme- oder Relaunch, oder wenn der Nutzer den Nullpunkt für einen Shop will. Hält zweimal an (Gate A nach den Rohdaten, Gate B nach den Analysen) und lässt den Rest erst nach ausdrücklicher Freigabe laufen. Läuft je Shop nur einmal vollständig durch, ein zweiter Aufruf verweigert und verweist auf report, --backfill (leere Baseline-Blöcke nachtragen) --reanalyze (Phase 2 bis 4 auf denselben Rohdaten wiederholen, wenn sich eine Analyse geändert hat) oder --rerun <discipline> (eine einzelne Analyse nachlaufen lassen, wenn ihr Zugang erst nach dem Audit kam, und das Ergebnis in Befunde, Backlog und Gesamtreport desselben Laufs zurückführen). Liest reporting/config.json im Kunden-Workspace, schreibt reporting/runs/<run-id>/ (Zustand, Datenlage, Screenshots-Index, Befunde, Kunden-PDF) sowie reporting/baseline/01/ und reporting/measures.json.
 ---
 
 # audit: der Ecommerce-Audit-Orchestrator
@@ -67,16 +67,23 @@ from pathlib import Path
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
 from audit import baseline
 
-path = Path('reporting/baseline') / baseline.NUMBER / 'baseline.json'
-if path.exists():
-    print('vollstaendig' if baseline.is_complete('.') else 'unvollstaendig')
-else:
+if not baseline.numbers('.'):
     print('kein-baseline')
+elif baseline.is_fresh('.'):
+    print('frische-generation')
+elif baseline.is_complete('.'):
+    print('vollstaendig')
+else:
+    print('unvollstaendig')
 "
 ```
 
 - **`kein-baseline`:** kein Audit ist je gelaufen, dieser Aufruf ist der
   erste. Weiter mit Phase 0.
+- **`frische-generation`:** eine frühere Baseline wurde abgelöst, die geltende
+  Generation trägt noch keinen Block. Weiter mit Phase 0, wie beim ersten Lauf.
+  Wann eine Ablösung richtig ist, steht unten unter "Wenn die Messung selbst
+  falsch war".
 - **`vollstaendig`:** alle zehn Blöcke stehen. Ein zweiter voller Audit
   bringt nichts, was `report` nicht ohnehin laufend liefert. **Verweigern**
   und auf `/ptai-ecom:report` verweisen, keine Phase startet.
@@ -89,8 +96,9 @@ else:
   unten unter "Der Nachtrag-Modus: `--backfill`".
 
 Diese Verweigerung gilt für den Aufruf ohne Schalter. Ruft der Nutzer
-`/ptai-ecom:audit --backfill` oder `--reanalyze` ausdrücklich auf, gilt die
-engere Bahn des jeweiligen Modus statt der Verweigerung.
+`/ptai-ecom:audit --backfill`, `--reanalyze` oder `--rerun <discipline>`
+ausdrücklich auf, gilt die engere Bahn des jeweiligen Modus statt der
+Verweigerung.
 
 ### Wenn der erste Lauf verworfen gehört
 
@@ -132,6 +140,45 @@ niemand mehr anzufassen traut.
 
 Danach meldet die Prüfung oben wieder `kein-baseline`, und der nächste Aufruf
 läuft normal durch.
+
+### Wenn die Messung selbst falsch war: eine neue Generation
+
+Der Fall oben ("Wenn der erste Lauf verworfen gehört") deckt eine Sache nicht
+ab, und sie ist die wichtigere. Dort haben sich unsere Regeln geändert. Hier
+war die Messung des Shops selbst kaputt, und zwar nachweislich: ein zweiter
+Absender hat jedes Ereignis doppelt gezählt, ein Bot-Netz hat die Sitzungen
+vervielfacht, ein Tag hat nie gefeuert. Dann beschreibt die Baseline einen
+Zustand, den der Shop nie hatte.
+
+**Archivieren ist dafür falsch.** Der Lauf ist kein Ausschuss, er ist der
+Beleg: er hat den Fehler gefunden, er trägt die Zahlen, auf die der Kunde bis
+dahin geschaut hat, und beim nächsten Mal will jemand nachlesen können, wie
+weit die Messung danebenlag. Wer ihn in ein Archiv schiebt, macht aus einem
+Ergebnis einen Ordner, den niemand mehr anfasst.
+
+**Der Weg ist eine neue Generation.** Die alte bleibt vollständig liegen, die
+neue beginnt leer und sagt in ihrem Kopf, welche sie ablöst und warum:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
+from audit import baseline
+print(baseline.supersede('.', 'Ein zweiter Absender zählte vom 30.04. bis zum 14.09.2026 jedes Funnel-Ereignis doppelt. Die Blöcke der Generation 01 stehen auf diesen Zahlen.'))
+"
+```
+
+Der Grund ist Pflicht, und er gehört in ganze Sätze: er steht später über jeder
+Fassung der `baseline.md` und beantwortet die Frage, warum ab hier gegen andere
+Zahlen gemessen wird. Danach meldet die Prüfung oben `frische-generation`, und
+der nächste Aufruf läuft wie ein Erstlauf durch, ohne dass ein Ordner
+verschoben wurde.
+
+**Der Anlass ist nie, dass die Zahlen alt sind.** Eine Baseline ist der
+eingefrorene Nullpunkt und altert nicht. Wer sie ersetzt, weil inzwischen
+frischere Zahlen vorliegen, verliert genau den Vergleichspunkt, für den sie
+existiert. Anlass ist ausschließlich, dass die Messung selbst belegt falsch
+war.
 
 ### Wenn nur die Auswertung neu gehört: `--reanalyze`
 
@@ -192,6 +239,111 @@ den behaltenen weiter, damit keine Kennung zweimal vergeben wird.
 leere Blöcke, ein zweiter Durchgang von Phase 3 lässt die sieben gefüllten also
 in Ruhe und füllt höchstens nach, was beim ersten Mal leer blieb. Das ist
 gewollt: der Nullpunkt gehört dem Messzeitpunkt, nicht der Auswertung.
+
+### Wenn eine Disziplin nachkommt: `--rerun <discipline>`
+
+**Ein Audit besteht aus Einzelanalysen, und der Gesamtreport steht auf allen
+zusammen.** Fehlt einer Analyse ein Zugang, steht sie im Report als "nicht
+erhoben", und aus der Lücke wird meist eine Maßnahme ("Zugang einrichten").
+Kommt der Zugang später, läuft nur diese eine Disziplin nach, und ihr
+Ergebnis gehört **in denselben Lauf zurück**: in seine Befunde, in den
+Backlog und in den Gesamtreport. Ein eigener Lauf daneben reicht nicht, den
+liest der Report nicht mit, und die Maßnahme zur Lücke bliebe für immer offen.
+
+Die anderen Modi passen nicht: `--backfill` schreibt nur Baseline-Blöcke und
+keine Befunde, `--reanalyze` wiederholt alle Analysen samt Synthese, und ein
+voller Lauf wird verweigert. Am 02.10.2026 entstand der Modus aus dem ersten
+echten Fall, einem Google-Ads-Zugang, der vier Wochen nach dem Audit kam.
+
+`<discipline>` ist der Dateiname der Befunde ohne `.json`, also `sea`,
+`seo-content`, `data-quality` (die Tabelle in Phase 2 nennt je Subagent seine
+Eingabedateien, die Tabelle in Phase 1 je Pull seinen Quell-Schlüssel). Der
+Lauf ist der, dessen Report die Lücke zeigt, nicht ein neuer.
+
+**1. Nur die fehlenden Quellen ziehen**, in `reporting/data/<run-id>/` des
+ursprünglichen Laufs, und je Quelle
+`run_state.set_source(key, "done", file=..., today=today)` plus
+`run_state.save()`. `pulled_at` trägt damit den Nachlauftag, und der Report
+schreibt unter den Abschnitt "Nacherhoben am" (`report_build._rerun_note()`,
+bisher in `sec_sea` aufgerufen; eine andere Sektion bekommt den Aufruf beim
+ersten Nachlauf ihrer Disziplin). Die Kennzahlen dieses Abschnitts rechnen
+dann über den Zeitraum des Nachlaufs (bei Ads `detail_period`), nicht über das
+Fenster des Laufs, damit sie zu den Befunden darunter passen; der Abschnitt
+nennt beide Angaben. Die übrigen Eingabedateien der Analyse
+bleiben, wie sie sind: sie stammen vom Audit-Tag, und ein Befund, der auf
+ihnen steht, nennt dieses Datum.
+
+**2. Die Fassung kopieren, nicht verschieben:**
+
+```bash
+python3 -m audit.revision --workspace . --run-id <run-id> --copy
+```
+
+`--copy` lässt Befunde, Report, `report-text.json` und den Backlog im Lauf
+stehen und legt nur eine Kopie nach `revisions/NN/`. Ohne `--copy` wandern
+alle Befunde weg, und der Gesamtreport bestünde danach aus einer Disziplin;
+außerdem würde der Backlog gesiebt, und unberührte Maßnahmen anderer
+Disziplinen fielen heraus.
+
+**3. Nur diesen einen Subagenten starten**, mit der Lauf-ID wie in Phase 2
+und diesem Zusatz im Prompt, wörtlich sinngemäß:
+
+> Das ist ein Nachlauf. Die vorige Fassung deiner Befunde liegt in
+> `reporting/runs/<run-id>/revisions/NN/findings/<discipline>.json`. Ein
+> Befund, der weiter gilt, übernimmt Kennung und `statement` unverändert.
+> Ein neuer Befund bekommt eine Kennung hinter der höchsten bisherigen. Ein
+> Befund, der nur die jetzt geschlossene Lücke beschrieb, entfällt, ebenso
+> die `blocked_questions`, die jetzt beantwortet sind.
+
+**4. Die Kennungen prüfen**, bevor irgendetwas weiterläuft:
+
+```bash
+python3 -m audit.rerun --workspace . --run-id <run-id> \
+    --discipline <discipline> --previous reporting/runs/<run-id>/revisions/NN/findings/<discipline>.json
+```
+
+Exit 1 heißt, eine Kennung meint jetzt einen anderen Befund. Dann
+nummerieren, nicht weitermachen: eine Maßnahme zeigt über `finding_ref` auf
+genau diese Kennung, und im Portal stünde unter ihr ein fremder Befund. Beim
+Umnummerieren auch die Verweise in den Texten nachziehen ("siehe SEA-05").
+Ohne Fehler listet das Script die neuen Befunde, die weggefallenen und die
+verwaisten Maßnahmen.
+
+Danach Abnahme und Belegprüfung wie nach Phase 2 (`audit.qa`,
+`audit.evidence`) für diesen Lauf.
+
+**5. Den Backlog fortschreiben, nicht neu aufbauen.** `measures.create()`
+nur für die neuen Befunde, mit allen Feldern aus Phase 3, Schritt 3. Jede
+verwaiste Maßnahme bekommt ein Urteil über `measures.set_status()` mit
+`run_id` und `note`: `implemented`, wenn der Nachlauf die Lücke geschlossen
+hat, die sie beschrieb ("Zugang steht seit dem …, die offenen Kernfragen sind
+in SEA-03 bis SEA-09 beantwortet"), sonst `obsolete`, wenn die Analyse den
+Befund nicht mehr trägt. Maßnahmen zu gebliebenen Befunden bleiben, wie sie
+sind; eine erledigte oder verworfene Maßnahme rührt der Nachlauf nie an.
+
+**6. Die Baseline nur füllen, wenn sie diesem Lauf gehört.** Den Block der
+Disziplin schreiben (Mechanik wie `--backfill`) nur, wenn die geltende
+Generation diesen Lauf als ihren trägt, also ihre geschriebenen Blöcke
+`as_of.run_id` dieses Laufs nennen, und der Block leer ist. Ist die
+Generation inzwischen abgelöst oder noch frisch, wird **nichts**
+geschrieben: ein einzelner Block in einer frischen Generation markiert sie
+als begonnen, und dieser Abschnitt verweigert danach ihren vollen Lauf. Der
+Block kommt dann mit dem Lauf der geltenden Generation.
+
+**7. Den Report nachziehen.** In `report-text.json` die Sätze anpassen, die
+die Disziplin betreffen: `section_messages` ihrer Sektion, dazu `takeaways`
+und `problems`, wenn sie eine Kennung oder Aussage dieser Disziplin tragen.
+Danach Phase 4 wie gewohnt (`audit.report_build`). Die übrigen Sätze bleiben,
+ein Mensch hat sie geschrieben.
+
+**8. Veröffentlichen nur mit Freigabe**, wie jede Fassung
+(`audit.publish`, danach `release`). Hochladen ändert für den Kunden den
+Report und den Backlog, und beides hat er womöglich schon gelesen.
+
+**Artefakte:** `reporting/runs/<run-id>/findings/<discipline>.json` neu,
+`revisions/NN/` als Kopie der vorigen Fassung, `measures.json` fortgeschrieben,
+`audit.html`, `audit-web.html` und `audit.pdf` neu gebaut, je nach Schritt 6
+ein Baseline-Block.
 
 ## Einstieg und Wiederaufnahme
 
@@ -351,7 +503,7 @@ Aus Stufe 2 sind acht weitere Quellen dazugekommen:
 |---|---|---|
 | `catalogue` | `pull-shopify-catalog` | Session sammelt die CLI-Seiten, dann `catalog_build.py`. **Nach `pull-shopify`**, gleiche Auth, gleiches Punktebudget |
 | `shop_tech` | `pull-shopify-tech` | Session holt einen Block über die CLI, dann `shop_tech_build.py` mit `--crawl` auf die `crawl.json` desselben Laufs. **Nach `crawl-site`** |
-| `ads` | `pull-ads` | Script. Ohne `PTAI_GOOGLE_ADS_TOKEN` oder ohne Kontozugang: `skipped` mit Grund, Block SEA bleibt leer. **Ungeprüft gegen die echte API**, siehe Verifikationsliste in der Skill |
+| `ads` | `pull-ads` | Script. Ohne Freigabe des Cloud-Projekts oder ohne Kontozugang: `skipped` mit Grund, Block SEA bleibt leer. Seit dem 02.10.2026 gegen ein echtes Konto geprüft |
 | `dfs_rankings` | `pull-dfs-rankings` | Script, zwei bezahlte Aufrufe (Bestand, Share of Voice), die Historie nur mit `--with-history` |
 | `competitors` | `pull-dfs-competitors` | Script, ein bezahlter Aufruf. Seeds sind `geo_queries.category`, **nie Markenbegriffe** |
 | `shopping` | `pull-dfs-shopping` | Script, task-basiert mit Wartezeit. **Zuerst starten**, er dauert am längsten |
@@ -516,8 +668,11 @@ Statuswerte und ihre Herkunft:
 **Die Zeile ga4 trägt die beiden Prüfungen aus `--audit-checks` mit.** Ein
 auffälliges Bot-Profil gehört mit Anteil und Zeiträumen
 (`bot_profiles.profiles[].share_of_sessions`, `.windows`) in den Grund, doppelt
-gezählte Stufen mit ihrem Beginn (`senders.double_counted_events`,
-`senders.onset`). Beides entscheidet, auf welchen Zahlen Phase 2 rechnet, und
+gezählte Stufen mit ihrem Beginn und, wo er gemessen ist, ihrem Ende
+(`senders.double_counted_events`, `senders.onset`, `senders.ended`). Steht
+`senders.ended`, ist die Doppelzählung vorbei und der Zeitraum zerfällt in
+Abschnitte; das gehört in den Grund, sonst liest der Mensch eine Warnung, die
+für die letzten Tage nicht mehr gilt. Beides entscheidet, auf welchen Zahlen Phase 2 rechnet, und
 der Mensch soll es vor der Freigabe sehen, nicht erst im Report. Ist eine der
 beiden Prüfungen nicht gelaufen (`bot_profiles.checked` oder
 `senders.measurable` falsch), steht ga4 auf **abgeschnitten**, mit der Notiz
@@ -550,7 +705,7 @@ Pulls, auf denen sie sitzen:
 | `audit-data-quality` | Datenqualität und Messung | `shopify.json`, `ga4.json`, `gsc.json`, `crawl.json` |
 | `audit-commerce` | Handel und Wirtschaftlichkeit | `shopify.json` |
 | `audit-traffic` | Traffic und Kanäle | `ga4.json`, `gsc.json`, `geo.json` |
-| `audit-seo-technical` | SEO technisch | `crawl.json`, `gsc.json`, `cwv.json` |
+| `audit-seo-technical` | SEO technisch | `crawl.json`, `gsc.json`, `cwv.json`, `catalog.json` |
 | `audit-seo-content` | SEO Inhalte und Sortiment | `dfs-rankings.json`, `dfs-keywords.json`, `dfs-competitors.json`, `catalog.json`, `gsc.json`, `crawl.json` |
 | `audit-geo` | GEO | `geo.json`, `crawl.json` |
 | `audit-sea` | SEA | `ads.json`, `dfs-shopping.json`, `dfs-rankings.json`, `catalog.json` |
@@ -691,7 +846,16 @@ Subagent selbst geschrieben (`data-quality.json`, `commerce.json`,
 `traffic.json`, `seo-technical.json`, `seo-content.json`, `geo.json`,
 `sea.json`, `conversion.json`, `content-brand.json`, `competition.json`),
 fünf Felder je Befund (`statement`, `evidence`, `effect`, `confidence`,
-`effort`) plus `blocked_questions`.
+`effort`) plus `blocked_questions`. Seit dem 02.10.2026 schreiben alle elf
+zusätzlich `facts`, `evidence_text`, `url` und `proof` nach dem Vertrag
+`reference/finding-format.md`; Conversion, Content und Vertrauen legen in
+`proof` außerdem Bild-Aufträge an. Die Agents mit Kriterienliste
+(`audit-seo-technical`, `audit-seo-content`, `audit-geo`, seit 27.09.2026)
+schreiben zusätzlich `criteria_version` und `criteria`: je Kriterium genau eine
+Zeile mit `violated`, `passed`, `not_measurable` oder `not_applicable`. Ein
+Kriterium erzeugt seine Zeile auch dann, wenn alles in Ordnung ist; genau das
+macht den prüfbaren Teil wiederholbar. Zwei Läufe desselben Moduls auf
+demselben Shop hatten vorher nur gut ein Drittel ihrer Befundthemen gemeinsam.
 
 **`findings/geo.json` ist nicht `data/<run-id>/geo.json`.** Gleicher
 Dateiname, anderer Ordner: der eine ist der Befund des Subagenten, der andere
@@ -702,6 +866,45 @@ isoliert. Die übrigen laufen weiter, Gate B weist die fehlende Disziplin mit
 Grund aus, statt den ganzen Lauf zu stoppen. Fehlt einem Subagenten eine
 seiner Eingabedateien (Quelle in Phase 1 "fehlend" oder "übersprungen"), sagt
 er das als eigenen Punkt in seinem Ergebnis, nie als geratene Zahl.
+
+**Der Prompt nennt den Befund-Vertrag mit vollem Pfad.** Jeder Agent liest
+`reference/finding-format.md`, bevor er den ersten Befund schreibt. Im
+Kunden-Workspace gibt es die Datei nicht; der Aufruf-Prompt nennt deshalb den
+aufgelösten Pfad `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`, wie bei
+`measures.py` in Phase 3.
+
+### Belegbilder: `shoot_proof.py`
+
+**Nach den Analysen, vor der Abnahme.** Die Agents für Conversion, Content und
+Vertrauen schreiben keine Bilder, sondern Aufträge (`capture` in einem
+`image`- oder `phone`-Baustein). Das Skript nimmt sie auf, lehnt dabei den
+Cookie-Dialog ab und schreibt das Ergebnis neben den Auftrag:
+
+```bash
+uv run --quiet --with playwright==1.58.0 python \
+  "${CLAUDE_PLUGIN_ROOT}/skills/capture-screens/scripts/shoot_proof.py" \
+  --run reporting/runs/<run-id>
+```
+
+Die Bilder liegen danach in `reporting/runs/<run-id>/proof/`, von Git
+ignoriert, und gehen mit `publish` in den Bucket. Einzelheiten in der Skill
+`capture-screens`, Abschnitt Belegbilder.
+
+**Rückgabewert 1 heißt: ein Auftrag ist offen.** Das Skript nennt Befund und
+Grund. Drei Fälle, drei Auswege:
+
+1. **Ein Ziel trifft kein oder mehrere Elemente.** Den Auftrag in der
+   Befund-Datei schärfen, etwa einen Text durch einen Selektor ersetzen, und
+   das Skript erneut laufen lassen. Es nimmt nur offene Aufträge auf.
+2. **Etwas aus `absent` ist zu sehen.** Der Mangel ist behoben. Den
+   Bild-Baustein streichen; trägt der Befund ohne Bild nicht mehr, fällt er
+   weg.
+3. **Der Cookie-Dialog lässt sich nicht ablehnen.** Das Bild entsteht nicht
+   mit Dialog. Den Bild-Baustein streichen und den Befund aus den Zahlen
+   belegen.
+
+`publish` lädt einen Lauf mit offenem Auftrag nicht hoch. Ein Befund ohne Bild
+ist gültig; ein Bild, das nicht den beschriebenen Zustand zeigt, ist es nicht.
 
 **Bei Erfolg:** `run_state.set_phase('2-analyses', 'done')`, `run_state.save()`.
 Direkt danach: Gate B.
@@ -754,6 +957,15 @@ Seite gehalten; hier zeigen die Belege auf Felder wie
 Abruf, sondern die Auflösung. Ein Beleg, der ins Leere zeigt, ist im Ergebnis
 dasselbe wie eine widerlegte Behauptung, nur schwerer zu bemerken: er sieht
 aus wie ein Beleg.
+
+**Dieselbe Prüfung hält die Kriterienlisten fest.** Für jede Befund-Datei,
+deren Agent einen Abschnitt "Kriterienliste" trägt, liest sie die erwarteten
+IDs aus der Agent-Datei und meldet, was fehlt, doppelt steht, unbekannt ist,
+ein ungültiges Ergebnis trägt oder als `violated` auf keinen Befund zeigt. Eine
+unvollständige Liste macht den Exit-Code zu 1 wie ein Beleg ins Leere: die
+Analyse wird wiederholt, nicht von Hand ergänzt. Die Zählung je Disziplin
+(verletzt, erfüllt, nicht messbar, entfällt) steht mit im Bericht und gehört
+an Gate B auf den Tisch.
 
 Vier Verdikte, drei davon in Ordnung. `resolved` heisst, das Feld ist da.
 `prose` und `external` sind Belege ohne Feldbezug, etwa eine eigene Messung
@@ -1004,11 +1216,12 @@ Parameter `price_test`; fehlt er, scheitert der Aufruf. Die Angabe kommt aus
 `gates.price_test_verdict(crawl, findings)`:
 
 ```python
-from audit import gates
+from audit import gates, context
 
 crawl = json.loads((data_dir / "crawl.json").read_text(encoding="utf-8"))
 findings = json.loads((run_dir / "findings" / "data-quality.json").read_text(encoding="utf-8"))
-verdict = gates.price_test_verdict(crawl, findings.get("findings"))
+verdict = gates.price_test_verdict(crawl, findings.get("findings"),
+                                   context=context.load(workspace))
 
 baseline.write_block(workspace, "conversion", values, run_id=run_id, today=today,
                      sources=sources, price_test=verdict)
@@ -1039,6 +1252,32 @@ server-seitig ausgespielter Test hinterlässt im Quelltext nichts.
 gefunden", und der Beleg im Block sagt das auch so. Die Markerliste in
 `gates.PRICE_TEST_MARKERS` ist durch Beobachtung gewachsen; wer ein weiteres
 Werkzeug antrifft, ergänzt sie dort.
+
+**Ein geladenes Werkzeug ist nicht dasselbe wie ein laufender Preistest.** Die
+Prüfung sieht nur, dass ein Skript ausgeliefert wird, und sperrt dann. Wo das
+nachweislich kein Preistest ist, wird der Fund über einen Eintrag in
+`reporting/context.json` entkräftet, mit `price-test` als Anker und der Art
+`correction` oder `decision`:
+
+```bash
+python3 -c "
+import sys
+sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/scripts')
+from audit import context
+print(context.add('.',
+    'Von den angelegten Experiences läuft eine, und die testet Inhalte auf einer Seite, keine Preise. Mehrere Abrufe derselben Produktseite lieferten denselben Preis, in den Bestellungen des Messzeitraums kein automatischer Rabatt.',
+    ['price-test'], 'correction', 'Eigene Prüfung der Anbieter-Konfiguration, TT.MM.JJJJ'))
+"
+```
+
+Der Eintrag entkräftet nur, er kann nie einen Test behaupten, der nicht
+gefunden wurde, und der Fund bleibt im Beleg des Blocks stehen. **Eine
+Vermutung reicht dafür nicht.** Der Eintrag gehört erst dorthin, wenn geprüft
+ist, was das Werkzeug tatsächlich testet; bei Intelligems steht das in der
+öffentlichen Konfiguration des Shops unter `cdn.intelligems.io/configs/<id>.json`,
+im Feld `hasTestPricing` der gestarteten Experiences. Ohne diese Prüfung ist die
+Sperre richtig, auch wenn sie unbequem ist: Handel und Conversion sind die
+beiden Blöcke, gegen die später jeder Relaunch gemessen wird.
 
 Der Grund ist die Unveränderlichkeit. Conversion Rate und Warenkorbwert eines
 Shops, über dem ein Preistest läuft, sind ein Mischwert aus zwei oder mehr
@@ -1106,7 +1345,10 @@ Raten, die Felder stehen in `ga4.json`:
   Bot-Profil. Sitzungen und Kanäle ohne das Profil stehen für den
   Berichtszeitraum als eigene Werte daneben, aus `bot_profiles.without`. Zählt
   der Kauf doppelt, bekommt der Umsatz aus GA4 dasselbe, mit `break` aus
-  `senders.onset`.
+  `senders.onset`. **Hat der zweite Absender wieder aufgehört (`senders.ended`),
+  gibt es zwei Kanten, nicht eine:** der Monat aus `onset` und der Monat aus
+  `ended`. Beide gehören als `break` in die Reihe, denn ein Vergleich über eine
+  der beiden misst die Umstellung der Messung statt der Arbeit.
 
 Nicht jeder Wert, den Spec Abschnitt 10 für einen Block nennt, ist
 tatsächlich befüllbar. Die Lücken stehen bereits so in den
@@ -1181,8 +1423,8 @@ Share, Anteil Ausgaben ohne Conversion"):
 |---|---|---|
 | Ausgaben je Monat | `ads.json > by_month[].cost` | Währung aus `ads.json > currency` mit in den Block, das Konto rechnet nicht zwingend in Euro |
 | ROAS je Monat | `ads.json > by_month[].roas` | `null` bei Ausgaben von 0. Nie als 0 schreiben, sonst rechnet der erste Folgereport eine Erholung aus, die es nicht gab |
-| Impression Share je Monat | `ads.json > by_month[].search_impression_share` | impressionsgewichtet über den Monat, plus die beiden Verlustanteile `search_budget_lost_impression_share` und `search_rank_lost_impression_share` |
-| Anteil Ausgaben ohne Conversion | `ads.json > summary_search_terms.cost_without_conversion` geteilt durch die Summe aus `by_month[].cost` | Zähler und Nenner mit in den Block, die Anteilszahl allein ist nicht nachrechenbar |
+| Impression Share je Monat | `ads.json > by_month[].search_impression_share` | Summe der Impressionen durch Summe der möglichen, plus die beiden Verlustanteile `search_budget_lost_impression_share` und `search_rank_lost_impression_share` und die Abdeckung `search_impression_share_coverage` |
+| Anteil Ausgaben ohne Conversion | `ads.json > summary_search_terms.cost_without_conversion` geteilt durch `summary_search_terms.cost_total` | Zähler, Nenner und `detail_period` mit in den Block. Nie durch die Summe aus `by_month[].cost`: die Monatsreihe geht über die ganze Historie und enthält Performance Max, die Suchbegriffe nicht |
 
 **Block `catalogue`** (Spec Abschnitt 10: "Anzahl Produkte und Collections,
 Anteil mit vollständigen SEO-Feldern, Anteil Bilder mit Alt-Text"):
@@ -1197,8 +1439,9 @@ Anteil mit vollständigen SEO-Feldern, Anteil Bilder mit Alt-Text"):
 
 **Alle drei Blöcke tragen ihre Erhebungsgrenze mit.** Die DataForSEO-Werte
 kommen aus einer Datenbank, nicht aus einer Live-Messung (`dfs-rankings.json
-> notes` sagt das), die Ads-Werte sind bis heute nicht gegen ein echtes Konto
-geprüft (`ads.json > notes`), und die Shopping-Abdeckung ist eine Untergrenze
+> notes` sagt das), die Ads-Suchbegriffe decken nur Suche und Shopping ab
+(`ads.json > summary_search_terms.cost_total` gegen die Ausgaben), und die
+Shopping-Abdeckung ist eine Untergrenze
 über die geprüften Begriffe, keine Vollerhebung. Diese Vermerke gehören in die
 `sources` des Blocks, nicht in eine Fußnote: `baseline.render()` zeigt sie
 unter der Blocküberschrift, und ohne sie liest der nächste Report die Zahlen
@@ -1229,6 +1472,11 @@ ist, steht sie hier direkt statt auf eine noch nicht existierende Zeile in
 Für jede Datei in `reporting/runs/<run-id>/findings/` und jeden Befund
 darin ein Aufruf von `measures.create()`.
 
+**`criteria` läuft nicht durch `create()`.** Maßnahmen entstehen nur aus
+`findings`. Ein verletztes Kriterium hat seinen Befund dort, über `finding_id`
+verknüpft; ein erfülltes ist die positive Kontrolle und keine Handlung. Wer
+aus `criteria` Maßnahmen baut, bekommt jeden Mangel doppelt in den Backlog.
+
 **`blocked_questions` läuft nicht durch `create()`.** Aus ihnen entsteht
 **höchstens eine** Maßnahme je fehlender Eingabe, nie eine je Frage, und ihr
 Titel benennt die Handlung, die die Lücke schließt ("GA4-Property für das
@@ -1250,6 +1498,7 @@ for finding in findings:
         backlog, title=..., discipline=..., evidence=...,
         confidence=..., leverage=..., effort=..., responsible=...,
         data_source=..., check_rule=..., finding_ref=finding["id"],
+        intent=..., effect=..., needs=..., evidence_text=...,
         today=today)
 ```
 
@@ -1269,6 +1518,8 @@ Feste Feldabbildung von Befund auf `create()`-Parameter:
 | `confidence` | `confidence` | unverändert übernommen, entscheidet in `create()` über `type` |
 | `effect` | `leverage` | gegen die Baseline-Zahlen eingeordnet (Spec Abschnitt 9): `high`, wenn die betroffene Kennzahl mindestens ein Drittel des relevanten Blocks ausmacht (Umsatz-, Session- oder Klickanteil) oder eine Diagnose-Schwelle aus `reference/metrics.md` klar reißt; `low`, wenn sie unter der plugin-weiten Auffälligkeits-Schwelle von 20 Prozent liegt oder eine Randgröße betrifft; sonst `medium`. Wo sich der Effekt rechnen lässt, steht die Rechnung im `effect`-Satz des Befunds selbst, sonst bleibt es beim Band, nie eine erfundene Zahl |
 | `effort` | `effort` | unverändert übernommen |
+| `decision`, wenn vorhanden | `title`, `intent` | Die Maßnahme entsteht aus der empfohlenen Option `options[recommended]`: ihr `title` als Handlung umformuliert wird `title`, ihr `text` trägt `intent`. Die andere Option wird keine Maßnahme; das Portal zeigt sie in der Herleitung als Geprüfte Alternative. Will der Kunde sie, stellt er eine Rückfrage. Entschieden von Yves am 02.10.2026 (Portal-Spec `2026-10-02-finding-cards-design.md`, Abschnitt 9) |
+| `evidence_text`, wenn vorhanden | `evidence_text` | wörtlich übernommen. Befund und Maßnahme tragen denselben Beleg-Satz; einen eigenen schreibt Phase 3 nur für einen Befund ohne |
 
 Drei Parameter kennt die Analyse nicht, sie entstehen erst hier:
 
@@ -1281,6 +1532,14 @@ Drei Parameter kennt die Analyse nicht, sie entstehen erst hier:
   Fremdintegration (etwa ein Katalog-Feed aus einem ERP) `"Third Party"`. Eine
   Heuristik, kein Automatismus: passt sie im Einzelfall nicht, entscheidet die
   Sitzung nach Kontext.
+
+  **Der Auftragsumfang schlägt die Disziplin.** Schließt der Auftrag eine
+  Disziplin aus (etwa "Performance Marketing, Ads und Paid Social" im
+  Angebot), sind ihre Maßnahmen trotzdem relevant für das Team, liegen aber
+  bei ihm: `"Customer"`, `intent` aus Sicht des Teams ("Ihr …"), und `needs`
+  sagt in einem Satz, dass die Disziplin nicht Teil des Auftrags ist. Am
+  02.10.2026 standen sieben SEA-Maßnahmen zuerst auf `"Path to AI"`, obwohl
+  das Angebot Ads ausschloss.
 - **`data_source`:** wo das Feld, das die Maßnahme ändert, tatsächlich
   gepflegt wird, konkret benannt (zum Beispiel "Shopify-Theme",
   "Shopify-Produktverwaltung", "GA4/GTM-Property", "DNS/Sitemap"), nie
@@ -1301,6 +1560,10 @@ Drei Parameter kennt die Analyse nicht, sie entstehen erst hier:
   "Mehr als 100 verschiedene Seitentitel über die geprüften Seiten" ist
   richtig, `"crawl.json: mehr als 100 verschiedene Title-Werte"` nicht. Der
   Folgelauf weiß selbst, in welcher Datei er nachsieht.
+- **`intent`, `effect`, `needs`, `evidence_text`:** die Erklärung für den
+  Kunden, siehe der eigene Abschnitt unten. Sie sind technisch freiwillig,
+  damit ein Folgelauf über einen alten Backlog nicht bricht, und `qa.py` warnt
+  für jede Maßnahme, der sie fehlen.
 - **`finding_ref`:** die Kennung des Befunds, aus dem die Maßnahme folgt, also
   `finding["id"]`. Ohne sie zeigt der Report eine Handlung ohne Herkunft, und
   der Leser kann sie nicht beauftragen. Das war die Beanstandung vom
@@ -1308,6 +1571,38 @@ Drei Parameter kennt die Analyse nicht, sie entstehen erst hier:
   ich ja gar nicht verstehe: Was heißt das? Wo wurde das gefunden?"* Nur eine
   Maßnahme, die aus einer Lücke in der Datenlage folgt und keinen Befund am
   Shop hat, bleibt ohne.
+
+### Die vier Felder, die eine Maßnahme erklären
+
+**Eine Maßnahme muss sich selbst erklären.** Yves am 17.09.2026, nachdem er
+das Portal gelesen hat: *"[Das Team beim Kunden] sollte eine Maßnahme aufmachen
+und verstehen was damit gemeint ist. Wenn wir uns mal so eine Maßnahme
+durchlesen, sagt sie eigentlich außer im Titel nicht wirklich viel."* Damals
+trug eine Maßnahme nur Titel, Beleg als Dateipfad, Prüfregel, Datenherkunft
+und Verantwortlichen. Das ist die Innenseite unserer Arbeit, nicht die
+Außenseite für den Leser.
+
+Jede Maßnahme trägt deshalb vier weitere Felder. Sie stehen im Portal in
+dieser Reihenfolge über den technischen Angaben, und jedes hat genau eine
+Aufgabe:
+
+| Feld | Was drinsteht | Länge |
+|---|---|---|
+| `evidence_text` | Der Beleg als Satz mit den Zahlen, die ihn tragen. "318 von 1.204 Produktseiten haben keinen internen Link aus einer Kategorie- oder Kollektionsseite." Nicht der Pfad, der bleibt in `evidence` | ein Satz |
+| `intent` | Was wir vorhaben, als Handlung, und wo im Shop das passiert. "Wir verlinken die betroffenen Produktseiten aus den passenden Kategorieseiten heraus und ergänzen dafür die Kategorie-Templates im Theme." | ein bis zwei Sätze |
+| `effect` | Was es bringt, oder was es kostet, wenn es so bleibt. **Keine erfundene Zahl**: die Richtung und der Mechanismus reichen, wo keine belegte Rechnung möglich ist | ein bis zwei Sätze |
+| `needs` | Was wir dafür vom Kundenteam brauchen: eine Freigabe, einen Text, einen Zugang, eine Entscheidung. Leer, wenn wir es allein umsetzen können | ein Satz oder leer |
+
+Für die Sprache gilt dasselbe wie im Report: der Fachbegriff wird benutzt und
+beim ersten Auftreten erklärt, Laienwörter haben in einem Kundendokument nichts
+verloren, und keine Zahl ohne Beleg. Ist die Skill `workos:ecom-language`
+installiert, hält sie diese Regeln samt Vokabular; ohne sie gelten die drei
+Sätze hier. Die Maßnahme wiederholt den Befund nicht, sie baut darauf auf; wer
+den Befund lesen will, findet ihn über `finding_ref` im Portal direkt darüber.
+
+**Die Felder sind kein zweiter Report.** Wenn `intent` denselben Satz trägt
+wie der `fix` des Befunds, steht dort nichts Neues; dann gehört in `intent`
+der konkrete Weg, den wir gehen, und in `effect` die Folge für den Shop.
 
 ### Schritt 4: Priorisieren und schreiben
 
@@ -1418,7 +1713,7 @@ zwischen beiden blättern, und die Baseline war eine Zeile je Bereich
 
 | Marker | Inhalt | Quelle |
 |---|---|---|
-| `SECTION:shop` | Tabelle Angabe / Wert / Quelle: Shop-System, Theme, Sprachen, Märkte, Zahlarten, Sortiment, Seiten im Shop, Zahlen ab, Skripte fremder Anbieter. **Die Spalte Quelle trägt Werkzeugnamen** (Shopify Admin, Search Console, eigener Durchgang), nie Dateinamen | `config.json`, `shop-tech.json`, `catalog.json`, `crawl.json`, `state.json` |
+| `SECTION:shop` | Tabelle Angabe / Wert / Quelle: Shop-System, Theme, Sprachen, Märkte, Zahlarten, Sortiment, Seiten im Shop, Zahlen ab, Drittanbieter-Dienste. **Die Spalte Quelle trägt Werkzeugnamen** (Shopify Admin, Search Console, eigener Durchgang), nie Dateinamen | `config.json`, `shop-tech.json`, `catalog.json`, `crawl.json`, `state.json` |
 | `SECTION:measurement` | Die Zahlen zur Messqualität, dann die Befunde der Disziplin. Steht vorn, weil eine kaputte Messung jede Zahl danach zur Behauptung macht | `findings/data-quality.json`, `shopify.json`, `ga4.json`, `shop-tech.json` |
 | `SECTION:commerce` | Umsatz, Bestellungen, Bestellwert, Saison und Verfügbarkeit, dann die Befunde | `findings/commerce.json`, `shopify.json`, `catalog.json` |
 | `SECTION:traffic` | Kanaltabelle mit Sessions, Anteil, Bestellungen, Conversion und Umsatz je Kanal, dann die Befunde | `findings/traffic.json`, `ga4.json` |
@@ -1434,6 +1729,29 @@ zwischen beiden blättern, und die Baseline war eine Zeile je Bereich
 | `SECTION:gaps` | Tabelle Quelle / Status / Grund / Was dadurch offen bleibt | `source-status.md` plus die `blocked_questions` aller Disziplinen |
 | `SECTION:method` | Wie der PTAI E-Com Score gerechnet wird: Strafpunkte, Gewichte, Grenzen, und was der Score nicht leistet. **Aus den Konstanten von `score.py` erzeugt, nicht getippt** | `scripts/audit/score.py` |
 | `SECTION:sources` | Je Quelle eine `.source-row`: Werkzeug, Umfang, Stand | `state.json > sources`, Erhebungsdatum aus `pulled_at` |
+
+**Die Zahlen tragen Blöcke, nicht Fließtext.** Am 16.09.2026 ist der kleine Bruder
+dieses Reports (`audit-light`) daran überarbeitet worden, und die Befunde gelten hier
+genauso, weil dieser Report länger ist, nicht kürzer. Drei Regeln aus dem Fall:
+
+- **Was in einer Sektion nachweislich trägt, steht als Kennzahlen-Leiste, nicht als
+  Befundblock.** Ein Stärken-Befund kostet als Block so viel Platz wie ein kritischer
+  und wiegt beim Lesen genauso schwer. Drei bis vier Kacheln aus gemessenen Zahlen
+  ersetzen ihn. Yves dazu: *"Das ist viel zu viel Text. Bspw. in den Sektionen. Können
+  wir da nicht noch mit weiteren visuellen Elementen arbeiten. Also vielleicht grafisch
+  anzeigen, was schon funktioniert."*
+- **Ein Anteil gehört in einen Balken mit Zähler und Nenner daneben**, nicht in einen
+  Satz. "759 von 765" ist im Fließtext eine Behauptung, die der Leser nachrechnen muss.
+- **Die GEO-Messung gehört in ein Raster**, je Abfrage eine Zeile, je Plattform eine
+  Spalte. Der Kernbefund ist ein Muster über alle Antworten, und ein Muster im Absatz
+  liest niemand nach. Die Vorlage steht in `scripts/report/sales/report-pdf-full.mjs`
+  unter `geoGridSection`, die Zellwerte sind `both`, `brand`, `domain`, `none`.
+
+**Und die Rechenregel, die dort zehn Punkte gekostet hat:** der Score wird auf den
+konsolidierten Befunden gerechnet, nicht auf den Rohbefunden der Analysen. Wer
+zusammenführt, was zwei Analysen gefunden haben, und danach trotzdem die ungefilterte
+Liste in die Score-Funktion gibt, zählt jede Dublette doppelt. Hier betrifft das
+`compute()` in `scripts/audit/score.py`: die Eingabe ist das, was im Report steht.
 
 **Jede Fachsektion beginnt mit ihren Zahlen, dann kommen die Befunde.** Die
 Zahlen-Tabelle hat immer drei Spalten: Kennzahl, Wert, Bezug. Der Bezug ist
@@ -1797,7 +2115,7 @@ der Leser den Unterschied, den es nicht gibt.
 | Abschnitt 5 | Lücken in der Datenlage | Was nicht gemessen werden konnte |
 | die Kennzahl je Bestellung | Ø Bestellwert, im Fließtext einmal "durchschnittlicher Bestellwert (AOV)" | Warenkorbwert |
 | die erfassten Seiten | Seiten im Shop, geöffnet und geprüft | gecrawlte Seiten |
-| fremde Skripte | Skripte fremder Anbieter | Fremdtechnik |
+| fremde Skripte | Drittanbieter-Dienste | Fremdtechnik, Skripte fremder Anbieter |
 
 `baseline.json` und `baseline.md` heißen weiter so. Das ist der technische
 Name der Datei, kein Wort im Kundendokument.
@@ -1918,10 +2236,16 @@ Aussage hinter den Punkt, an dem die meisten aufhören zu lesen.
    Sprint.** Prüffrage: könnte dieser Satz unter jedem beliebigen Report
    stehen? Dann ist er keiner.
 
-Der Betreiber ist das Subjekt (ich-Form), wo er handelt, der Leser wird
-geduzt. "Dieser Report zeigt" ist immer falsch. Jede Zahl kommt aus dem Lauf
-und wird nie geschätzt: steht die Zahl der Befunde noch nicht fest, wird der
-Einstieg zuletzt geschrieben.
+Der Betreiber ist das Subjekt (ich-Form), wo er handelt, nie "wir". Der Leser
+ist das Team des Kunden und wird mit "ihr" und "euch" angesprochen, nie mit
+"du": im Portal lesen mehrere Personen dasselbe Dokument, und die Oberfläche
+daneben spricht sie genauso an. "Dieser Report zeigt" ist immer falsch.
+Entschieden am 28.09.2026, nachdem ein veröffentlichtes Audit "Du kannst sie
+freigeben" schrieb, während das Portal ringsum "ihr" sagte. Die festen Labels
+im Template folgen derselben Regel ("Was ihr hier seht").
+
+Jede Zahl kommt aus dem Lauf und wird nie geschätzt: steht die Zahl der
+Befunde noch nicht fest, wird der Einstieg zuletzt geschrieben.
 
 **Der Einstieg läuft nicht durch das Pitch-Gate**, aber diese Prüffrage gilt,
 ob `workos:report` installiert ist oder nicht: würdest du diesen Satz laut
@@ -2198,7 +2522,7 @@ läuft also durch bis zum geschriebenen Block.
 | Block | Wartet auf | Vorbehalt |
 |---|---|---|
 | `seo_visibility` | `dfs_rankings`, `dfs_keywords`, `backlinks` | DataForSEO-Guthaben und Budgetdeckel. Der Sichtbarkeitsverlauf entsteht nur mit `--with-history` |
-| `sea` | `ads` | Google-Ads-Zugang. **Ungeprüft gegen die echte API**, siehe Verifikationsliste in `pull-ads` |
+| `sea` | `ads` | Google-Ads-Zugang, Freigabe des Cloud-Projekts für echte Konten |
 | `catalogue` | `catalogue` | Shopify-Admin-Zugang mit Katalog-Scope |
 
 **Ein Nachtrag ohne Zugang tut korrekt nichts.** Fehlt der Zugang weiterhin,

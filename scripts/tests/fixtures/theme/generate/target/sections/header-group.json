@@ -1,0 +1,13 @@
+{
+  "type": "header",
+  "name": "t:names.header",
+  "sections": {
+    "header": {
+      "type": "header",
+      "settings": {}
+    }
+  },
+  "order": [
+    "header"
+  ]
+}

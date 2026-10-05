@@ -36,7 +36,6 @@ OPERATOR_KEYS = (
     "PTAI_GEMINI_KEY",
     "PTAI_DFS_LOGIN",
     "PTAI_DFS_PASSWORD",
-    "PTAI_GOOGLE_ADS_TOKEN",
 )
 
 #: Funnel-Datenbank und Mailversand. Gehoeren ebenfalls dem Betreiber, heissen

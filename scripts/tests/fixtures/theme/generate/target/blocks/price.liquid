@@ -1,0 +1,20 @@
+<p class="price" {{ block.shopify_attributes }}>{{ closest.product.price | money }}</p>
+
+{% schema %}
+{
+  "name": "Preis",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "show_sale_price_first",
+      "label": "Angebotspreis zuerst",
+      "default": true
+    }
+  ],
+  "presets": [
+    {
+      "name": "Preis"
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,25 @@
+<header>{{ shop.name }}</header>
+
+{% schema %}
+{
+  "name": "Kopfzeile",
+  "settings": [
+    {
+      "type": "range",
+      "id": "logo_width",
+      "label": "Logobreite",
+      "min": 50,
+      "max": 300,
+      "step": 10,
+      "unit": "px",
+      "default": 120
+    },
+    {
+      "type": "checkbox",
+      "id": "sticky",
+      "label": "Mitlaufend",
+      "default": true
+    }
+  ]
+}
+{% endschema %}

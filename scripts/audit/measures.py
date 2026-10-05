@@ -55,6 +55,22 @@ RESPONSIBLE = ("Path to AI", "Customer", "Third Party")
 #: bei "open", siehe `create()`.
 STATUS = ("open", "in_progress", "implemented", "rejected", "obsolete")
 
+#: Unsere Empfehlung zu dieser Maßnahme. Ein Urteil über die Maßnahme, kein
+#: gemessener Zustand, und **keine Aussage darüber, wer entscheiden darf**:
+#: jede Maßnahme ist ein Vorschlag, und über jede entscheidet der Kunde.
+#:
+#: "recommended"  wir empfehlen die Umsetzung, ein Ja genügt
+#: "decision"     wir können sie nicht für ihn treffen: Geschmack, mehrere
+#:                Wege, Kosten oder Arbeit bei ihm
+#:
+#: Bis zum 17.09.2026 gab es eine dritte Stufe "not_required" für Maßnahmen,
+#: die im Shop unsichtbar bleiben. Sie ist raus, weil sie im Portal als "ihr
+#: habt hier nichts zu entscheiden" gelesen wurde, und das stimmt nicht.
+#:
+#: **Ohne Angabe bleibt das Feld leer**, siehe `create()`. Ein Ersatzwert wäre
+#: die Behauptung, jemand habe die Maßnahme eingeordnet.
+APPROVAL = ("recommended", "decision")
+
 #: Ergebnis von `check()` für einen einzelnen Lauf. Nur "implemented" und
 #: "open" sind zugleich gültige Werte für `set_status()`, "unchecked" nie:
 #: der Aufrufer darf einen ungeprüften Stand nicht als Statuswechsel
@@ -79,7 +95,9 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
            confidence: str, leverage: str, effort: str,
            responsible: str | None = None, data_source: str | None = None,
            check_rule: str | None = None, finding_ref: str | None = None,
-           today: date | None = None) -> dict:
+           approval: str | None = None, intent: str | None = None,
+           effect: str | None = None, needs: str | None = None,
+           evidence_text: str | None = None, today: date | None = None) -> dict:
     """Legt eine neue Maßnahme an und gibt ein neues Dokument zurück.
 
     Validiert vollständig, bevor eine ID vergeben wird: eine abgelehnte
@@ -97,6 +115,19 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
     Herkunft, und der Leser kann nicht prüfen, worauf sie sich stützt. Sie
     bleibt optional, weil eine Maßnahme auch aus einer Lücke in der Datenlage
     folgen kann, für die es keinen Befund am Shop gibt.
+
+    **Vier Felder erklären die Maßnahme dem Kunden** (seit 17.09.2026, Anlass
+    in `SKILL.md`, Abschnitt Maßnahmen): `intent` sagt, was wir vorhaben,
+    `effect`, was es bringt oder was es kostet, wenn es so bleibt, `needs`,
+    was wir dafür vom Kundenteam brauchen, und `evidence_text` trägt den Beleg
+    als Satz mit Zahlen. Bis dahin stand im Portal nur `evidence`, also ein
+    Pfad in eine Rohdatei, und ein Kunde konnte einer Maßnahme außer ihrem
+    Titel nichts entnehmen.
+
+    Alle vier sind freiwillig, damit ein Folgelauf über einen alten Backlog
+    nicht bricht; `qa.py` zählt, wie viele Maßnahmen ohne sie entstehen.
+    Leerzeichen-Werte werden zu `None`, sonst stünde im Portal eine leere
+    Überschrift.
     """
     if not title:
         raise ValueError("titel darf nicht leer sein")
@@ -115,11 +146,19 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
         raise ValueError(f"unbekannter Hebel: {leverage!r}, erlaubt sind {LEVERAGE}")
     if effort not in EFFORT:
         raise ValueError(f"unbekannter Aufwand: {effort!r}, erlaubt sind {EFFORT}")
+    if approval is not None and approval not in APPROVAL:
+        raise ValueError(
+            f"unbekannte Empfehlungsstufe: {approval!r}, erlaubt sind {APPROVAL}")
     if responsible is not None and responsible not in RESPONSIBLE:
         raise ValueError(
             f"unbekannt, wer verantwortlich ist: {responsible!r}, "
             f"erlaubt sind {RESPONSIBLE}"
         )
+
+    # Ein Feld, das nur Leerzeichen trägt, ist kein Inhalt: es wird `None`,
+    # damit das Portal den Abschnitt weglässt statt eine leere Zeile zu zeigen.
+    def clean(value: str | None) -> str | None:
+        return value.strip() if value and value.strip() else None
 
     today_str = (today or date.today()).isoformat()
     entry = {
@@ -134,6 +173,11 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
         "data_source": data_source,
         "check_rule": check_rule,
         "finding_ref": finding_ref,
+        "approval": approval,
+        "intent": clean(intent),
+        "effect": clean(effect),
+        "needs": clean(needs),
+        "evidence_text": clean(evidence_text),
         # Eine Hypothese wird nie zur Maßnahme, sie wird zum Test.
         "type": "test" if confidence == "hypothesis" else "measure",
         "status": "open",
@@ -145,15 +189,27 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
     }
 
 
-def set_status(backlog: dict, id: str, status: str, *, today: date | None = None) -> dict:
+def set_status(backlog: dict, id: str, status: str, *,
+               today: date | None = None, run_id: str | None = None,
+               note: str | None = None) -> dict:
     """Ändert den Status einer Maßnahme und hängt einen Eintrag an ihre
     Historie an, statt sie zu ersetzen: ein früherer Statuswechsel bleibt
     sichtbar, auch nach dem zehnten Folgelauf.
+
+    `run_id` ist der Lauf, der den Wechsel gemessen hat, `note` der Satz,
+    woran. Beide sind freiwillig und stehen nur im Eintrag, wenn sie übergeben
+    wurden: ein leeres Feld wäre die Behauptung, es gäbe einen Lauf, und das
+    Portal zeigt lieber "Urheber nicht belegt" als ein leeres Feld.
     """
     if status not in STATUS:
         raise ValueError(f"unbekannter Status: {status!r}, erlaubt sind {STATUS}")
 
     today_str = (today or date.today()).isoformat()
+    entry = {"status": status, "date": today_str}
+    if run_id:
+        entry["run_id"] = run_id
+    if note:
+        entry["note"] = note
     new_measures = []
     found = False
     for measure in backlog["measures"]:
@@ -162,8 +218,34 @@ def set_status(backlog: dict, id: str, status: str, *, today: date | None = None
             new_measures.append({
                 **measure,
                 "status": status,
-                "history": [*measure["history"], {"status": status, "date": today_str}],
+                "history": [*measure["history"], entry],
             })
+        else:
+            new_measures.append(measure)
+    if not found:
+        raise ValueError(f"unbekannte ID: {id!r}")
+
+    return {**backlog, "measures": new_measures}
+
+
+def set_approval(backlog: dict, id: str, approval: str) -> dict:
+    """Trägt unsere Empfehlung zu dieser Maßnahme nach.
+
+    **Kein Statuswechsel und kein Eintrag in der Historie.** Die Historie hält
+    gemessene Zustände; die Empfehlung ist unser Urteil, und das kann sich
+    ändern, ohne dass sich am Shop etwas bewegt hat. Beides in eine Zeitleiste zu werfen hieße, dem Kunden eine
+    Messung zu zeigen, die keine ist.
+    """
+    if approval not in APPROVAL:
+        raise ValueError(
+            f"unbekannte Empfehlungsstufe: {approval!r}, erlaubt sind {APPROVAL}")
+
+    new_measures = []
+    found = False
+    for measure in backlog["measures"]:
+        if measure["id"] == id:
+            found = True
+            new_measures.append({**measure, "approval": approval})
         else:
             new_measures.append(measure)
     if not found:

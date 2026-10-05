@@ -86,3 +86,47 @@ class TestVerdict(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPriceTestClearance(unittest.TestCase):
+    """Ein geladenes Werkzeug ist nicht dasselbe wie ein laufender Preistest.
+    Eine geprüfte Aussage darf den Fund entkräften, nie umgekehrt."""
+
+    CRAWL = {"findings_index": {"script_hosts": {"cdn.intelligems.io": 3059}}}
+
+    def _entry(self, kind="correction", about=("price-test",)):
+        return {"id": 1, "date": "2026-09-09", "source": "Eigene Prüfung",
+                "about": list(about), "kind": kind,
+                "statement": "Von sechs Experiences läuft eine, und die testet Inhalte."}
+
+    def test_without_a_statement_the_tool_still_blocks(self):
+        verdict = gates.price_test_verdict(self.CRAWL)
+        self.assertTrue(verdict["checked"])
+        self.assertTrue(verdict["running"])
+
+    def test_a_correction_clears_the_finding(self):
+        verdict = gates.price_test_verdict(self.CRAWL, context=[self._entry()])
+        self.assertTrue(verdict["checked"])
+        self.assertFalse(verdict["running"])
+
+    def test_the_cleared_verdict_still_names_what_was_found(self):
+        verdict = gates.price_test_verdict(self.CRAWL, context=[self._entry()])
+        self.assertIn("intelligems", verdict["evidence"].lower())
+        self.assertIn("Entkräftet am 2026-09-09", verdict["evidence"])
+        self.assertIn("testet Inhalte", verdict["evidence"])
+
+    def test_a_reason_does_not_clear_anything(self):
+        """Ein Grund erklärt einen laufenden Test, er hebt ihn nicht auf."""
+        verdict = gates.price_test_verdict(self.CRAWL, context=[self._entry(kind="reason")])
+        self.assertTrue(verdict["running"])
+
+    def test_a_statement_about_another_topic_does_not_clear(self):
+        verdict = gates.price_test_verdict(self.CRAWL,
+                                           context=[self._entry(about=("HDL-07",))])
+        self.assertTrue(verdict["running"])
+
+    def test_a_statement_cannot_invent_a_test_that_was_not_found(self):
+        verdict = gates.price_test_verdict({}, context=[self._entry()])
+        self.assertTrue(verdict["checked"])
+        self.assertFalse(verdict["running"])
+        self.assertIn("Kein bekanntes", verdict["evidence"])

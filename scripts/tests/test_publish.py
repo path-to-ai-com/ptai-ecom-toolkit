@@ -65,6 +65,15 @@ class TestPrepare(unittest.TestCase):
         self.assertTrue((run_target / "audit.pdf").exists())
         self.assertTrue((run_target / "findings" / "cro.json").exists())
 
+    def test_the_title_from_the_state_reaches_the_manifest(self):
+        state_path = self.ws / "reporting" / "runs" / self.run_id / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state_path.write_text(json.dumps({**state, "title": "Abstimmung vor dem Theme-Wechsel"}),
+                              encoding="utf-8")
+        self._run()
+        manifest_data = manifest.load(self.bucket / MANIFEST_KEY)
+        self.assertEqual(manifest_data["runs"][0]["title"], "Abstimmung vor dem Theme-Wechsel")
+
     def test_publishing_never_releases(self):
         self._run()
         manifest_data = manifest.load(self.bucket / "brands/beispielkunde/manifest.json")
@@ -91,24 +100,171 @@ class TestPrepare(unittest.TestCase):
         manifest_data = manifest.load(self.bucket / "brands/beispielkunde/manifest.json")
         self.assertEqual(manifest_data["shops"]["beispielshop"]["name"], "Beispielshop")
 
-    def test_a_second_publish_replaces_the_files(self):
+    def test_the_run_carries_a_snapshot_of_the_measures(self):
+        """Der Stand auf Shop-Ebene wird bei jedem publish ueberschrieben. Ohne
+        die Kopie im Lauf gaebe es keinen frueheren Stand, gegen den sich
+        vergleichen liesse."""
+        (self.ws / "reporting" / "measures.json").write_text(
+            json.dumps({"next_id": 2, "measures": []}), encoding="utf-8")
+        result = self._run()
+        snapshot = (self.bucket
+                    / manifest.path_for("beispielkunde", "beispielshop", self.run_id)
+                    / "measures.json")
+        self.assertTrue(snapshot.exists())
+        manifest_data = manifest.load(self.bucket / MANIFEST_KEY)
+        self.assertIn("measures.json", manifest_data["runs"][0]["files"])
+        self.assertEqual(result["files"], len(manifest_data["runs"][0]["files"]))
+
+    def test_the_run_carries_a_snapshot_of_the_feedback(self):
+        """Wie beim Backlog: die Datei auf Shop-Ebene ist der aktuelle Stand,
+        die Kopie im Lauf haelt fest, welche Zuordnungen damals galten."""
+        (self.ws / "reporting" / "feedback.json").write_text(
+            json.dumps({"entries": []}), encoding="utf-8")
+        self._run()
+        snapshot = (self.bucket
+                    / manifest.path_for("beispielkunde", "beispielshop", self.run_id)
+                    / "feedback.json")
+        self.assertTrue(snapshot.exists())
+        manifest_data = manifest.load(self.bucket / MANIFEST_KEY)
+        self.assertIn("feedback.json", manifest_data["runs"][0]["files"])
+
+    def test_the_shop_carries_the_feedback(self):
+        """Ansicht 3 liest die Zuordnungen vom Shop, nicht aus einem Lauf."""
+        (self.ws / "reporting" / "feedback.json").write_text(
+            json.dumps({"entries": []}), encoding="utf-8")
+        self._run()
+        shop_target = self.bucket / manifest.path_for("beispielkunde", "beispielshop")
+        self.assertTrue((shop_target / "feedback.json").exists())
+
+    def test_a_run_without_feedback_stays_unchanged(self):
+        """Ein Shop ohne Rueckmeldung von aussen ist der Normalfall. Es darf
+        nichts Erfundenes im Bucket landen."""
+        self._run()
+        run_target = (self.bucket
+                      / manifest.path_for("beispielkunde", "beispielshop", self.run_id))
+        self.assertFalse((run_target / "feedback.json").exists())
+
+    def test_a_run_without_measures_stays_unchanged(self):
+        """Ein Kurz-Audit hat keinen Backlog. Er darf daran nicht scheitern,
+        und es darf auch nichts Erfundenes im Bucket landen."""
+        self._run()
+        run_target = (self.bucket
+                      / manifest.path_for("beispielkunde", "beispielshop", self.run_id))
+        self.assertFalse((run_target / "measures.json").exists())
+
+    def test_a_second_publish_leaves_the_first_version_alone(self):
+        """Bis zum 17.09.2026 pruefte dieser Test, dass eine geloeschte Datei
+        im Bucket nicht stehenbleibt, und schaute dafuer auf den flachen
+        Lauf-Pfad. Seit den Fassungen ist die Bedeutung eine andere: die neue
+        Fassung traegt, was der Workspace sagt, und die alte bleibt
+        vollstaendig liegen, weil sie das Archiv ist."""
         self._run()
         run = self.ws / "reporting" / "runs" / self.run_id
         (run / "audit.pdf").unlink()
         (run / "neu.txt").write_text("x", encoding="utf-8")
-        self._run()
-        run_target = self.bucket / "brands/beispielkunde/shops/beispielshop/runs" / self.run_id
-        self.assertTrue((run_target / "neu.txt").exists())
-        self.assertFalse((run_target / "audit.pdf").exists(),
-                         "eine geloeschte Datei darf im Bucket nicht stehenbleiben")
+        result = self._run()
+
+        erste = self.bucket / "brands/beispielkunde/shops/beispielshop/runs" / self.run_id
+        zweite = Path(result["path"])
+        self.assertTrue((zweite / "neu.txt").exists())
+        self.assertFalse((zweite / "audit.pdf").exists(),
+                         "eine geloeschte Datei darf in der neuen Fassung "
+                         "nicht stehenbleiben")
+        self.assertTrue((erste / "audit.pdf").exists())
+        self.assertFalse((erste / "neu.txt").exists())
 
     def test_a_second_publish_keeps_an_existing_release(self):
         self._run()
         manifest_path = self.bucket / "brands/beispielkunde/manifest.json"
         manifest.save(manifest_path, manifest.release(manifest.load(manifest_path),
                                                       "beispielshop", self.run_id))
-        self._run()
+        result = publish.prepare(self.ws, self.run_id, self.bucket, visible=True)
         self.assertTrue(manifest.load(manifest_path)["runs"][0]["released"])
+        self.assertTrue(result["released"],
+                        "die Meldung muss die übernommene Freigabe zeigen")
+
+    def test_a_new_version_of_a_released_run_needs_visible(self):
+        # Spec ptai-portal 2026-10-02, Abschnitt 17, Punkt 2: sonst wäre die
+        # neue Fassung ohne Abnahme sofort beim Kunden.
+        self._run()
+        manifest_path = self.bucket / "brands/beispielkunde/manifest.json"
+        manifest.save(manifest_path, manifest.release(manifest.load(manifest_path),
+                                                      "beispielshop", self.run_id))
+        before = manifest.load(manifest_path)
+        with self.assertRaises(SystemExit):
+            self._run()
+        self.assertEqual(manifest.load(manifest_path), before, "das Manifest darf sich nicht ändern")
+        self.assertFalse((self.bucket / manifest.path_for("beispielkunde", "beispielshop",
+                                                          self.run_id, 2)).exists(),
+                         "es darf nichts kopiert sein")
+
+    def test_replace_on_a_released_run_needs_visible_too(self):
+        self._run()
+        manifest_path = self.bucket / "brands/beispielkunde/manifest.json"
+        manifest.save(manifest_path, manifest.release(manifest.load(manifest_path),
+                                                      "beispielshop", self.run_id))
+        with self.assertRaises(SystemExit):
+            publish.prepare(self.ws, self.run_id, self.bucket, replace=True)
+
+    def test_an_unreleased_run_takes_a_new_version_without_visible(self):
+        self._run()
+        self.assertEqual(self._run()["revision"], 2)
+
+    def test_another_account_slug_sends_the_run_to_another_brand(self):
+        result = publish.prepare(self.ws, self.run_id, self.bucket, account_slug="portal-test")
+        self.assertEqual(result["brand"], "portal-test")
+        self.assertTrue((self.bucket / "brands/portal-test/manifest.json").exists())
+        self.assertFalse((self.bucket / "brands/beispielkunde/manifest.json").exists(),
+                         "die Marke aus der Config bleibt unberührt")
+        self.assertFalse(result["released"])
+
+    def test_release_local_releases_an_uploaded_run(self):
+        from audit import release
+        self._run()
+        entry = release.release_local(self.bucket, "beispielkunde", "beispielshop", self.run_id,
+                                      today=date(2026, 10, 2))
+        self.assertTrue(entry["released"])
+        self.assertEqual(entry["released_at"], "2026-10-02")
+        self.assertTrue(manifest.load(self.bucket / MANIFEST_KEY)["runs"][0]["released"])
+
+    def test_release_local_refuses_a_run_that_was_never_uploaded(self):
+        from audit import release
+        self._run()
+        with self.assertRaises(KeyError):
+            release.release_local(self.bucket, "beispielkunde", "beispielshop", "2026-01-01-audit")
+
+    def _findings_with(self, block):
+        (self.ws / "reporting" / "runs" / self.run_id / "findings" / "cro.json").write_text(json.dumps({
+            "findings": [{"id": "CRO-01", "proof": {"columns": [{"blocks": [block]}]}}]}),
+            encoding="utf-8")
+
+    def test_an_open_capture_stops_the_publish(self):
+        self._findings_with({"type": "phone", "capture": {"url": "https://beispielshop.test/p"}})
+        with self.assertRaises(SystemExit) as raised:
+            self._run()
+        self.assertIn("CRO-01", str(raised.exception))
+        self.assertFalse((self.bucket / MANIFEST_KEY).exists(), "es darf nichts eingetragen sein")
+
+    def test_a_missing_proof_image_stops_the_publish(self):
+        self._findings_with({"type": "image", "src": "proof/cro-01-1-desktop.jpg", "alt": "a", "title": "t"})
+        with self.assertRaises(SystemExit) as raised:
+            self._run()
+        self.assertIn("proof/cro-01-1-desktop.jpg", str(raised.exception))
+
+    def test_a_taken_proof_image_goes_up_with_the_run(self):
+        run = self.ws / "reporting" / "runs" / self.run_id
+        (run / "proof").mkdir()
+        (run / "proof" / "cro-01-1-mobil.jpg").write_bytes(b"\xff\xd8")
+        (run / "proof" / "cro-01-1-mobil-voll.jpg").write_bytes(b"\xff\xd8")
+        self._findings_with({"type": "phone", "capture": {"url": "https://beispielshop.test/p"},
+                             "src": "proof/cro-01-1-mobil.jpg", "full_src": "proof/cro-01-1-mobil-voll.jpg"})
+        self._run()
+        entry = manifest.load(self.bucket / MANIFEST_KEY)["runs"][0]
+        self.assertIn("proof/cro-01-1-mobil.jpg", entry["files"])
+        self.assertEqual(publish.CONTENT_TYPES[".jpg"], "image/jpeg")
+
+    def test_a_first_publish_reports_no_release(self):
+        self.assertFalse(self._run()["released"])
 
     def test_a_config_without_a_customer_stops(self):
         (self.ws / "reporting" / "config.json").write_text(
@@ -170,6 +326,52 @@ class FakeBucket:
         return json.loads(self.objects[MANIFEST_KEY])
 
 
+class TestRevisionOnPublish(unittest.TestCase):
+    """Ein zweites publish derselben Lauf-ID ist eine Korrektur. Sie bekommt
+    einen eigenen Pfad, damit der Upload die erste Fassung nicht mit
+    `x-upsert` ueberschreibt."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.run_id = "2026-09-08-audit"
+        self.ws = make_workspace(Path(self.tmp.name), self.run_id)
+        self.bucket = Path(self.tmp.name) / "bucket"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_second_publish_writes_a_second_version(self):
+        publish.prepare(self.ws, self.run_id, self.bucket)
+        first = (self.bucket
+                 / manifest.path_for("beispielkunde", "beispielshop", self.run_id)
+                 / "audit-web.html")
+        first_text = first.read_text(encoding="utf-8")
+
+        (self.ws / "reporting" / "runs" / self.run_id / "audit-web.html").write_text(
+            "<html>korrigiert", encoding="utf-8")
+        result = publish.prepare(self.ws, self.run_id, self.bucket,
+                                 note="GA4-Doppelzaehlung nachgetragen")
+
+        self.assertEqual(result["revision"], 2)
+        # Die erste Fassung liegt unangetastet da, wo sie lag.
+        self.assertEqual(first.read_text(encoding="utf-8"), first_text)
+        second = Path(result["path"]) / "audit-web.html"
+        self.assertTrue(second.as_posix().endswith("/v02/audit-web.html"))
+        self.assertEqual(second.read_text(encoding="utf-8"), "<html>korrigiert")
+
+        manifest_data = manifest.load(self.bucket / MANIFEST_KEY)
+        run = manifest_data["runs"][0]
+        self.assertEqual([r["no"] for r in run["revisions"]], [1, 2])
+        self.assertEqual(run["revisions"][1]["note"], "GA4-Doppelzaehlung nachgetragen")
+
+    def test_replace_keeps_the_running_version(self):
+        publish.prepare(self.ws, self.run_id, self.bucket)
+        result = publish.prepare(self.ws, self.run_id, self.bucket, replace=True)
+        self.assertEqual(result["revision"], 1)
+        manifest_data = manifest.load(self.bucket / MANIFEST_KEY)
+        self.assertEqual(len(manifest_data["runs"][0]["revisions"]), 1)
+
+
 class TestUpload(unittest.TestCase):
     """`publish --upload` in ein frisches Ziel, während der Bucket schon Läufe kennt.
 
@@ -196,12 +398,12 @@ class TestUpload(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _publish(self, bucket, env=None):
+    def _publish(self, bucket, env=None, extra=()):
         if env is None:
             env = {"SUPABASE_URL": FakeBucket.URL,
                    "SUPABASE_SERVICE_ROLE_KEY": "service-key"}
         argv = ["--workspace", str(self.ws), "--run-id", self.run_id,
-                "--target", str(self.target), "--upload"]
+                "--target", str(self.target), "--upload", *extra]
         # `clear=True`, damit ein Schlüssel aus der Shell nie in einen Test gerät.
         with mock.patch.dict(os.environ, env, clear=True), \
                 mock.patch("urllib.request.urlopen", bucket.urlopen), \
@@ -211,17 +413,23 @@ class TestUpload(unittest.TestCase):
 
     def test_an_upload_into_an_empty_target_keeps_the_other_runs(self):
         bucket = FakeBucket({MANIFEST_KEY: self.remote})
-        self.assertEqual(self._publish(bucket), 0)
+        self.assertEqual(self._publish(bucket, extra=["--visible"]), 0)
         self.assertEqual({r["run_id"] for r in bucket.manifest()["runs"]},
                          {self.run_id, "2026-08-01-report"})
 
     def test_an_upload_into_an_empty_target_keeps_the_release(self):
         bucket = FakeBucket({MANIFEST_KEY: self.remote})
-        self._publish(bucket)
+        self._publish(bucket, extra=["--visible"])
         entry = next(r for r in bucket.manifest()["runs"]
                      if r["run_id"] == self.run_id)
         self.assertTrue(entry["released"])
         self.assertEqual(entry["released_at"], "2026-09-09")
+
+    def test_a_released_run_uploads_nothing_without_visible(self):
+        bucket = FakeBucket({MANIFEST_KEY: self.remote})
+        with self.assertRaises(SystemExit):
+            self._publish(bucket)
+        self.assertEqual(bucket.uploads(), [], "ohne --visible darf nichts hochgehen")
 
     def test_a_new_brand_starts_with_an_empty_manifest(self):
         bucket = FakeBucket()

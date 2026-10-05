@@ -1,0 +1,13 @@
+{
+  "sections": {
+    "main": {
+      "type": "hero",
+      "settings": {
+        "title": "EU"
+      }
+    }
+  },
+  "order": [
+    "main"
+  ]
+}

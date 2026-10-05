@@ -45,6 +45,14 @@ class TestArchive(unittest.TestCase):
         self.assertTrue((ziel / "findings" / "cro.json").exists())
         self.assertTrue((ziel / "audit.pdf").exists())
 
+    def test_the_proof_images_go_with_their_findings(self):
+        self._fassung()
+        (self.run / "proof").mkdir()
+        (self.run / "proof" / "cro-01-1-mobil.jpg").write_bytes(b"\xff\xd8")
+        ziel = revision.archive(self.ws, self.run_id)
+        self.assertTrue((ziel / "proof" / "cro-01-1-mobil.jpg").exists())
+        self.assertFalse((self.run / "proof").exists())
+
     def test_the_written_text_stays_put(self):
         # Cover-Headline und Kernaussagen hat ein Mensch geschrieben. Sie
         # gelten dem Lauf, nicht der Fassung, und wer sie mitnimmt, lässt sie
@@ -58,6 +66,27 @@ class TestArchive(unittest.TestCase):
         ziel = revision.archive(self.ws, self.run_id)
         self.assertTrue((ziel / "measures.json").exists())
         self.assertTrue((self.ws / "reporting" / "measures.json").exists())
+
+    def test_kopie_laesst_die_fassung_im_lauf_stehen(self):
+        # Der Nachlauf einer Disziplin ersetzt nur deren Befund-Datei. Die
+        # übrigen Befunde müssen bleiben, sonst baut der Gesamtreport auf
+        # einer einzigen Disziplin.
+        self._fassung()
+        ziel = revision.archive(self.ws, self.run_id, copy=True)
+        self.assertTrue((self.run / "findings" / "cro.json").exists())
+        self.assertTrue((self.run / "audit.pdf").exists())
+        self.assertTrue((ziel / "findings" / "cro.json").exists())
+        self.assertTrue((ziel / "audit.pdf").exists())
+
+    def test_kopie_setzt_den_backlog_nie_zurueck(self):
+        self._fassung()
+        backlog = {"next_id": 2, "measures": [
+            {"id": "M-001", "status": "open", "history": [{"status": "open"}]}]}
+        (self.ws / "reporting" / "measures.json").write_text(
+            json.dumps(backlog), encoding="utf-8")
+        revision.main(["--workspace", str(self.ws), "--run-id", self.run_id, "--copy"])
+        after = json.loads((self.ws / "reporting" / "measures.json").read_text())
+        self.assertEqual([m["id"] for m in after["measures"]], ["M-001"])
 
     def test_a_second_archive_counts_up(self):
         self._fassung()

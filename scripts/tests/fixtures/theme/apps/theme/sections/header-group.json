@@ -1,0 +1,23 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ * ------------------------------------------------------------
+ */
+{
+  "type": "header",
+  "name": "Header group",
+  "sections": {
+    "announcement": {
+      "type": "announcement-bar",
+      "blocks": {
+        "klaviyo_form": {
+          "type": "shopify://apps/klaviyo-email-marketing-sms/blocks/form-embed-block/00000000-0000-0000-0000-000000000004",
+          "settings": {"form_id": "BEISPL"}
+        }
+      },
+      "block_order": ["klaviyo_form"],
+      "settings": {}
+    }
+  },
+  "order": ["announcement"]
+}

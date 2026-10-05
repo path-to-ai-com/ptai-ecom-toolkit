@@ -167,10 +167,9 @@ class TestExportUndStatus(Basis):
 
     def test_audit_light_braucht_die_funnel_keys(self):
         # Ohne sie scheitert der ID-Weg und der Versand, und beides ist der
-        # Normalfall. Der Google-Ads-Token gehört ausdrücklich nicht dazu.
+        # Normalfall. Die DataForSEO-Zugänge gehören ausdrücklich nicht dazu.
         for k in env.FUNNEL_KEYS:
             self.assertIn(k, env.AUDIT_LIGHT_KEYS)
-        self.assertNotIn("PTAI_GOOGLE_ADS_TOKEN", env.AUDIT_LIGHT_KEYS)
         self.assertNotIn("PTAI_DFS_LOGIN", env.AUDIT_LIGHT_KEYS)
 
     def test_google_credentials_gehoert_nicht_dazu(self):

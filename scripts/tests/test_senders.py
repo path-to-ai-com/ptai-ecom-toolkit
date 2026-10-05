@@ -57,6 +57,25 @@ def doubled(stream_id="1", onset=20, days=40):
     return s
 
 
+def doubled_until(stop, stream_id="1", onset=10, days=40, events=("view_item", "purchase")):
+    """Wie `doubled`, aber der zweite Absender sendet nur von `onset` bis
+    einschließlich `stop`. Danach meldet nur noch der erste, so wie nach dem
+    Abschalten einer App."""
+    s = Stream(stream_id)
+    for n in range(days):
+        second_view = onset <= n <= stop and "view_item" in events
+        second_buy = onset <= n <= stop and "purchase" in events
+        s.add(n, "view_item", APP, HOST, 1_000, 600)
+        if second_view:
+            s.add(n, "view_item", NOT_SET, HOST, 700, 500)
+        s.total(n, "view_item", 1_700 if second_view else 1_000, 620 if second_view else 600)
+        s.add(n, "purchase", APP, NOT_SET, 50, 50)
+        if second_buy:
+            s.add(n, "purchase", NOT_SET, HOST, 35, 35)
+        s.total(n, "purchase", 85 if second_buy else 50, 52 if second_buy else 50)
+    return s
+
+
 def analyze(*streams):
     return senders.analyze([r for s in streams for r in s.event_rows()],
                            [r for s in streams for r in s.signatures])
@@ -109,6 +128,123 @@ class TestDoubleCounting(unittest.TestCase):
         self.assertEqual(event_of(r, "add_to_cart")["status"], "separate_sessions")
         self.assertEqual(r["double_counted_events"], [])
         self.assertTrue(r["multiple_senders"])
+
+
+class TestSecondSenderEnds(unittest.TestCase):
+    """Ein zweiter Absender kann wieder verschwinden, etwa weil jemand die App
+    deinstalliert. Dann gilt die Doppelzählung nur für einen Abschnitt des
+    Zeitraums, und der Report darf sie nicht im Präsens behaupten."""
+
+    def test_a_sender_that_stopped_gets_an_end_date(self):
+        r = analyze(doubled_until(29, days=40))
+        self.assertEqual(event_of(r, "view_item")["ended"], day(29))
+        self.assertEqual(r["ended"], day(29))
+        self.assertFalse(r["still_duplicating"])
+
+    def test_the_double_counting_still_holds_for_its_own_period(self):
+        """Das Ende hebt den Befund nicht auf, es begrenzt ihn."""
+        r = analyze(doubled_until(29, onset=10, days=40))
+        view_item = event_of(r, "view_item")
+        self.assertEqual(view_item["status"], "duplicated")
+        self.assertEqual(view_item["onset"], day(10))
+        self.assertEqual(r["onset"], day(10))
+
+    def test_a_sender_that_still_runs_has_no_end(self):
+        r = analyze(doubled())
+        self.assertIsNone(event_of(r, "view_item")["ended"])
+        self.assertIsNone(r["ended"])
+        self.assertTrue(r["still_duplicating"])
+
+    def test_one_quiet_day_at_the_edge_is_not_an_end(self):
+        """GA4 liefert die letzten Tage verzögert. Wer daraus ein Ende macht,
+        gibt Entwarnung, sobald ein Absender einen Tag aussetzt."""
+        r = analyze(doubled_until(38, days=40))
+        self.assertIsNone(event_of(r, "view_item")["ended"])
+        self.assertTrue(r["still_duplicating"])
+
+    def test_one_stage_that_still_doubles_keeps_the_whole_period_open(self):
+        """Solange eine Stufe weiter doppelt zählt, ist die Doppelzählung nicht
+        beendet, auch wenn eine andere Stufe längst aufgehört hat."""
+        s = Stream("1")
+        for n in range(40):
+            s.add(n, "view_item", APP, HOST, 1_000, 600)
+            if n >= 10:
+                s.add(n, "view_item", NOT_SET, HOST, 700, 500)
+            s.total(n, "view_item", 1_700 if n >= 10 else 1_000, 620 if n >= 10 else 600)
+            s.add(n, "purchase", APP, NOT_SET, 50, 50)
+            if 10 <= n <= 25:
+                s.add(n, "purchase", NOT_SET, HOST, 35, 35)
+            s.total(n, "purchase", 85 if 10 <= n <= 25 else 50, 52 if 10 <= n <= 25 else 50)
+        r = analyze(s)
+        self.assertEqual(event_of(r, "purchase")["ended"], day(25))
+        self.assertIsNone(event_of(r, "view_item")["ended"])
+        self.assertIsNone(r["ended"])
+        self.assertTrue(r["still_duplicating"])
+
+    def test_two_measured_days_without_the_second_sender_are_enough(self):
+        """Der reale Fall vom 17.09.2026: der zweite Absender hört auf, die
+        Daten reichen zwei Tage weiter, und der erste misst an beiden normal.
+        Das ist kein Lieferverzug, das ist ein Ende."""
+        r = analyze(doubled_until(37, days=40))
+        self.assertEqual(event_of(r, "view_item")["ended"], day(37))
+        self.assertFalse(r["still_duplicating"])
+
+    def test_a_sender_that_comes_back_has_not_ended(self):
+        """Eine Lücke in der Mitte ist kein Ende. Wer nur auf den letzten
+        aktiven Tag sieht, übersieht das nicht, aber wer auf die erste Lücke
+        sieht, schon."""
+        s = Stream("1")
+        for n in range(40):
+            second = (10 <= n <= 20) or (30 <= n <= 39)
+            s.add(n, "view_item", APP, HOST, 1_000, 600)
+            if second:
+                s.add(n, "view_item", NOT_SET, HOST, 700, 500)
+            s.total(n, "view_item", 1_700 if second else 1_000, 620 if second else 600)
+        r = analyze(s)
+        self.assertIsNone(event_of(r, "view_item")["ended"])
+        self.assertTrue(r["still_duplicating"])
+
+    def test_without_a_second_sender_nothing_is_duplicating(self):
+        s = Stream("1")
+        for n in range(40):
+            s.add(n, "view_item", APP, HOST, 1_000, 600)
+            s.total(n, "view_item", 1_000, 600)
+        r = analyze(s)
+        self.assertIsNone(r["ended"])
+        self.assertFalse(r["still_duplicating"])
+
+
+class TestEventPeriod(unittest.TestCase):
+    """`event_period` beantwortet die Frage je Ereignis, weil ein Satz über
+    Käufe nicht davon abhängen darf, ob Seitenaufrufe noch doppelt zählen."""
+
+    def test_it_reads_the_period_of_one_event(self):
+        r = analyze(doubled_until(29, onset=10, days=40))
+        period = senders.event_period(r, "purchase")
+        self.assertTrue(period["doubled"])
+        self.assertEqual(period["onset"], day(10))
+        self.assertEqual(period["ended"], day(29))
+        self.assertFalse(period["still_duplicating"])
+
+    def test_an_event_without_a_second_sender_is_not_doubled(self):
+        r = analyze(doubled())
+        self.assertFalse(senders.event_period(r, "view_cart")["doubled"])
+
+    def test_an_old_snapshot_without_streams_still_answers(self):
+        """Snapshots von vor dem 17.09.2026 kennen kein Ende. Sie behalten,
+        was sie belegen: die Doppelzählung läuft."""
+        alt = {"measurable": True, "onset": "2026-03-02",
+               "double_counted_events": ["purchase"]}
+        period = senders.event_period(alt, "purchase")
+        self.assertTrue(period["doubled"])
+        self.assertEqual(period["onset"], "2026-03-02")
+        self.assertIsNone(period["ended"])
+        self.assertTrue(period["still_duplicating"])
+
+    def test_an_old_snapshot_without_the_event_is_not_doubled(self):
+        alt = {"measurable": True, "onset": "2026-03-02",
+               "double_counted_events": ["view_item"]}
+        self.assertFalse(senders.event_period(alt, "purchase")["doubled"])
 
 
 class TestOneSender(unittest.TestCase):

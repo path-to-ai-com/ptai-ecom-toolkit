@@ -94,10 +94,40 @@ class Finding:
 
 
 def _text_felder(f: dict) -> str:
-    """Alles, was der Kunde von einem Befund liest. Ohne `evidence`."""
-    parts = [str(f.get(k) or "") for k in ("statement", "effect", "why", "fix")]
+    """Alles, was der Kunde von einem Befund liest und wir geschrieben haben.
+
+    Ohne `evidence`, das ist unser Beleg zum Nachprüfen. Ohne Zitate, Listen
+    und Tabellen im Beleg: dort steht der Wortlaut des Shops oder eines
+    Wettbewerbers, und ein "fuer" im Shop ist ein Befund, kein Fehler von uns.
+    Mit den Feldern aus dem Vertrag `reference/finding-format.md`: Fakten,
+    Beleg-Satz, Texte an Bildern, Notizen und die Entscheidung.
+    """
+    parts = [str(f.get(k) or "") for k in ("statement", "effect", "why", "fix", "evidence_text")]
     for m in f.get("metrics") or []:
         parts += [str(m.get(k) or "") for k in ("label", "value", "context")]
+    for fact in f.get("facts") or []:
+        if isinstance(fact, dict):
+            parts.append(str(fact.get("text") or ""))
+    proof = f.get("proof")
+    columns = proof.get("columns") if isinstance(proof, dict) else proof
+    for column in columns if isinstance(columns, list) else []:
+        if not isinstance(column, dict):
+            continue
+        parts.append(str(column.get("label") or ""))
+        for block in column.get("blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") in ("image", "phone"):
+                parts += [str(block.get(k) or "") for k in ("alt", "title", "caption", "addition")]
+                parts += [str(m.get("text") or "") for m in block.get("markers") or [] if isinstance(m, dict)]
+            elif block.get("type") == "note":
+                parts.append(str(block.get("text") or ""))
+    decision = f.get("decision")
+    if isinstance(decision, dict):
+        parts += [str(decision.get(k) or "") for k in ("question", "reason")]
+        for option in decision.get("options") or []:
+            if isinstance(option, dict):
+                parts += [str(option.get(k) or "") for k in ("title", "text", "result")]
     return " ".join(parts)
 
 
@@ -160,17 +190,46 @@ def check_findings(run: rb.Run) -> list[Finding]:
     return out
 
 
+def _revision_finding_ids(run: rb.Run) -> set[str]:
+    """Kennungen aller Befunde aus früheren Fassungen dieses Laufs."""
+    ids = set()
+    base = run.ws / "reporting" / "runs" / run.run_id / "revisions"
+    for path in base.glob("*/findings/*.json") if base.is_dir() else ():
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        ids.update(f.get("id") for f in doc.get("findings") or [] if f.get("id"))
+    return ids
+
+
 def check_measures(run: rb.Run) -> list[Finding]:
-    """Jede Massnahme muss auf einen Befund zeigen, den es gibt."""
+    """Jede Massnahme muss auf einen Befund zeigen, den es gibt, und sich dem
+    Kunden erklaeren.
+
+    **Der zweite Teil ist seit dem 17.09.2026 dabei.** Bis dahin trug eine
+    Massnahme im Portal ausser ihrem Titel nur Beleg, Pruefregel und
+    Verantwortlichen, also Angaben fuer uns. `intent`, `effect` und
+    `evidence_text` sind die Erklaerung; fehlen sie, kann das Kundenteam eine
+    Massnahme aufmachen und weiss danach nicht mehr als vorher.
+    """
     out = []
     idx = rb.finding_index(run)
     massnahmen = run.backlog.get("measures") or []
     if not massnahmen:
         return [Finding("warnung", "Maßnahmen", "der Backlog ist leer")]
+    earlier = _revision_finding_ids(run)
     for m in massnahmen:
         wo = f"Maßnahme {m.get('id')}"
         ref = m.get("finding_ref")
-        if ref and ref not in idx:
+        # Eine abgeschlossene Maßnahme darf auf einen Befund einer früheren
+        # Fassung zeigen: der Nachlauf einer Disziplin (audit.rerun) hat ihn
+        # geschlossen, und sein Wortlaut liegt in revisions/. Eine offene
+        # Maßnahme ohne Befund ist dagegen weiter ein Fehler.
+        if (ref and ref not in idx and ref in earlier
+                and m.get("status") in ("implemented", "obsolete")):
+            pass
+        elif ref and ref not in idx:
             out.append(Finding("fehler", wo,
                               f"verweist auf Befund {ref}, den es nicht gibt"))
         if not m.get("check_rule"):
@@ -178,7 +237,19 @@ def check_measures(run: rb.Run) -> list[Finding]:
                                             "deren Umsetzung sich nie "
                                             "feststellen lässt, bleibt für "
                                             "immer offen"))
-        text = f"{m.get('title','')} {m.get('check_rule','')} {m.get('data_source','')}"
+        if not m.get("intent"):
+            out.append(Finding("warnung", wo, "ohne `intent`: es steht nicht "
+                                             "da, was wir vorhaben"))
+        if not m.get("effect"):
+            out.append(Finding("warnung", wo, "ohne `effect`: es steht nicht "
+                                             "da, was es bringt oder was es "
+                                             "kostet, wenn es so bleibt"))
+        if not m.get("evidence_text"):
+            out.append(Finding("warnung", wo, "ohne `evidence_text`: der "
+                                             "Beleg steht nur als Pfad in "
+                                             "eine Rohdatei da"))
+        text = " ".join(str(m.get(field) or "") for field in
+                        ("title", "check_rule", "data_source", "intent", "effect", "needs"))
         if TOOL_WORDS.search(text):
             out.append(Finding("warnung", wo, "Werkzeugsprache im Titel, in der "
                                              "Prüfregel oder im Ort der Arbeit"))

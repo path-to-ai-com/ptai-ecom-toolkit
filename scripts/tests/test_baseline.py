@@ -1,3 +1,4 @@
+# naming-lint: schema (spiegelt das eingefrorene Audit-Schema aus baseline.py)
 """Blockweises Schreiben und Einfrieren der Baseline."""
 import json
 import tempfile
@@ -644,3 +645,93 @@ class TestRenderTrust(unittest.TestCase):
     def test_unknown_status_is_refused(self):
         with self.assertRaises(ValueError):
             self._render(trust={"orders": {"status": "komisch"}})
+
+
+class TestGenerations(unittest.TestCase):
+    """Eine Baseline, die auf nachweislich kaputter Messung steht, wird
+    abgelöst statt überschrieben. Die alte Generation bleibt der Beleg dafür,
+    auf welchen Zahlen vorher entschieden wurde."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _write_first(self):
+        baseline.write_block(self.ws, "traffic", {"sessions": 100},
+                             run_id="2026-10-01-audit", today=date(2026, 10, 1),
+                             sources=SOURCES, trust={})
+
+    def test_without_a_baseline_the_first_number_applies(self):
+        self.assertEqual(baseline.current_number(self.ws), baseline.NUMBER)
+        self.assertEqual(baseline.numbers(self.ws), [])
+
+    def test_the_current_generation_is_the_highest_one(self):
+        self._write_first()
+        self.assertEqual(baseline.numbers(self.ws), ["01"])
+        baseline.supersede(self.ws, "Die Messung zählte doppelt.", today=date(2026, 10, 2))
+        self.assertEqual(baseline.numbers(self.ws), ["01", "02"])
+        self.assertEqual(baseline.current_number(self.ws), "02")
+
+    def test_the_superseded_generation_stays_untouched(self):
+        self._write_first()
+        before = (self.ws / "reporting" / "baseline" / "01" / "baseline.json").read_text()
+        baseline.supersede(self.ws, "Die Messung zählte doppelt.", today=date(2026, 10, 2))
+        after = (self.ws / "reporting" / "baseline" / "01" / "baseline.json").read_text()
+        self.assertEqual(before, after)
+
+    def test_the_new_generation_starts_empty_and_names_its_predecessor(self):
+        self._write_first()
+        baseline.supersede(self.ws, "Ein zweiter Absender zählte jedes Ereignis doppelt.",
+                           today=date(2026, 10, 2))
+        data = baseline.load(self.ws)
+        self.assertEqual(data["supersedes"], "01")
+        self.assertEqual(data["reason"],
+                         "Ein zweiter Absender zählte jedes Ereignis doppelt.")
+        self.assertEqual(data["started_at"], "2026-10-02")
+        self.assertEqual(baseline.empty_blocks(self.ws), list(baseline.BLOCKS))
+
+    def test_a_supersession_without_a_reason_is_refused(self):
+        self._write_first()
+        with self.assertRaises(ValueError):
+            baseline.supersede(self.ws, "   ", today=date(2026, 10, 2))
+
+    def test_without_a_predecessor_there_is_nothing_to_supersede(self):
+        with self.assertRaises(ValueError):
+            baseline.supersede(self.ws, "Grundlos.", today=date(2026, 10, 2))
+
+    def test_the_rendered_baseline_names_the_supersession_at_the_top(self):
+        self._write_first()
+        baseline.supersede(self.ws, "Ein zweiter Absender zählte jedes Ereignis doppelt.",
+                           today=date(2026, 10, 2))
+        baseline.write_block(self.ws, "traffic", {"sessions": 40},
+                             run_id="2026-10-02-audit", today=date(2026, 10, 2),
+                             sources=SOURCES, trust={})
+        baseline.render(self.ws)
+        text = (self.ws / "reporting" / "baseline" / "02" / "baseline.md").read_text(
+            encoding="utf-8")
+        self.assertIn("# Baseline 02", text)
+        self.assertIn("Löst Baseline 01 ab, seit 02.10.2026.", text)
+        self.assertIn("> Ein zweiter Absender zählte jedes Ereignis doppelt.", text)
+        self.assertIn("reporting/baseline/01/", text)
+
+    def test_a_first_baseline_says_nothing_about_a_predecessor(self):
+        self._write_first()
+        baseline.render(self.ws)
+        text = (self.ws / "reporting" / "baseline" / "01" / "baseline.md").read_text(
+            encoding="utf-8")
+        self.assertIn("# Baseline 01", text)
+        self.assertNotIn("Löst Baseline", text)
+
+    def test_a_fresh_generation_is_told_apart_from_a_baseline_with_gaps(self):
+        self._write_first()
+        self.assertFalse(baseline.is_fresh(self.ws))
+        baseline.supersede(self.ws, "Die Messung zählte doppelt.", today=date(2026, 10, 2))
+        self.assertTrue(baseline.is_fresh(self.ws))
+        baseline.write_block(self.ws, "traffic", {"sessions": 40},
+                             run_id="2026-10-02-audit", today=date(2026, 10, 2),
+                             sources=SOURCES, trust={})
+        self.assertFalse(baseline.is_fresh(self.ws))
+
+    def test_without_any_baseline_nothing_is_fresh(self):
+        self.assertFalse(baseline.is_fresh(self.ws))

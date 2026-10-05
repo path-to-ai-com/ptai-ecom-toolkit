@@ -79,6 +79,7 @@ Das Script schreibt `<out>/gsc.json` (bzw. `gsc-pulse.json` oder, bei
   "totals": {"clicks", "impressions", "ctr", "position"},
   "top_queries": [{"query", "clicks", "impressions", "ctr", "position"}],
   "top_pages": [{"page", "clicks", "impressions", "ctr", "position"}],
+  "query_pages": [{"query", "page", "clicks", "impressions", "ctr", "position"}],
   "top_countries": [{"country", "clicks", "impressions", "ctr", "position"}],
   "devices": [{"device", "clicks", "impressions", "ctr", "position"}],
   "search_types": [{"search_type", "clicks", "impressions", "ctr", "position"}],
@@ -107,6 +108,12 @@ Kalendermonat rechnen. CTR und Position werden dabei neu gerechnet, nie
 gemittelt: die Position ist der impressionsgewichtete Mittelwert, genau wie in
 `totals`. Ein Monat ohne Impressionen hat `position: null`, nicht 0, sonst
 stünde er im Report als Platz 0 und damit besser als Platz 1.
+
+`query_pages` sind Anfrage und rankende Seite als Paar, Top 250 nach Klicks.
+Nur daraus lässt sich sagen, welche Seite für welche Anfrage steht; die beiden
+Einzelblöcke sagen das nicht. Schlägt dieser eine Abruf fehl, steht `null` im
+Snapshot und der Rest bleibt gültig; dann sind `con.query-page-type` und das
+zweite Signal der Kannibalisierung nicht messbar.
 
 `top_countries` und `devices` kommen aus echten API-Dimensionen wie `top_queries`
 und `top_pages`. `search_types` nicht: die Search-Analytics-API kennt Suchtyp nur

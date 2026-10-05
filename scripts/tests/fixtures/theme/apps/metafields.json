@@ -1,0 +1,6 @@
+[
+ {"namespace": "judgeme", "key": "badge", "type": "multi_line_text_field"},
+ {"namespace": "app--1000002", "key": "settings", "type": "json"},
+ {"namespace": "custom", "key": "subtitle", "type": "single_line_text_field"},
+ {"namespace": "beispiel_altapp", "key": "config", "type": "json"}
+]

@@ -1,0 +1,10 @@
+{
+ "templates": {
+  "index": {"type": "index", "file": "templates/index.json", "objects": 1, "markets": []},
+  "product": {"type": "product", "file": "templates/product.json", "objects": 3, "markets": []},
+  "page.alt": {"type": "page", "file": "templates/page.alt.json", "objects": 0, "markets": []},
+  "customers/account": {"type": "customers", "file": "templates/customers/account.json", "objects": 0, "markets": []}
+ },
+ "assigned_without_file": [],
+ "files_without_objects": ["templates/page.alt.json"]
+}

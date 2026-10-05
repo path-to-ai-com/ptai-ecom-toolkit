@@ -899,7 +899,8 @@ def read_senders(prop: str, token: str, date_range: dict, base_filter=None,
     except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
         return {"measurable": False, "note": f"Absender nicht geprüft: {describe_error(exc)}",
                 "period": period, "streams": [], "multiple_senders": False,
-                "double_counted_events": [], "onset": None, "item_ids": None, "notes": notes}
+                "double_counted_events": [], "onset": None, "ended": None,
+                "still_duplicating": False, "item_ids": None, "notes": notes}
 
     measurement_ids = {s.get("stream_id"): s.get("measurement_id") for s in (streams or [])}
     for stream in section["streams"]:

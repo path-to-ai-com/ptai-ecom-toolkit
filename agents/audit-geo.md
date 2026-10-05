@@ -112,6 +112,45 @@ steht auch in `crawl.json > robots.ai_crawler_rules`.
    vorkommen müsste. Das ist der handfesteste GEO-Befund, den dieser Lauf
    hergibt, und er gehört mit den konkreten Domains in die `evidence`.
 
+6. **Antwortkorrektheit.** `geo.json > queries[].brand_excerpt` ist die
+   Stelle der Antwort, an der die Marke vorkommt, wörtlich. Stimmen die
+   Aussagen über Marke, Sortiment und Preise? Gegenprobe gegen `crawl.json`:
+   Titles und Pfade zeigen das Sortiment, `pages[].markup.product.price` die
+   ausgezeichneten Preise. Eine falsche Aussage mit Beleg ist ein Befund.
+   Eine fehlende Erwähnung ist keiner, die zählt Kernfrage 1.
+
+## Kriterienliste, Version 2026-09-27
+
+**Jedes Kriterium der Tabelle ergibt genau einen Eintrag in `criteria`**
+(Schema unter Ausgabe), mit einem dieser vier Ergebnisse:
+
+| `result` | Wann | Pflicht dazu |
+|---|---|---|
+| `violated` | der Mangel liegt vor | ein Befund in `findings`, `finding_id` zeigt auf ihn |
+| `passed` | geprüft und in Ordnung, die positive Kontrolle | `value` mit Zahl und Grundgesamtheit |
+| `not_measurable` | die Daten fehlen oder reichen nicht | `reason` nennt, welche Datei oder welches Feld |
+| `not_applicable` | der Shop hat den Gegenstand nicht | `reason` in einem Satz |
+
+Zwei Läufe desselben Moduls auf demselben Shop hatten nur gut ein Drittel
+ihrer Befundthemen gemeinsam, obwohl die Daten für die meisten übrigen in
+beiden Snapshots standen. Eine Kernfrage verhindert nicht, dass ein Befund im
+nächsten Lauf still verschwindet; eine Ergebniszeile je Kriterium schon.
+
+**Ein Snapshot von vor dem 27.09.2026** trägt die neuen Felder nicht (siehe
+Spalte Quelle). Die Kriterien dazu sind dann `not_measurable`, nie `passed`.
+**Wo die Tabelle eine Einordnung festlegt, gilt sie**; sie steht dort, wo zwei
+Läufe sonst verschieden urteilen würden.
+
+| ID | Kernfrage | Prüfung | Quelle | Feste Einordnung |
+|---|---|---|---|---|
+| `geo.visibility` | 1 | Erwähnung und Zitation je Plattform und Abfragegruppe, ungemessene Zeilen getrennt | `geo.json > queries[]` | jede Quote mit Zähler und Nenner; keine Plattform angeschlossen: `not_measurable` |
+| `geo.ai-crawlers` | 2 | Status je AI-Crawler, Gegenprobe in der robots.txt | `geo.json > crawlers`, `crawl.json > robots.ai_crawler_rules` | |
+| `geo.llms-txt` | 3 | llms.txt vorhanden | `geo.json > llms_txt` | fehlt sie: `gering`, `plausible`, Aufwand `small`. Google führt sie nicht als Optimierungsbedarf |
+| `geo.citability` | 4 | Textmenge und strukturierte Daten je Seite | `crawl.json` (Auszählung oben), `findings_index.schema_types`, `pages_without_schema` | eine Aussage über die Qualität der Texte nur als `hypothesis` |
+| `geo.organization-entity` | 4 | Organization-Auszeichnung auf der Startseite mit Logo und `sameAs` auf die eigenen Profile | `crawl.json > findings_index.organization_markup.home` (neu seit 27.09.2026) | `gering`, solange keine Wirkung gemessen ist |
+| `geo.external-sources` | 5 | meistzitierte Fremddomains, getrennt nach Wettbewerb, Plattform und Redaktion | `geo.json > queries[].other_citations`, `competitors` | |
+| `geo.answer-accuracy` | 6 | Aussagen über Marke, Sortiment und Preise in den Antwortauszügen gegen den Shop | `geo.json > queries[].brand_excerpt` (neu seit 27.09.2026), `crawl.json` | ohne Erwähnung in keiner Antwort: `not_applicable` |
+
 ## Arbeitsweise
 
 - Jede Datei einzeln lesen, keine angenommenen Inhalte.
@@ -174,6 +213,12 @@ Eingabe. Gleicher Dateiname, anderer Ordner: `data/` ist der Rohdaten-Snapshot,
   "run_id": "<run-id>",
   "generated_at": "2026-10-01T09:00:00+00:00",
   "blocked_questions": [],
+  "criteria_version": "2026-09-27",
+  "criteria": [
+    {"id": "geo.llms-txt", "result": "violated", "value": "<ein Satz>",
+     "finding_id": "GEO-04"},
+    {"id": "geo.answer-accuracy", "result": "not_measurable", "reason": "<ein Satz>"}
+  ],
   "findings": [
     {
       "id": "GEO-01",
@@ -194,6 +239,42 @@ Eingabe. Gleicher Dateiname, anderer Ordner: `data/` ist der Rohdaten-Snapshot,
   ]
 }
 ```
+
+**`criteria` ist keine zweite Befundliste.** Je Kriterium aus der
+Kriterienliste genau ein Eintrag, auch bei `passed`; keine ID doppelt, keine
+fehlt. Ein `violated` zeigt über `finding_id` auf seinen Befund in `findings`,
+denn nur `findings` werden Maßnahmen, `criteria` nie. `value` trägt die Zahl
+samt Grundgesamtheit wie ein `metrics`-Eintrag, `reason` den Grund bei
+`not_measurable` und `not_applicable`. Beide Felder können im Kundendokument
+erscheinen, also deutsch und ohne Dateinamen.
+
+**Vier Felder machen den Befund im Portal anschaulich.** Der Vertrag steht in
+`${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Lies ihn, bevor du den
+ersten Befund schreibst; er gilt, nicht eine Kopie hier. Für den vollen Audit
+heißt das je Befund:
+
+- **`facts`:** `{"kind": "effect", "text": ...}` immer, `{"kind": "cause",
+  "text": ...}` nur, wenn die Ursache belegt ist. Sonst nichts, auch kein
+  `now`: die Handlung ist die eine Maßnahme zum Befund. Jeder Text ein ganzer
+  Satz, höchstens 160 Zeichen.
+- **`evidence_text`:** der Beleg als ein Satz für den Kunden, mit den Zahlen,
+  die ihn tragen, etwa "318 von 1.204 Produktseiten haben keinen internen Link
+  aus einer Kategorieseite." Nie ein Pfad, der bleibt in `evidence`. Phase 3
+  übernimmt den Satz in die Maßnahme.
+- **`url`:** die eine Seite im Shop, um die es geht, nur `https`. Fehlt, wenn
+  der Befund den ganzen Shop betrifft.
+- **`proof`:** der Beleg aus Bausteinen. Eine Kennzahl ist `{"type": "metric",
+  "ref": <Index in metrics>}` und wird nie ein zweites Mal ausgeschrieben; eine
+  Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
+  Typisch hier: `grid` für Sichtbarkeit je Suchanfrage und Plattform, `rows` für
+  gesperrte AI-Crawler.
+- **`decision`:** nur, wenn es zwei echte, verschiedene Wege gibt, mit
+  `recommended` und `reason`. Phase 3 macht die empfohlene Option zur
+  Maßnahme, die andere zeigt das Portal als Geprüfte Alternative.
+
+**Bilder schreibst du keine.** Bild-Aufträge (`capture`) kommen nur aus den
+Analysen für Conversion, Content und Vertrauen, die als einzige Screenshots
+lesen. Dein Beleg sind Kennzahl, Tabelle, Verteilung oder Liste.
 
 **Zwei Felder tragen, was der Report bisher nicht hatte:**
 
@@ -301,12 +382,13 @@ Kundendokument. Ein Wort je Sache, und keines aus der Werkzeugwelt:
 | die erfassten Seiten | Seiten im Shop, geoeffnet und geprueft | gecrawlte Seiten, URLs, Adressen |
 | die eingefrorenen Zahlen | Baseline | Nullpunkt, Ausgangswerte, Startwerte |
 | die Kennzahl je Bestellung | Bestellwert | Warenkorbwert |
-| fremde Skripte | Skripte fremder Anbieter | Fremdtechnik, Third-Party-Skripte |
+| fremde Skripte | Drittanbieter-Dienste | Fremdtechnik, Skripte fremder Anbieter |
 | der naechste Lauf | der spaetere Report | Folgereport |
 
 **Dateinamen und Feldpfade gehoeren ausschliesslich in `evidence`.** Dort
 stehen sie, damit ein Mensch nachrechnen kann. In `statement`, `effect`,
-`why`, `fix` und in jedem `metrics`-Eintrag stehen sie nie: der Leser hat
+`why`, `fix`, `facts`, `evidence_text`, den Texten im `proof` und in jedem
+`metrics`-Eintrag stehen sie nie: der Leser hat
 Fragen zu seinem Shop, keine zu unseren Snapshots.
 
 **Deutsch mit echten Umlauten.** ä, ö, ü, ß, nie ae, oe, ue oder ss. Das gilt

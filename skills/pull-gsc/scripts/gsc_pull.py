@@ -97,6 +97,30 @@ def parse_rows(resp: dict, key_name: str) -> list:
     ]
 
 
+def parse_query_page_rows(resp: dict) -> list:
+    """Zeilen mit den Dimensionen query und page, je Paar eine Zeile.
+
+    Die Blöcke `top_queries` und `top_pages` sagen nicht, welche Seite für
+    welche Anfrage rankt. Genau das braucht das Kriterium
+    `con.query-page-type` (passt der rankende Seitentyp zur Anfrage) und die
+    Kannibalisierungsprüfung (zwei Seiten teilen sich eine Anfrage).
+    """
+    rows = []
+    for row in resp.get("rows", []):
+        keys = row.get("keys") or []
+        if len(keys) < 2:
+            continue
+        rows.append({
+            "query": keys[0],
+            "page": keys[1],
+            "clicks": int(row.get("clicks", 0) or 0),
+            "impressions": int(row.get("impressions", 0) or 0),
+            "ctr": round(float(row.get("ctr", 0) or 0), 4),
+            "position": round(float(row.get("position", 0) or 0), 2),
+        })
+    return rows
+
+
 def build_totals(daily: list) -> dict:
     """Totals aus der Tagesreihe aggregieren.
 
@@ -218,6 +242,17 @@ def pull_block(site_enc: str, token: str, start: str, end: str, granularity: str
             fetch(f"searchAnalytics {name}", url, token, body, fatal=fatal), dim
         )
     data["daily"].sort(key=lambda d: d["date"])
+    # Anfrage und Seite zusammen, Top 250 nach Klicks. Nicht fatal: schlägt
+    # der Abruf fehl, steht `None` im Snapshot (nicht gemessen, nicht leer),
+    # nur die zwei Kriterien dazu sind dann nicht messbar.
+    try:
+        data["query_pages"] = parse_query_page_rows(fetch(
+            "searchAnalytics query_pages", url, token,
+            {"startDate": start, "endDate": end, "dimensions": ["query", "page"],
+             "rowLimit": 250}, fatal=False))
+    except RuntimeError as exc:
+        print(f"Warnung: {exc}", file=sys.stderr)
+        data["query_pages"] = None
     data["search_types"] = pull_search_types(site_enc, token, start, end, fatal=fatal)
     return {
         "period": {"start": start, "end": end, "granularity": granularity},
@@ -225,6 +260,7 @@ def pull_block(site_enc: str, token: str, start: str, end: str, granularity: str
         "by_month": build_by_month(data["daily"]),
         "top_queries": data["top_queries"],
         "top_pages": data["top_pages"],
+        "query_pages": data["query_pages"],
         "top_countries": data["top_countries"],
         "devices": data["devices"],
         "search_types": data["search_types"],

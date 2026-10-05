@@ -16,6 +16,7 @@ nicht, wenn die Config selbst kein Objekt ist: eine handgeschriebene
 """
 import difflib
 import os
+import re
 
 from audit import run, tiers
 
@@ -181,6 +182,67 @@ def validate(config: dict) -> list[str]:
             f"page_types muss ein Objekt sein, ist {type(page_types_config).__name__}"
         )
 
+    if "theme_migration" in config:
+        errors.extend(theme_migration_errors(config["theme_migration"]))
+
+    return errors
+
+
+THEME_MIGRATION_KEYS = ("live_theme_id", "source_theme", "target_theme", "target_repo",
+                        "draft_theme_id", "file_prefix", "access", "page_sample", "freeze")
+THEME_ACCESS_READ = ("cli-grant", "portal", "staff")
+THEME_ACCESS_WRITE = ("cli-theme", "admin-api")
+THEME_ARCHITECTURES = ("os2", "vintage")
+
+
+def theme_migration_errors(block) -> list[str]:
+    """Prüft den Block `theme_migration` (Spec 2026-10-05, Abschnitt 6).
+
+    Nur geprüft, wenn der Block da ist: ein Audit ohne Migration braucht ihn
+    nicht. Ein vertippter Schlüssel wird gemeldet, weil er sonst still nie
+    greift, wie bei `cadences`. Theme-IDs sind Ziffernfolgen; eine falsche ID
+    ist der eine Fehler, der beim Schreiben das falsche Theme treffen könnte.
+    """
+    if not isinstance(block, dict):
+        return [f"theme_migration muss ein Objekt sein, ist {type(block).__name__}"]
+    errors: list[str] = []
+    for key in block:
+        if key not in THEME_MIGRATION_KEYS:
+            errors.append(_typo_error("theme_migration", "unbekannter Schlüssel", key,
+                                      THEME_MIGRATION_KEYS))
+    for key in ("live_theme_id", "draft_theme_id"):
+        value = block.get(key)
+        if value is not None and not (isinstance(value, str) and value.isdigit()):
+            errors.append(f"theme_migration.{key} muss die Theme-ID als Ziffernfolge in "
+                          f"Anführungszeichen sein, ist {value!r}")
+    source = block.get("source_theme")
+    if isinstance(source, dict):
+        arch = source.get("architecture")
+        if arch not in (None, "", *THEME_ARCHITECTURES):
+            errors.append(f"theme_migration.source_theme.architecture muss "
+                          f"{' oder '.join(THEME_ARCHITECTURES)} sein, ist {arch!r}")
+    elif source is not None:
+        errors.append("theme_migration.source_theme muss ein Objekt sein")
+    target = block.get("target_theme")
+    if target is not None and not isinstance(target, dict):
+        errors.append("theme_migration.target_theme muss ein Objekt sein")
+    prefix = block.get("file_prefix")
+    if prefix is not None and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(prefix)):
+        errors.append(f"theme_migration.file_prefix muss kleingeschrieben in kebab-case sein "
+                      f"(etwa \"beispiel\"), ist {prefix!r}")
+    access = block.get("access")
+    if isinstance(access, dict):
+        if access.get("read") not in (None, *THEME_ACCESS_READ):
+            errors.append(_typo_error("theme_migration.access", "unbekannter Leseweg",
+                                      access.get("read"), THEME_ACCESS_READ))
+        if access.get("write") not in (None, *THEME_ACCESS_WRITE):
+            errors.append(_typo_error("theme_migration.access", "unbekannter Schreibweg",
+                                      access.get("write"), THEME_ACCESS_WRITE))
+        if access.get("read") == "portal" and access.get("write") == "admin-api":
+            errors.append("theme_migration.access: der Cockpit-Zugang ist nur lesend; "
+                          "Schreiben über admin-api braucht den Weg cli-grant")
+    elif access is not None:
+        errors.append("theme_migration.access muss ein Objekt sein")
     return errors
 
 

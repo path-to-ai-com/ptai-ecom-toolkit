@@ -85,8 +85,8 @@ class TestBrandQueries(unittest.TestCase):
         self.assertEqual(len(lightconf.brand_queries("Beispiel", "beispiel.de")), 3)
 
     def test_rechtsform_faellt_weg(self):
-        q = lightconf.brand_queries("Martin Beispiel GmbH", "martin-beispiel.example")
-        self.assertIn("Was ist Martin Beispiel?", q)
+        q = lightconf.brand_queries("Nordwind Beispiel GmbH", "nordwind-beispiel.example")
+        self.assertIn("Was ist Nordwind Beispiel?", q)
 
     def test_klammerzusatz_faellt_weg(self):
         q = lightconf.brand_queries("Handel GmbH (Marke Wohnlicht)", "lead-eins.example")

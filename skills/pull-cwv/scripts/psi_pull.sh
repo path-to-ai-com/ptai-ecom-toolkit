@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# naming-lint: schema (CWV-Snapshot, durch bestehende Kundenlaeufe eingefroren: cwv.json liegt in mehreren Kunden-Workspaces)
 # CWV-Snapshot über die PageSpeed-Insights-API (CrUX-Felddaten + Lighthouse-Lab)
 # plus CrUX-Wochenhistorie je Origin.
 #

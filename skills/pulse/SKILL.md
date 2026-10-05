@@ -148,7 +148,7 @@ Snapshot-Datei gilt exakt das, was `skills/report/SKILL.md` im Abschnitt
 "Fehler-Shapes je Quelle" beschreibt, hier nicht wiederholt, nur angewendet.**
 
 Zahlen-Hygiene wie dort: jede Zahl stammt aus einem konkreten Snapshot-Feld,
-nichts geschätzt, nichts erfunden. Deutsche Formate (`1.240 €`, `1,5 %`,
+nichts geschätzt, nichts erfunden. Deutsche Formate (`2.500 €`, `1,5 %`,
 Deltas mit Vorzeichen `+8,2 %`).
 
 **Formeln und Schwellen kommen ebenfalls aus dem Kennzahlen-Katalog**

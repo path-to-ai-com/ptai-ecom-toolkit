@@ -1,0 +1,72 @@
+{
+  "_case": "recommended ist nicht 0 oder 1",
+  "id": "CNT-04",
+  "statement": "Der Markenkern fehlt im Suchauftritt der Startseite",
+  "metrics": [
+    {
+      "label": "Kategorieseiten mit Markenkern",
+      "value": "13 von 52"
+    }
+  ],
+  "explanation": "Titel und Meta-Description sind der Text, mit dem eine Seite in der Trefferliste erscheint.",
+  "benchmark": "Ein Viertel der Kategorieseiten nutzt den Markenkern bereits.",
+  "effect": "In der Trefferliste liest man Preis und Auswahl, nicht den Unterschied.",
+  "why": "Ein Argument, das erst nach dem Klick sichtbar wird, überzeugt niemanden mehr.",
+  "fix": "Titel und Meta-Description auf den Markenkern umstellen.",
+  "evidence": "crawl.json > pages[0].title",
+  "evidence_text": "Titel und Suchvorschau der Startseite nennen Preis und Auswahl, nicht den Markenkern.",
+  "severity": "mittel",
+  "confidence": "confirmed",
+  "effort": "small",
+  "url": "https://beispielshop.de/",
+  "facts": [
+    {
+      "kind": "effect",
+      "text": "In der Trefferliste liest man Preis und Auswahl, nicht das, was die Marke unterscheidet."
+    }
+  ],
+  "proof": [
+    {
+      "label": "Startseite in der Trefferliste",
+      "blocks": [
+        {
+          "type": "quote",
+          "text": "Schmuck online bestellen | <mark>Jetzt bei Beispielshop</mark>",
+          "source": "Titel der Startseite"
+        },
+        {
+          "type": "quote",
+          "text": "Handgefertigter Schmuck <ins>aus eigener Manufaktur</ins> | Beispielshop",
+          "source": "Vorschlag"
+        }
+      ]
+    },
+    {
+      "blocks": [
+        {
+          "type": "metric",
+          "ref": 0
+        }
+      ]
+    }
+  ],
+  "decision": {
+    "question": "Den Titel der Startseite umstellen oder zuerst die Kategorieseiten angleichen?",
+    "options": [
+      {
+        "title": "Titel der Startseite umstellen",
+        "text": "Titel und Meta-Description nennen den Markenkern.",
+        "effort": "eine Einstellung im Shop",
+        "result": "Markenkern in der Trefferliste"
+      },
+      {
+        "title": "Kategorieseiten angleichen",
+        "text": "Alle Kategorieseiten bekommen dieselbe Formel.",
+        "effort": "52 Seiten",
+        "result": "einheitlicher Suchauftritt"
+      }
+    ],
+    "recommended": "b",
+    "reason": "A, weil die Startseite die meisten Impressionen trägt."
+  }
+}

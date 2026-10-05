@@ -11,7 +11,7 @@ from audit import context  # noqa: E402
 
 
 def entry(**kw):
-    basis = {"id": "CTX-001", "date": "2026-09-08", "source": "Termin, Tim",
+    basis = {"id": "CTX-001", "date": "2026-09-08", "source": "Termin, Geschäftsführung",
              "about": ["HDL-07"], "kind": "reason",
              "statement": "Die Produkte sind ausverkauft."}
     basis.update(kw)
@@ -134,7 +134,7 @@ class TestPrompt(unittest.TestCase):
         self.assertIn("CTX-001", text)
         self.assertIn("HDL-07", text)
         self.assertIn("ausverkauft", text)
-        self.assertIn("Termin, Tim", text)
+        self.assertIn("Termin, Geschäftsführung", text)
 
     def test_der_prompt_sagt_dem_agenten_was_er_tun_soll(self):
         text = context.as_prompt([entry()])

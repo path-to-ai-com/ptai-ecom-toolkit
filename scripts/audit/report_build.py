@@ -20,6 +20,7 @@ CLI:
 Ohne `--text` schreibt das Script eine Vorlage an diesen Ort und bricht ab: die
 Sitzung fuellt sie und ruft erneut auf.
 """
+# naming-lint: schema (Audit-Ausgabe, durch bestehende Kundenlaeufe eingefroren)
 from __future__ import annotations
 
 import argparse
@@ -30,6 +31,7 @@ import sys
 from pathlib import Path
 
 from audit import charts, gates
+from audit import senders as senders_mod
 from audit import closing
 from audit import ga4_variants
 from audit import readability
@@ -177,6 +179,23 @@ def esc(v) -> str:
     return html.escape(str(v), quote=False)
 
 
+class Markup(str):
+    """Eine Tabellenzelle, die bewusst HTML trägt und deshalb nicht escaped wird.
+
+    `table()` escaped seit dem 25.09.2026 jede Zelle. Davor ging jeder Wert
+    roh ins HTML, auch Seitenpfade aus GA4, Suchbegriffe und Domains aus
+    DataForSEO und Adressen aus dem Crawl. Ein Wert wie
+    `<script>alert(1)</script>` aus einem dieser Systeme stand damit als
+    ausführbares Markup im Report, und der geht nicht nur ins Portal, sondern
+    auch als PDF und per Mail raus (Befund aus dem Sicherheitsaudit des Portals
+    vom 25.09.2026). Wer Markup in eine Zelle stellt, sagt es mit dieser Klasse
+    ausdrücklich und escaped jeden fremden Wert darin selbst mit `esc()`.
+    Der Umbruchschutz aus `nowrap()` greift in einer solchen Zelle nicht, weil
+    er sonst auch Attributwerte verändern würde.
+    """
+    __slots__ = ()
+
+
 def num_de(n, dez=0, suf="") -> str:
     """Deutsche Zahl. `None` wird nie zu 0, sondern zu "nicht erhoben"."""
     if n is None:
@@ -244,6 +263,13 @@ def nowrap(text) -> str:
                   lambda m: "\u2011".join(m.groups()), t)
 
 
+def cell_html(value) -> str:
+    """Eine Zelle als HTML: escaped, außer sie ist ausdrücklich `Markup`."""
+    if isinstance(value, Markup):
+        return str(value)
+    return esc(nowrap(value))
+
+
 def _numeric_columns(header, rows) -> set:
     """Welche Spalten rechtsbuendig stehen, aus den Werten erkannt.
 
@@ -276,6 +302,10 @@ def table(header, rows, num=None,
     Ohne Zeilen entsteht keine Tabelle, sondern der Satz aus `leer`: ein
     Tabellenkopf ohne Inhalt sieht aus wie ein Renderfehler, und der Leser
     kann nicht unterscheiden, ob nichts da ist oder etwas fehlt.
+
+    Jede Zelle wird escaped, Kopf wie Inhalt. Eine Zelle kommt roh durch, wenn
+    sie `Markup` ist, auch als erstes Element eines Tupels `(wert, klasse)`.
+    Wer den Wert vorher selbst mit `esc()` behandelt, escaped ihn doppelt.
     """
     if not rows:
         return f"<p>{empty}</p>"
@@ -292,7 +322,7 @@ def table(header, rows, num=None,
                 c, cls = c
             elif i in num:
                 cls = "num"
-            td.append(f'<td{f" class=\"{cls}\"" if cls else ""}>{nowrap(c)}</td>')
+            td.append(f'<td{f" class=\"{cls}\"" if cls else ""}>{cell_html(c)}</td>')
         tr.append("<tr>" + "".join(td) + "</tr>")
     return f"<table><thead><tr>{th}</tr></thead><tbody>{''.join(tr)}</tbody></table>"
 
@@ -393,7 +423,7 @@ class Run:
         """Ein Rohdaten-Snapshot, oder None wenn die Quelle ausgefallen ist."""
         return self._j(self.data / name)
 
-    def quelle_ok(self, key: str) -> bool:
+    def source_ok(self, key: str) -> bool:
         return ((self.state or {}).get("sources", {}).get(key, {})
                 .get("status") == "done")
 
@@ -491,8 +521,8 @@ def finding_blocks(run: Run, filename: str) -> str:
         header, remainder = first_sentence(f.get("statement"))
         metrics = f.get("metrics") or []
         tab = table(["Angabe", "Wert", "Bezug"],
-                      [(esc(m.get("label", "")), esc(m.get("value", "")),
-                        esc(m.get("context", ""))) for m in metrics]) if metrics else ""
+                      [(m.get("label", ""), m.get("value", ""),
+                        m.get("context", "")) for m in metrics]) if metrics else ""
         # Ohne `metrics` traegt nur der Fliesstext die Zahlen, dann bleibt er
         # stehen. Mit `metrics` ist er eine zweite Fassung derselben Zahlen.
         # `effect` steht entweder im Koerper oder unter "Was daraus folgt",
@@ -509,7 +539,10 @@ def finding_blocks(run: Run, filename: str) -> str:
         # dann dieselbe Aussage in schwaecherer Form.
         wie = "" if eigene else (f.get("fix") or "")
         parts.append(
-            f'<div class="finding-block finding-block--{grad}">'
+            # Der Anker traegt die Befund-Kennung, damit das Portal von
+            # seinem Vergleich aus auf den einzelnen Befund zeigen kann und
+            # nicht nur auf den Abschnitt. Im PDF ist er wirkungslos.
+            f'<div class="finding-block finding-block--{grad}" id="f-{esc(bid)}">'
             f'<p class="eyebrow">{esc(bid)} · Schweregrad {SEVERITY_LABEL[grad]}</p>'
             f"<h3>{esc(header)}</h3>"
             + (f"<p>{esc(_shorten(koerper, 460))}</p>" if koerper else "")
@@ -561,16 +594,34 @@ def _measure_block(m: dict, brand: str, ref: str | None,
     jetzt nicht einfach in Auftrag geben, weil ich ja gar nicht verstehe: Wo
     wurde das gefunden?"*
 
+    Seit dem 17.09.2026 stehen `intent`, `effect` und `needs` als Absaetze ueber
+    den Angaben und `evidence_text` als erste Zeile darin. Der Anlass ist
+    derselbe eine Stufe weiter: eine Massnahme sagte ausser ihrem Titel nichts
+    darueber, was gemeint ist.
+
     `ref` ist nur gesetzt, wenn der Block **nicht** direkt unter seinem Befund
     steht: dann braucht er die Zeile "Woraus". Steht er darunter, waere sie
     eine Wiederholung der Ueberschrift zwei Zentimeter darueber.
     """
     typ = " · Test statt Maßnahme" if m.get("type") == "test" else ""
+
+    # Die Erklaerung steht vor den Angaben, nicht darin: sie ist der Grund,
+    # aus dem jemand die Massnahme beauftragt (Feldsatz seit 17.09.2026,
+    # siehe SKILL.md "Die vier Felder, die eine Massnahme erklaeren").
+    prose = "".join(
+        f'<p>{esc(value)}</p>'
+        for value in (m.get("intent"), m.get("effect"))
+        if value)
+    if m.get("needs"):
+        prose += (f'<p><strong>Dafür brauchen wir von euch:</strong> '
+                  f'{esc(m["needs"])}</p>')
+
     rows = ""
     if ref:
         rows += ('<div class="summary-row"><div class="summary-label">Woraus'
-                   f'</div><div class="summary-value">{ref}</div></div>')
-    for label, value in (("Wo", m.get("data_source")),
+                   f'</div><div class="summary-value">{esc(ref)}</div></div>')
+    for label, value in (("Woran wir es sehen", m.get("evidence_text")),
+                        ("Wo", m.get("data_source")),
                         # Dieselbe Anzeige wie in measures.md. Der Name des
                         # Betreibers kommt aus dem Workspace dieses Laufs.
                         ("Wer", measures_mod.responsible_label(
@@ -584,6 +635,7 @@ def _measure_block(m: dict, brand: str, ref: str | None,
             f'Hebel {LABEL_LEVERAGE[m["leverage"]]} · '
             f'Aufwand {LABEL_EFFORT[m["effort"]]}{typ}</p>'
             f'<h3>{esc(m["title"])}</h3>'
+            + prose
             + (f'<div class="summary">{rows}</div>' if rows else "")
             + "</div>")
 
@@ -1254,7 +1306,7 @@ def sec_shop(run: Run) -> str:
          f"davon {num_de(av.get('variants_available'))} bestellbar" if av else ""),
         ("Sprachen", num_de(s.get("locales_total")), ", ".join(x for x in sprachen if x)),
         ("Märkte", num_de(s.get("markets_total")), ", ".join(x for x in maerkte if x)[:120]),
-        ("Skripte fremder Anbieter", num_de(s.get("third_party_script_hosts")),
+        ("Drittanbieter-Dienste", num_de(s.get("third_party_script_hosts")),
          "verschiedene Hosts im Quelltext der besuchten Seiten"),
         ("Mess-IDs im Quelltext", num_de(s.get("inline_tag_ids")),
          ", ".join(sorted((st.get("storefront_inline_tag_ids") or {}).keys()))),
@@ -1280,11 +1332,24 @@ def sec_measurement(run: Run) -> str:
     # des ersten Absenders gibt es nur über den ganzen Abfragezeitraum, nicht je
     # Monat (ga4_purchase_rows). Beide Zeilen nennen dann den Grund statt einer
     # falschen Zahl.
-    onset = (ga4.get("senders") or {}).get("onset")
+    # Ein zweiter Absender kann wieder verschwinden, etwa weil die App
+    # deinstalliert wurde. Dann gilt die Doppelzählung nur für einen Abschnitt
+    # des Zeitraums, und der Satz steht in der Vergangenheit. Am 17.09.2026 in
+    # einem echten Shop passiert: der Report hätte sonst "zählt doppelt"
+    # behauptet, drei Tage nachdem die Zählung sauber geworden war.
+    kauf_zeitraum = senders_mod.event_period(ga4.get("senders") or {}, "purchase")
+    onset, ende = kauf_zeitraum["onset"], kauf_zeitraum["ended"]
     doubled_reason = None
     if "purchase" in ga4_view(ga4)["double_counted"]:
-        doubled_reason = ("Analytics zählt Käufe" + (f" seit {date_de(onset)}" if onset else "")
-                          + " doppelt, weil ein zweiter Absender sie mitmeldet")
+        if ende:
+            spanne = (f"von {date_de(onset)} bis {date_de(ende)}" if onset
+                      else f"bis {date_de(ende)}")
+            doubled_reason = ("Analytics zählte Käufe " + spanne
+                              + " doppelt, weil ein zweiter Absender sie mitmeldete")
+        else:
+            doubled_reason = ("Analytics zählt Käufe"
+                              + (f" seit {date_de(onset)}" if onset else "")
+                              + " doppelt, weil ein zweiter Absender sie mitmeldet")
     # Der Umsatz aus Analytics steht in der Berichtswährung der Property, und
     # die muss nicht Euro sein: am 11.09.2026 fiel eine Property in USD neben
     # einem Shop in Euro auf. Der Report schreibt Shop-Umsätze in Euro, also
@@ -1926,7 +1991,7 @@ def sec_competition(run: Run) -> str:
         if seeds:
             out += ("<p>Diese Domains sind nicht vorgegeben, sondern aus der "
                     "Überschneidung in den Suchergebnissen bestimmt: Ausgangspunkt "
-                    f"waren die Suchbegriffe {', '.join(seeds[:6])}. Die Spalte "
+                    f"waren die Suchbegriffe {esc(', '.join(seeds[:6]))}. Die Spalte "
                     "Plattform trennt Marktplätze und Portale von Shops, die "
                     "dasselbe Sortiment verkaufen.</p>")
     if bl:
@@ -1973,14 +2038,43 @@ def ads_totals(ads: dict, months=None) -> dict:
             "conversions_value": value, "roas": value / cost if cost else None}
 
 
+def _rerun_note(run: Run, key: str) -> str:
+    """Ein Satz, wenn eine Quelle später erhoben wurde als der Lauf.
+
+    Kommt ein Zugang nach dem Audit und läuft die Disziplin nach
+    (`audit.rerun`), stehen ihre Zahlen im selben Report wie die übrigen,
+    aber von einem anderen Tag. Ohne diesen Satz liest sich der Abschnitt wie
+    am Audit-Tag gemessen.
+    """
+    st = ((run.state or {}).get("sources") or {}).get(key) or {}
+    pulled = (st.get("pulled_at") or "")[:10]
+    if st.get("status") != "done" or not pulled or run.run_id.startswith(pulled):
+        return ""
+    return f'<p class="evidence">Nacherhoben am {date_de(pulled)}.</p>'
+
+
 def sec_sea(run: Run) -> str:
     sh, ads = run.snap("dfs-shopping.json"), run.snap("ads.json")
     if not (sh or ads):
         return _missing(run, "ads", "Die bezahlte Suche")
     out = ""
     if ads:
+        note = _rerun_note(run, "ads")
+        out += note
         f = run.fenster
-        t = ads_totals(ads, f["jetzt"]["monate"] if f else None)
+        months = f["jetzt"]["monate"] if f else None
+        label = f["label"] if f else period_de(ads)
+        # Nacherhoben heißt: die Befunde darunter rechnen über `detail_period`
+        # des Pulls, nicht über das Fenster des Laufs. Die Kennzahlen folgen
+        # ihnen, sonst stehen im selben Abschnitt zwei Ausgabensummen über
+        # zwei Zeiträume. Am 02.10.2026 im ersten Nachlauf genau so gesehen.
+        detail = ads.get("detail_period") or {}
+        if note and detail.get("start") and detail.get("end"):
+            months = [m.get("month") for m in ads.get("by_month") or []
+                      if detail["start"][:7] <= (m.get("month") or "") <= detail["end"][:7]]
+            label = (f"{detail['start'][5:7]}/{detail['start'][:4]} bis "
+                     f"{detail['end'][5:7]}/{detail['end'][:4]}")
+        t = ads_totals(ads, months)
         unit = currency_suffix(ads, "ads.json")
         # Die Kennzahl heißt ROAS, wie in skills/audit/SKILL.md unter "Wie eine
         # Kennzahl heißt". Bis zum 13.09.2026 stand hier "Rückfluss je Euro",
@@ -1991,7 +2085,7 @@ def sec_sea(run: Run) -> str:
             ("Umsatz", num_de(t.get("conversions_value"), 0, unit), ""),
             ("ROAS", num_de(t.get("roas"), 2, " x"),
              "Umsatz geteilt durch Kosten"),
-        ], zeitraum=f["label"] if f else period_de(ads))
+        ], zeitraum=label)
     if sh:
         s = sh.get("summary") or {}
         out += ('<p class="eyebrow eyebrow--line">Google Shopping</p>'
@@ -2236,7 +2330,9 @@ TEMPLATE_HINTS = {
               "(4) eine Handlung, die der Leser ohne den Rest des Dokuments "
               "treffen kann. Nie mit dem Umfang der Arbeit anfangen. "
               "Prueffrage fuer Satz 4: koennte er unter jedem beliebigen "
-              "Report stehen? Dann ist er keiner. HTML mit <p>-Absaetzen."),
+              "Report stehen? Dann ist er keiner. Anrede ihr und euch, nie "
+              "du; wo der Betreiber handelt, ich, nie wir. HTML mit "
+              "<p>-Absaetzen."),
     "summary_what": "Gegenstand und Grundgesamtheit: welcher Shop, welcher Stichtag, welche Bereiche.",
     "summary_why": "Der Mechanismus, der die Baseline noetig macht, nicht der Ablauf des Audits.",
     "summary_status": "Die drei bis vier tragenden Zahlen aus der Kennzahlenleiste, als Satz.",
@@ -2246,7 +2342,8 @@ TEMPLATE_HINTS = {
                   "eine gemessene Zahl und die Kennung des Befunds dahinter. "
                   "HTML: <ol><li>...</li></ol>."),
     "next_step": ("Der Schlussblock, ein konkreter Ask. Laeuft durch das "
-                  "Pitch-Gate. HTML mit <p>-Absaetzen."),
+                  "Pitch-Gate. Anrede ihr und euch, der Betreiber in der "
+                  "ich-Form. HTML mit <p>-Absaetzen."),
 }
 
 TEMPLATE_PROBLEMS = [
@@ -2314,14 +2411,14 @@ def text_laden(pfad: Path) -> dict:
         if fehlt:
             raise SystemExit(f"Problem {i} in {pfad}: {', '.join(fehlt)} fehlt")
         # `value` ist eine kurze Zahl, keine Ueberschrift. Der Bezug gehoert in
-        # `unit` und wird kleiner gesetzt. "31 von 1.480" als `value` bricht im
+        # `unit` und wird kleiner gesetzt. "31 von 1.200" als `value` bricht im
         # Display-Schnitt mitten in der Zahl um; genau dieser Fehler steht
         # schon in der audit-light-Skill.
         if len(str(x["value"])) > 12:
             raise SystemExit(
                 f"Problem {i} in {pfad}: value {x['value']!r} ist zu lang. "
                 "Die Zahl gehoert in `value`, der Bezug in `unit` "
-                '(value "31", unit "von 1.480").')
+                '(value "31", unit "von 1.200").')
     return doc
 
 

@@ -119,11 +119,12 @@ Bestand, und die Zahl sieht dabei völlig plausibel aus.
 
 6. **Kannibalisierung.** Zwei Signale, und erst beide zusammen ergeben einen
    Befund:
-   - `crawl.json > findings_index.duplicate_titles` (mehrere Seiten mit
-     identischem Titel),
-   - `gsc.json > top_queries` beziehungsweise `top_pages`: wechselt für
-     denselben Begriff die rankende URL, oder teilen sich zwei URLs die
-     Impressionen eines Begriffs.
+   - `crawl.json > findings_index.titles.duplicate_groups` (mehrere
+     kanonische Seiten mit identischem Titel; in älteren Snapshots nur
+     `findings_index.duplicate_titles`),
+   - `gsc.json > query_pages`: teilen sich zwei Seiten die Impressionen
+     derselben Anfrage. Fehlt der Block (älterer Snapshot), bleiben
+     `top_queries` und `top_pages`, die das Paar nicht zeigen.
 
    Ohne das zweite Signal ist ein doppelter Titel ein technischer Befund und
    gehört dem SEO-technisch-Subagenten, nicht dir. Findest du nur das erste,
@@ -136,6 +137,55 @@ Bestand, und die Zahl sieht dabei völlig plausibel aus.
    überhaupt beim Sortiment ankommt, kannst du aus deinen Dateien **nicht**
    beantworten. Sag das, statt eine Wirkungskette zu behaupten. Dein Befund
    endet bei Sichtbarkeit und Klicks des Blogs.
+
+8. **Suchintention.** Für die zehn Anfragen ohne Markenbegriff mit den
+   meisten Impressionen: welche Seite rankt dafür (`gsc.json > query_pages`),
+   welcher Seitentyp ist das nach ihrem Pfad (Kategorie, Produkt, Ratgeber,
+   Startseite), und passt er zur Anfrage? "Ring Silber" auf einem Ratgeber
+   ist eine andere Lage als auf einer Kategorie. Den Markenbegriff nennt der
+   Aufruf-Prompt; fehlt er, nimm den Stamm der Domain.
+9. **Klickrate je Position.** Aus `gsc.json > top_queries` ohne
+   Markenanfragen: Anfragen mit mindestens dem Median an Impressionen, deren
+   CTR unter der Hälfte des Medians ihres Positionsbands liegt (Bänder 1 bis
+   3, 4 bis 10, 11 bis 20). Das ist ein Vergleich gegen den eigenen
+   Datensatz, weil es keine übertragbare CTR-Benchmark gibt; die Schwelle
+   "halber Median" ist eine Festlegung vom 27.09.2026, kein Richtwert aus
+   einer Quelle, und steht so im Befund.
+
+## Kriterienliste, Version 2026-09-27
+
+**Jedes Kriterium der Tabelle ergibt genau einen Eintrag in `criteria`**
+(Schema unter Ausgabe), mit einem dieser vier Ergebnisse:
+
+| `result` | Wann | Pflicht dazu |
+|---|---|---|
+| `violated` | der Mangel liegt vor | ein Befund in `findings`, `finding_id` zeigt auf ihn |
+| `passed` | geprüft und in Ordnung, die positive Kontrolle | `value` mit Zahl und Grundgesamtheit |
+| `not_measurable` | die Daten fehlen oder reichen nicht | `reason` nennt, welche Datei oder welches Feld |
+| `not_applicable` | der Shop hat den Gegenstand nicht | `reason` in einem Satz |
+
+Zwei Läufe desselben Moduls auf demselben Shop hatten nur gut ein Drittel
+ihrer Befundthemen gemeinsam, obwohl die Daten für die meisten übrigen in
+beiden Snapshots standen. Eine Kernfrage verhindert nicht, dass ein Befund im
+nächsten Lauf still verschwindet; eine Ergebniszeile je Kriterium schon.
+
+**Ein Snapshot von vor dem 27.09.2026** trägt die neuen Felder nicht (siehe
+Spalte Quelle). Die Kriterien dazu sind dann `not_measurable`, nie `passed`.
+**Wo die Tabelle eine Einordnung festlegt, gilt sie**; sie steht dort, wo zwei
+Läufe sonst verschieden urteilen würden.
+
+| ID | Kernfrage | Prüfung | Quelle | Feste Einordnung |
+|---|---|---|---|---|
+| `con.ranking-inventory` | 1 | Bestand, Bänder bis Seite eins, Alter der Datenbankwerte | `dfs-rankings.json > summary`, `top_keywords[].last_updated_time` | Bänder `null` sind `not_measurable`, keine Null. Überschneiden sich DataForSEO und Search Console gar nicht, tragen alle Ranking-Kriterien den Vorbehalt zum Markt |
+| `con.visibility-trend` | 2 | Bewegungszähler, Verlauf, wo vorhanden | `dfs-rankings.json > visibility_history`, `summary.is_new`, `is_up`, `is_down`, `is_lost`, `notes_history` | ohne zwei Zeitpunkte kein Trend; `notes_history` ist ein Befund, kein Fehler |
+| `con.keyword-gaps` | 3 | Lücken mit Suchvolumen, jede gegen Katalog und Crawl geprüft | `dfs-competitors.json > keyword_gaps`, `summary_gaps` | eine Lücke ohne passendes Sortiment ist eine Sortimentsfrage und kein SEO-Befund |
+| `con.thin-categories` | 4 | Kategorien ohne eigenen Text | `catalog.json > summary.collections_without_description`, `collections_total` | |
+| `con.missing-descriptions` | 5 | Produkte ohne Beschreibung, ohne SEO-Title, ohne SEO-Description, Längenverteilung | `catalog.json > summary` | |
+| `con.duplicate-product-copy` | 5 | gleiche Beschreibung bei mehreren aktiven Produkten, meist übernommener Herstellertext | `catalog.json > summary.duplicate_description_groups`, `duplicate_descriptions` (neu seit 27.09.2026) | |
+| `con.cannibalization` | 6 | zwei Seiten teilen sich eine Anfrage | `gsc.json > query_pages` (neu seit 27.09.2026), `crawl.json > findings_index.titles.duplicate_groups` | `confirmed` nur mit dem Signal aus der Search Console; doppelte Titles allein gehören `tec.duplicate-titles` |
+| `con.blog-impact` | 7 | Klicks und Impressionen auf den Blog-Präfix | `crawl.json > findings_index.path_prefixes`, `gsc.json > top_pages` | kein Blog: `not_applicable`. Eine Wirkung auf den Umsatz ist hier nie belegbar |
+| `con.query-page-type` | 8 | je Top-Anfrage die rankende Seite und ihr Seitentyp, passt er zur Anfrage | `gsc.json > query_pages` (neu seit 27.09.2026), `crawl.json > findings_index.path_prefixes` | alle zehn Anfragen stehen mit Seitentyp in `value`. Ohne Blick in die Suchergebnisse trägt eine Abweichung höchstens `plausible` |
+| `con.ctr-vs-position` | 9 | CTR unter der Hälfte des Medians im Positionsband bei überdurchschnittlichen Impressionen | `gsc.json > top_queries` | ein Band mit weniger als fünf Anfragen ist `not_measurable` |
 
 ## Arbeitsweise
 
@@ -201,6 +251,12 @@ Laufs.
   "run_id": "<run-id>",
   "generated_at": "2026-10-01T09:00:00+00:00",
   "blocked_questions": [],
+  "criteria_version": "2026-09-27",
+  "criteria": [
+    {"id": "con.duplicate-product-copy", "result": "violated",
+     "value": "<Zahl mit Grundgesamtheit>", "finding_id": "SEO-02"},
+    {"id": "con.blog-impact", "result": "not_applicable", "reason": "<ein Satz>"}
+  ],
   "findings": [
     {
       "id": "SEO-01",
@@ -223,6 +279,42 @@ Laufs.
 ```
 
 **`discipline` ist `seo`, nicht `seo-content`.** Der Dateiname trägt die Sektion des Reports, das Feld die Disziplin des Maßnahmen-Backlogs; die gültigen Werte stehen in `scripts/audit/measures.py` unter `LABELS["discipline"]`. Inhaltliche SEO-Befunde werden zu SEO-Maßnahmen, deshalb `seo`. Ein Wert außerhalb dieser Liste lässt `measures.create()` scheitern, und der Befund fällt still aus dem Backlog. Am 07.09.2026 betraf das 39 Prozent aller Befunde eines Laufs.
+
+**`criteria` ist keine zweite Befundliste.** Je Kriterium aus der
+Kriterienliste genau ein Eintrag, auch bei `passed`; keine ID doppelt, keine
+fehlt. Ein `violated` zeigt über `finding_id` auf seinen Befund in `findings`,
+denn nur `findings` werden Maßnahmen, `criteria` nie. `value` trägt die Zahl
+samt Grundgesamtheit wie ein `metrics`-Eintrag, `reason` den Grund bei
+`not_measurable` und `not_applicable`. Beide Felder können im Kundendokument
+erscheinen, also deutsch und ohne Dateinamen.
+
+**Vier Felder machen den Befund im Portal anschaulich.** Der Vertrag steht in
+`${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Lies ihn, bevor du den
+ersten Befund schreibst; er gilt, nicht eine Kopie hier. Für den vollen Audit
+heißt das je Befund:
+
+- **`facts`:** `{"kind": "effect", "text": ...}` immer, `{"kind": "cause",
+  "text": ...}` nur, wenn die Ursache belegt ist. Sonst nichts, auch kein
+  `now`: die Handlung ist die eine Maßnahme zum Befund. Jeder Text ein ganzer
+  Satz, höchstens 160 Zeichen.
+- **`evidence_text`:** der Beleg als ein Satz für den Kunden, mit den Zahlen,
+  die ihn tragen, etwa "318 von 1.204 Produktseiten haben keinen internen Link
+  aus einer Kategorieseite." Nie ein Pfad, der bleibt in `evidence`. Phase 3
+  übernimmt den Satz in die Maßnahme.
+- **`url`:** die eine Seite im Shop, um die es geht, nur `https`. Fehlt, wenn
+  der Befund den ganzen Shop betrifft.
+- **`proof`:** der Beleg aus Bausteinen. Eine Kennzahl ist `{"type": "metric",
+  "ref": <Index in metrics>}` und wird nie ein zweites Mal ausgeschrieben; eine
+  Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
+  Typisch hier: `chips` für Keyword-Lücken, `pairs` für zwei Seiten, die um
+  denselben Begriff konkurrieren, `rows` für dünne Kategorien.
+- **`decision`:** nur, wenn es zwei echte, verschiedene Wege gibt, mit
+  `recommended` und `reason`. Phase 3 macht die empfohlene Option zur
+  Maßnahme, die andere zeigt das Portal als Geprüfte Alternative.
+
+**Bilder schreibst du keine.** Bild-Aufträge (`capture`) kommen nur aus den
+Analysen für Conversion, Content und Vertrauen, die als einzige Screenshots
+lesen. Dein Beleg sind Kennzahl, Tabelle, Verteilung oder Liste.
 
 **Zwei Felder tragen, was der Report bisher nicht hatte:**
 
@@ -330,12 +422,13 @@ Kundendokument. Ein Wort je Sache, und keines aus der Werkzeugwelt:
 | die erfassten Seiten | Seiten im Shop, geoeffnet und geprueft | gecrawlte Seiten, URLs, Adressen |
 | die eingefrorenen Zahlen | Baseline | Nullpunkt, Ausgangswerte, Startwerte |
 | die Kennzahl je Bestellung | Bestellwert | Warenkorbwert |
-| fremde Skripte | Skripte fremder Anbieter | Fremdtechnik, Third-Party-Skripte |
+| fremde Skripte | Drittanbieter-Dienste | Fremdtechnik, Skripte fremder Anbieter |
 | der naechste Lauf | der spaetere Report | Folgereport |
 
 **Dateinamen und Feldpfade gehoeren ausschliesslich in `evidence`.** Dort
 stehen sie, damit ein Mensch nachrechnen kann. In `statement`, `effect`,
-`why`, `fix` und in jedem `metrics`-Eintrag stehen sie nie: der Leser hat
+`why`, `fix`, `facts`, `evidence_text`, den Texten im `proof` und in jedem
+`metrics`-Eintrag stehen sie nie: der Leser hat
 Fragen zu seinem Shop, keine zu unseren Snapshots.
 
 **Deutsch mit echten Umlauten.** ä, ö, ü, ß, nie ae, oe, ue oder ss. Das gilt

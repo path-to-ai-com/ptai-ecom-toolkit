@@ -1,0 +1,13 @@
+{
+  "sections": {
+    "main": {
+      "type": "banner",
+      "settings": {
+        "heading": "Alt"
+      }
+    }
+  },
+  "order": [
+    "main"
+  ]
+}

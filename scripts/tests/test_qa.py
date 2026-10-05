@@ -67,6 +67,25 @@ class TestBefunde(unittest.TestCase):
         treffer = [b for b in self._pruefe(kaputt) if b.stufe == "warnung"]
         self.assertTrue(any("Werkzeugsprache" in b.text for b in treffer))
 
+    def test_ersatzumlaute_in_einem_fakt_sind_ein_fehler(self):
+        kaputt = dict(SAUBER, facts=[{"kind": "effect", "text": "Das ist fuer den Umsatz entscheidend."}])
+        self.assertTrue(any("Ersatzumlaute" in b.text for b in self._pruefe(kaputt)))
+
+    def test_ein_pfad_im_beleg_satz_ist_werkzeugsprache(self):
+        kaputt = dict(SAUBER, evidence_text="Laut shopify.json sind 1.000 Produkte betroffen.")
+        self.assertTrue(any("Werkzeugsprache" in b.text for b in self._pruefe(kaputt)))
+
+    def test_der_text_an_einem_bild_wird_geprueft(self):
+        kaputt = dict(SAUBER, proof={"columns": [{"blocks": [
+            {"type": "image", "src": "proof/x.jpg", "alt": "Produktseite fuer Ohrringe", "title": "t"}]}]})
+        self.assertTrue(any("Ersatzumlaute" in b.text for b in self._pruefe(kaputt)))
+
+    def test_ein_zitat_aus_dem_shop_bleibt_ungeprueft(self):
+        # Der Wortlaut des Shops ist der Befund, nicht unser Fehler.
+        zitat = dict(SAUBER, proof={"columns": [{"blocks": [
+            {"type": "quote", "text": "Schmuck fuer jeden Tag", "source": "Startseite"}]}]})
+        self.assertEqual(self._pruefe(zitat), [])
+
     def test_werkzeugsprache_in_evidence_ist_erlaubt(self):
         """Dort gehört sie hin, damit ein Mensch nachrechnen kann."""
         self.assertEqual(self._pruefe(SAUBER), [])
@@ -135,6 +154,40 @@ class TestMenschenteil(unittest.TestCase):
         self.assertGreaterEqual(len(qa.FOR_HUMANS), 4)
 
 
+
+class TestMassnahmenNachNachlauf(unittest.TestCase):
+    """Nach dem Nachlauf einer Disziplin zeigt eine erledigte Maßnahme auf
+    einen Befund, der nur noch in einer früheren Fassung steht."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self.tmp.name)
+        self.run_id = "2026-10-01-audit"
+        run = self.ws / "reporting" / "runs" / self.run_id
+        _schreibe(self.ws / "reporting" / "config.json", {"brand": "Beispielshop"})
+        _schreibe(run / "state.json", {"sources": {}})
+        _schreibe(run / "findings" / "sea.json",
+                  {"discipline": "sea", "findings": [dict(SAUBER, id="SEA-02")]})
+        _schreibe(run / "revisions" / "01" / "findings" / "sea.json",
+                  {"discipline": "sea", "findings": [dict(SAUBER, id="SEA-01")]})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _pruefe(self, status):
+        _schreibe(self.ws / "reporting" / "measures.json", {"next_id": 2, "measures": [
+            {"id": "M-001", "finding_ref": "SEA-01", "status": status,
+             "check_rule": "x", "intent": "x", "effect": "x", "evidence_text": "x"}]})
+        return [f for f in qa.check_measures(rb.Run(self.ws, self.run_id))
+                if "den es nicht gibt" in f.text]
+
+    def test_erledigte_massnahme_darf_auf_eine_fruehere_fassung_zeigen(self):
+        self.assertEqual(self._pruefe("implemented"), [])
+
+    def test_offene_massnahme_ohne_aktuellen_befund_bleibt_ein_fehler(self):
+        self.assertEqual(len(self._pruefe("open")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -163,8 +216,8 @@ class TestKundenwissen(unittest.TestCase):
                       {"entries": entries})
         return qa.check_customer_context(rb.Run(self.ws, self.run_id), self.ws)
 
-    def _eintrag(self, **kw):
-        e = {"id": "CTX-001", "date": "2026-09-08", "source": "Termin, Tim",
+    def _entry(self, **kw):
+        e = {"id": "CTX-001", "date": "2026-09-08", "source": "Termin, Geschäftsführung",
              "about": ["HDL-01"], "kind": "reason",
              "statement": "Die Produkte sind ausverkauft."}
         e.update(kw)
@@ -174,7 +227,7 @@ class TestKundenwissen(unittest.TestCase):
         self.assertEqual(self._pruefe(dict(SAUBER)), [])
 
     def test_ein_unveraenderter_befund_wird_gemeldet(self):
-        findings = self._pruefe(dict(SAUBER), [self._eintrag()])
+        findings = self._pruefe(dict(SAUBER), [self._entry()])
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].stufe, "warnung")
         self.assertIn("CTX-001", findings[0].text)
@@ -186,14 +239,14 @@ class TestKundenwissen(unittest.TestCase):
         f = dict(SAUBER)
         f["why"] = ("Laut Kundenangabe CTX-001 ausverkauft. Gemessen sind 108 "
                     "dieser Titel im selben Zeitraum in Warenkoerben gelandet.")
-        self.assertEqual(self._pruefe(f, [self._eintrag()]), [])
+        self.assertEqual(self._pruefe(f, [self._entry()]), [])
 
     def test_ein_anderer_befund_bleibt_unberuehrt(self):
-        e = self._eintrag(about=["SEO-03"])
+        e = self._entry(about=["SEO-03"])
         self.assertEqual(self._pruefe(dict(SAUBER), [e]), [])
 
     def test_ein_kaputter_eintrag_ist_ein_fehler_kein_stilles_ueberspringen(self):
-        findings = self._pruefe(dict(SAUBER), [self._eintrag(about=[])])
+        findings = self._pruefe(dict(SAUBER), [self._entry(about=[])])
         self.assertTrue(any(b.stufe == "fehler" for b in findings), findings)
 
 

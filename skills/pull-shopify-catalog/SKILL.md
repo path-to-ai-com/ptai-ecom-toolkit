@@ -53,7 +53,7 @@ sind alle falsch, ohne dass etwas fehlschlägt.
          seo { title description }
          images(first: 50) { nodes { url altText } }
          variants(first: 100) {
-           nodes { sku price inventoryItem { unitCost { amount } } }
+           nodes { sku price availableForSale inventoryItem { unitCost { amount } } }
          }
        }
      }
@@ -107,6 +107,8 @@ Shop, der sie pflegt.
     "description_length_p90": 1400,
     "images_total": 512, "images_with_alt": 96, "share_images_with_alt": 0.1875,
     "variants_total": 3370, "variants_without_sku": 4, "variants_without_cost": 3370,
+    "products_with_duplicate_description": 18, "duplicate_description_groups": 6,
+    "products_sold_out": 9,
     "collections_total": 22, "collections_without_description": 14
   },
   "products_without_seo_title": ["handle", "..."],
@@ -114,6 +116,9 @@ Shop, der sie pflegt.
   "products_without_seo_description": ["..."],
   "products_with_missing_alt": ["..."],
   "products_without_cost": ["..."],
+  "products_sold_out": ["..."],
+  "duplicate_descriptions": [{"count": 4, "handles": ["handle", "..."]}],
+  "duplicate_descriptions_truncated": false,
   "notes": ["..."]
 }
 ```
@@ -121,6 +126,19 @@ Shop, der sie pflegt.
 **Kein Fließtext.** Aus der Beschreibung wird `description_length`, nie der
 Inhalt. Bei 2.000 Produkten ist das der Unterschied zwischen einem Snapshot,
 den ein Analyse-Agent lesen kann, und einem, der ihn sprengt.
+
+**Doppelte Beschreibungen über einen Fingerabdruck.** Je Produkt ein SHA-1 der
+Beschreibung, klein geschrieben und mit vereinheitlichtem Leerraum; gezählt
+wird unter aktiven Produkten, der Text selbst geht nicht in den Snapshot. Je
+Gruppe stehen höchstens fünf Handles da, die Liste ist auf 50 Gruppen gekappt.
+Gleicher Text bei mehreren Produkten ist meist ein übernommener Herstellertext
+(Kriterium `con.duplicate-product-copy`).
+
+**Ausverkauft heißt: keine Variante verkäuflich** (`availableForSale`), nur
+unter aktiven Produkten. Fehlt das Feld in den Rohdaten, steht
+`products_sold_out` auf `null`, nicht auf 0. Ausverkauft ist ein
+Betriebszustand, kein Befund; die Analyse prüft nur, wie der Shop technisch
+damit umgeht (Kriterium `tec.sold-out-handling`).
 
 **Kein Urteil über "dünn".** Der Pull liefert die Längenverteilung (p10, p50,
 p90) und die Zahl der Produkte **ohne** Beschreibung. Ab wann eine Beschreibung

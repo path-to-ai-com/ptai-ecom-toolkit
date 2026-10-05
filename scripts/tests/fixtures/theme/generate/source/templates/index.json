@@ -1,0 +1,52 @@
+/*
+ * Kommentarkopf wie ihn Shopify beim Speichern setzt
+ */
+{
+  "sections": {
+    "banner_1": {
+      "type": "banner",
+      "settings": {
+        "heading": "Neue Kollektion",
+        "layout_width": "wrapper--full",
+        "color_scheme": "scheme_2"
+      },
+      "blocks": {
+        "btn--1": {
+          "type": "button",
+          "settings": {
+            "label": "Jetzt ansehen",
+            "link": "shopify://collections/neu"
+          }
+        },
+        "text_1": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Frisch eingetroffen</p>"
+          },
+          "disabled": true
+        }
+      },
+      "block_order": [
+        "btn--1",
+        "text_1"
+      ]
+    },
+    "promo": {
+      "type": "promo-strip",
+      "settings": {
+        "message": "Versandkostenfrei ab 50 Euro"
+      }
+    },
+    "slider_1": {
+      "type": "slider",
+      "settings": {
+        "title": "Bestseller"
+      }
+    }
+  },
+  "order": [
+    "banner_1",
+    "promo",
+    "slider_1"
+  ]
+}

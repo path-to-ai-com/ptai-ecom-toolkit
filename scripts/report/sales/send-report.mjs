@@ -55,7 +55,13 @@ const audit = await getAudit(auditId);
 if (!audit) { console.error("audit not found:", auditId); process.exit(1); }
 const data = JSON.parse(readFileSync(contentPath, "utf8"));
 const pdf = readFileSync(pdfPath);
-const slug = String(data.shop || audit.shop_url).replace(/^https?:\/\//, "").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+// Der Dateiname des Anhangs ist der Name, unter dem der Report beim Empfaenger liegt und
+// weiterverschickt wird. Schema seit 21.09.2026, auf Wunsch von Yves in allen Report-Skills
+// gleich: Datum, Absender und Dokumentart, Domain. Bis dahin hiess er
+// "Path-to-AI_E-Commerce-Audit_<slug>.pdf", also ohne Datum und mit anderem Trenner.
+const domain = String(data.shop || audit.shop_url).replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+const datum = (data.meta && data.meta.datei_datum) || new Date().toISOString().slice(0, 10);
+const filename = `${datum}-path-to-ai-ecom-audit-${domain}.pdf`;
 
 const res = await fetch("https://api.resend.com/emails", {
   method: "POST",
@@ -66,7 +72,7 @@ const res = await fetch("https://api.resend.com/emails", {
     reply_to: replyTo,
     subject: `Dein E-Commerce-Audit für ${data.shop} ist da`,
     html: renderTeaserEmail(data),
-    attachments: [{ filename: `Path-to-AI_E-Commerce-Audit_${slug}.pdf`, content: pdf.toString("base64") }],
+    attachments: [{ filename, content: pdf.toString("base64") }],
   }),
 });
 if (!res.ok) { console.error("send failed", res.status, await res.text()); process.exit(1); }

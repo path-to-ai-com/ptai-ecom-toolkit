@@ -21,7 +21,8 @@ TIERS = ("required", "recommended", "optional")
 TIER_LABELS = {"required": "Pflicht", "recommended": "Empfohlen", "optional": "Optional"}
 
 #: Wer die Quelle stellt. "both": der Kunde gibt den Zugang, der Betreiber
-#: braucht zusätzlich etwas Eigenes (CLI-Autorisierung, Entwicklertoken).
+#: braucht zusätzlich etwas Eigenes (CLI-Autorisierung, freigeschaltete API
+#: im eigenen Cloud-Projekt).
 #: "both" heißt, der Betreiber braucht etwas Eigenes genau für diese Quelle;
 #: das gemeinsame Google-Dienstkonto für GA4 und Search Console zählt nicht
 #: dazu, check_env.sh führt es eigens.
@@ -60,8 +61,8 @@ SOURCES = (
     Source("geo", "GEO-Keys", "recommended", "operator", ("geo",),
            "GEO-Sichtbarkeit per API. Es bleibt der Browser-Weg mit Login in jedem Lauf"),
     Source("ads", "Google Ads", "optional", "both", ("ads",),
-           "SEA. Betrifft nur Shops mit Suchanzeigen, und das Token muss Google "
-           "erst freigeben"),
+           "SEA. Betrifft nur Shops mit Suchanzeigen, und Google muss das "
+           "Cloud-Projekt erst für echte Konten freigeben"),
 )
 
 #: Lauf-Quellen ohne Stufe, je mit Grund.

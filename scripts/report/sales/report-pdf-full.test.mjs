@@ -503,3 +503,158 @@ test('der Kleindruck endet mit dem Copyright des Betreibers, ohne Namen ohne Cop
     delete process.env.PTAI_OPERATOR_NAME;
   }
 });
+
+// Die Kapitel-Herkunft: zwei getrennte Gruppen statt einer gemischten Zeile.
+// `skills` sind die geladenen Skills, `methoden` die Messgrundlage. Bis zum
+// 16.09.2026 lief beides zusammen als eine Monospace-Zeile in Fliesstextgroesse.
+test('Kapitel-Herkunft trennt geladene Skills von der Messgrundlage', () => {
+  const kapitel = html.slice(html.indexOf('KAPITEL 1'));
+  assert.ok(kapitel.includes('GEPRÜFT MIT'), 'Label der Skill-Gruppe fehlt');
+  assert.ok(kapitel.includes('GRUNDLAGE'), 'Label der Messgrundlage fehlt');
+  assert.ok(!html.includes('ch-skills'), 'die alte gemischte Zeile wird noch gerendert');
+
+  const ch = data.chapters[0];
+  for (const skill of ch.skills) {
+    assert.ok(kapitel.includes(`<div class="ch-meta-item">${esc(skill)}</div>`),
+              `Skill ${skill} steht nicht in eigener Zeile`);
+  }
+  for (const methode of ch.methoden) {
+    assert.ok(kapitel.includes(`<div class="ch-meta-item">${esc(methode)}</div>`),
+              `Methode "${methode}" steht nicht in eigener Zeile`);
+  }
+
+  // Gegen das Element pruefen, nie gegen den blossen Klassennamen: der steht auch
+  // im Stylesheet, das jede Fassung mitrendert, und macht jede Probe wahr.
+  const block = (h) => h.match(/<div class="ch-meta(?: ch-meta--single)?"/g) || [];
+
+  // Eine Gruppe allein laeuft ueber die volle Breite, zwei stehen nebeneinander.
+  const nurSkills = renderReportHtml({
+    ...data, chapters: [{ ...ch, methoden: undefined }],
+  });
+  assert.deepEqual(block(nurSkills), ['<div class="ch-meta ch-meta--single"'],
+                   'eine Gruppe bekommt keine volle Breite');
+  assert.ok(!nurSkills.includes('GRUNDLAGE'), 'leere Gruppe wird gerendert');
+  assert.deepEqual(block(html).slice(0, 1), ['<div class="ch-meta"'],
+                   'zwei Gruppen stehen nicht nebeneinander');
+
+  // Ohne beide Felder faellt der Block ganz weg, statt ein leeres Geruest zu setzen.
+  const ohne = renderReportHtml({
+    ...data, chapters: [{ ...ch, skills: undefined, methoden: undefined }],
+  });
+  assert.deepEqual(block(ohne), [], 'leerer Herkunftsblock wird gerendert');
+});
+
+// ---------- Befund als Entscheidungsvorlage (02.10.2026) ----------
+// Das Format vom 01.10.2026 lebte zuerst nur als Einzelskript im Kundenordner, und der nächste
+// Lauf kam wieder mit der Textlatte. Diese Tests halten fest, dass der Renderer es selbst
+// kann und dass alte content.json davon unberührt bleiben.
+
+const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+function withDecisionFormat() {
+  const dir = mkdtempSync(join(TMP, 'fx-'));
+  writeFileSync(join(dir, 'beleg.png'), PNG_1PX);
+  const ch = data.chapters[0];
+  const decided = {
+    ...ch.findings[0],
+    facts: [
+      { label: 'WARUM ES ZÄHLT', text: 'Wer mit dem Handy kommt, muss bis zum Button scrollen.' },
+      { now: true, text: 'Den Button in der Vorlage nach oben ziehen.' },
+    ],
+    proof: { columns: [
+      { label: 'GEMESSEN', blocks: [{ type: 'metric', value: '3', unit: 'Bildschirmhöhen', label: 'bis zum Button' }] },
+      { label: 'BELEG', blocks: [
+        { type: 'image', src: 'beleg.png', alt: 'Ausschnitt', rings: [{ left: 1, top: 30, width: 16, height: 60 }] },
+        { type: 'quote', text: 'Erhältlich im Fachhandel<ins> und im eigenen Shop</ins>.<script>x</script>' },
+        { type: 'grid', columns: ['GOOGLE KI', 'CHATGPT'], rows: [{ label: 'Rucksack', cells: ['none', 'x'] }] },
+      ] },
+    ] },
+    decision: {
+      question: 'Button nach oben ziehen oder eine mitlaufende Leiste zeigen?',
+      options: [
+        { title: 'Button nach oben', text: 'Preis und Button direkt unter den Namen.', effort: 'eine Vorlage', result: 'Button in der Erstansicht' },
+        { title: 'Mitlaufende Leiste', effort: 'eine Einstellung', result: 'Button immer sichtbar' },
+      ],
+      recommended: 'b',
+      reason: 'B, weil es schneller geht.',
+    },
+  };
+  const compact = { ...ch.findings[1], facts: [{ label: 'WARUM ES ZÄHLT', text: 'Kurz.' }] };
+  const doc = {
+    ...data,
+    chapters: [{ ...ch, findings: [decided, compact, ...ch.findings.slice(2)] }, ...data.chapters.slice(1)],
+  };
+  const warnings = [];
+  const out = renderReportHtml(doc, { baseDir: dir, warn: (m) => warnings.push(m) });
+  return { doc, out, warnings };
+}
+
+test('ein Befund mit Entscheidung bekommt eine eigene Karte mit beiden Wegen und markiertem Vorschlag', () => {
+  const { out } = withDecisionFormat();
+  assert.ok(out.includes('<div class="fx-card fx-card--decision">'), 'keine Entscheidungskarte');
+  assert.ok(out.includes('<div class="fx-card fx-card--compact">'), 'Befund ohne Entscheidung ist nicht kompakt');
+  assert.ok(out.includes('B · MEIN VORSCHLAG'), 'Vorschlag nicht an Weg B markiert');
+  assert.ok(!out.includes('A · MEIN VORSCHLAG'), 'Vorschlag doppelt markiert');
+  assert.ok(out.includes('SOFORT UMSETZBAR'), 'Sofortmaßnahme ohne Label');
+  assert.ok(out.includes('<dt class="mono">AUFWAND</dt><dd>eine Vorlage</dd>'), 'Aufwand fehlt an Weg A');
+});
+
+test('der alte Fließtext steht zugeklappt unter Herleitung und Belege', () => {
+  const { doc, out } = withDecisionFormat();
+  const f = doc.chapters[0].findings[0];
+  assert.ok(out.includes('<details class="fx-more"><summary class="mono">+ Herleitung und Belege</summary>'), 'kein zugeklappter Block');
+  assert.ok(out.includes(safeHtml(f.body)), 'der ausführliche Text ging verloren');
+  assert.ok(!/<details class="fx-more" open/.test(out), 'Herleitung ist im PDF aufgeklappt');
+});
+
+test('mit Entscheidungen steht die Seite Entscheidungen hinter der Zusammenfassung und die Triage entfällt', () => {
+  const { out } = withDecisionFormat();
+  const iExec = out.indexOf('<!-- EXECUTIVE SUMMARY -->');
+  const iDec = out.indexOf('<div class="eyebrow2 mono">ENTSCHEIDUNGEN</div>');
+  const iGeo = out.indexOf('<!-- EUER QUADRANT -->');
+  assert.ok(iExec > 0 && iDec > iExec && iDec < iGeo, 'Entscheidungsseite steht nicht hinter der Zusammenfassung');
+  assert.ok(out.includes('Eine Entscheidung aus dem Audit'), 'Überschrift zählt die Entscheidungen nicht');
+  assert.ok(out.includes('AKQUISITION · BEFUND 01') || out.includes(' · BEFUND 01'), 'Herkunft der Entscheidung fehlt');
+  assert.ok(!out.includes('<div class="triage">'), 'Triage steht trotz Entscheidungsseite im Report');
+  if (data.triage) {
+    const col = data.triage.columns.find((c) => /NICHT|IGNOR/i.test(c.label));
+    if (col) assert.ok(out.includes('NICHT VERFOLGEN'), '"Nicht verfolgen" ist nicht auf die Entscheidungsseite gezogen');
+  }
+});
+
+test('ohne die neuen Felder rendert der Report wie bisher, mit Triage und ohne Entscheidungsseite', () => {
+  assert.ok(!html.includes('<div class="eyebrow2 mono">ENTSCHEIDUNGEN</div>'), 'Entscheidungsseite ohne Entscheidung');
+  assert.ok(!html.includes('<div class="fx-card'), 'alter Befund im neuen Format gerendert');
+  if (data.triage) assert.ok(html.includes('<div class="triage">'), 'Triage fehlt im alten Format');
+});
+
+test('Belegbilder werden eingebettet, Zitate behalten nur Ergänzung und Abweichung', () => {
+  const { out, warnings } = withDecisionFormat();
+  assert.ok(out.includes('src="data:image/png;base64,'), 'Bild nicht als data:-URI eingebettet');
+  assert.ok(out.includes('<ins> und im eigenen Shop</ins>'), 'Ergänzung im Zitat nicht markiert');
+  assert.ok(!out.includes('<script>x</script>'), 'Skript im Zitat nicht maskiert');
+  assert.ok(out.includes('<span class="fx-x">✕</span>'), 'Kreuz im Raster fehlt');
+  assert.deepEqual(warnings, [], 'unerwartete Warnung');
+});
+
+test('ein fehlendes Belegbild bricht nicht ab, sondern zeigt den Alternativtext und warnt', () => {
+  const { doc } = withDecisionFormat();
+  doc.chapters[0].findings[0].proof.columns[1].blocks[0].src = 'gibt-es-nicht.png';
+  const warnings = [];
+  const out = renderReportHtml(doc, { baseDir: TMP, warn: (m) => warnings.push(m) });
+  assert.ok(out.includes('<div class="fx-missing">Ausschnitt</div>'), 'Alternativtext fehlt');
+  assert.ok(warnings.some((w) => w.includes('gibt-es-nicht.png')), 'keine Warnung zum fehlenden Bild');
+});
+
+test('Fakten mit kind bekommen ihr Label aus dem Vertrag, kind geht vor einem freien label', () => {
+  const ch = data.chapters[0];
+  const finding = {
+    ...ch.findings[1],
+    facts: [{ kind: 'effect', text: 'Die Folge.' }, { kind: 'cause', label: 'ANDERES LABEL', text: 'Der Grund.' }],
+  };
+  const doc = { ...data, chapters: [{ ...ch, findings: [ch.findings[0], finding, ...ch.findings.slice(2)] }, ...data.chapters.slice(1)] };
+  const out = renderReportHtml(doc, { baseDir: TMP, warn: () => {} });
+  assert.ok(out.includes('<div class="fx-fk mono">WARUM ES ZÄHLT</div><div class="fx-fv">Die Folge.</div>'), 'Label aus kind fehlt');
+  assert.ok(out.includes('<div class="fx-fk mono">URSACHE</div><div class="fx-fv">Der Grund.</div>'), 'kind geht nicht vor label');
+  assert.ok(!out.includes('ANDERES LABEL'), 'freies Label trotz kind gezeigt');
+});

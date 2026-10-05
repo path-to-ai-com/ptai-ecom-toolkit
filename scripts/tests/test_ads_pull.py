@@ -1,7 +1,5 @@
 """Abfragen und Auswertung von pull-ads. Kein Test ruft die API."""
-import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -79,13 +77,35 @@ class TestMonthly(unittest.TestCase):
         months = ads_pull.by_month([row("2026-08-01", 0, conversions=1.0, value=50.0)])
         self.assertIsNone(months[0]["roas"])
 
-    def test_impression_share_is_weighted_by_impressions(self):
-        # Der ungewichtete Mittelwert zweier Tage mit sehr verschiedener
-        # Impression-Zahl ist eine Zahl, die es nicht gibt.
+    def test_impression_share_is_impressions_over_eligible_impressions(self):
+        # Ein Share ist ein Anteil an den möglichen Impressionen. 1000 bei 0,9
+        # heißt rund 1111 möglich, 10 bei 0,1 heißt 100 möglich.
         rows = [row("2026-08-01", 1, impressions="1000", share=0.9),
                 row("2026-08-02", 1, impressions="10", share=0.1)]
         self.assertAlmostEqual(ads_pull.by_month(rows)[0]["search_impression_share"],
-                               (0.9 * 1000 + 0.1 * 10) / 1010, places=4)
+                               1010 / (1000 / 0.9 + 10 / 0.1), places=4)
+
+    def test_rows_without_a_share_do_not_dilute_it(self):
+        # Am 02.10.2026 ergab ein Tag, an dem Google den Share noch nicht
+        # geliefert hatte, 2 Prozent, weil alle Impressionen im Nenner standen.
+        with_share = row("2026-08-01", 1, impressions="100", share=0.5)
+        without = row("2026-08-01", 1, impressions="9900")
+        for field in ("searchImpressionShare", "searchBudgetLostImpressionShare",
+                      "searchRankLostImpressionShare"):
+            del without["metrics"][field]
+        month = ads_pull.by_month([with_share, without])[0]
+        self.assertAlmostEqual(month["search_impression_share"], 0.5)
+        self.assertAlmostEqual(month["search_impression_share_coverage"], 0.01)
+
+    def test_lost_shares_are_weighted_by_eligible_impressions(self):
+        rows = [row("2026-08-01", 1, impressions="100", share=0.5),
+                row("2026-08-02", 1, impressions="100", share=1.0)]
+        rows[0]["metrics"]["searchBudgetLostImpressionShare"] = 0.4
+        rows[1]["metrics"]["searchBudgetLostImpressionShare"] = 0.0
+        # möglich: 200 und 100, also 0,4 * 200 / 300
+        self.assertAlmostEqual(
+            ads_pull.by_month(rows)[0]["search_budget_lost_impression_share"],
+            0.4 * 200 / 300, places=4)
 
     def test_month_without_impressions_has_no_share(self):
         # Keine Impressionen heisst kein Impression Share. Eine 0 stünde im
@@ -125,6 +145,15 @@ class TestWaste(unittest.TestCase):
         self.assertAlmostEqual(shaped["summary_search_terms"]["cost_without_conversion"],
                                (ads_pull.MAX_TERMS + 50) * 1.0)
 
+    def test_cost_total_covers_all_terms(self):
+        # Die Bezugsgröße für den Anteil ohne Conversion. Gegen die
+        # Gesamtausgaben gerechnet, Performance Max eingeschlossen, sähe die
+        # Verschwendung kleiner aus, als sie ist.
+        shaped = ads_pull.shape_search_terms([
+            self.term("ohne", 30_000_000),
+            self.term("mit", 70_000_000, conversions=2.0)])
+        self.assertAlmostEqual(shaped["summary_search_terms"]["cost_total"], 100.0)
+
     def test_fractional_conversions_count_as_converted(self):
         # Google zählt Conversions als Bruchteile. 0,5 ist eine Conversion,
         # keine Verschwendung.
@@ -133,6 +162,13 @@ class TestWaste(unittest.TestCase):
 
 
 class TestHistory(unittest.TestCase):
+    def test_detail_period_is_the_last_twelve_full_months(self):
+        from datetime import date
+        self.assertEqual(ads_pull.detail_period(date(2026, 10, 2)),
+                         ("2025-10-01", "2026-09-30"))
+        self.assertEqual(ads_pull.detail_period(date(2026, 1, 15)),
+                         ("2025-01-01", "2025-12-31"))
+
     def test_history_start_is_the_earliest_day_with_data(self):
         self.assertEqual(ads_pull.history_start([row("2024-03-11", 1), row("2023-11-02", 1)]),
                          "2023-11-02")
@@ -155,27 +191,6 @@ class TestCampaigns(unittest.TestCase):
         rows = [row("2026-08-01", 1_000_000, name="klein"),
                 row("2026-08-01", 90_000_000, name="gross")]
         self.assertEqual(ads_pull.shape_campaigns(rows)["campaigns"][0]["name"], "gross")
-
-
-class TestTokenLookup(unittest.TestCase):
-    def setUp(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.ws = Path(tmp.name)
-        self.central = self.ws / "central.env"
-        old = ads_pull.operator_env.CENTRAL
-        ads_pull.operator_env.CENTRAL = self.central
-        self.addCleanup(setattr, ads_pull.operator_env, "CENTRAL", old)
-        saved = os.environ.pop("PTAI_GOOGLE_ADS_TOKEN", None)
-        if saved is not None:
-            self.addCleanup(os.environ.__setitem__, "PTAI_GOOGLE_ADS_TOKEN", saved)
-
-    def test_token_from_the_central_file(self):
-        self.central.write_text("PTAI_GOOGLE_ADS_TOKEN=zentral\n", encoding="utf-8")
-        self.assertEqual(ads_pull.resolve_token(self.ws), "zentral")
-
-    def test_no_token_anywhere_gives_empty_string(self):
-        self.assertEqual(ads_pull.resolve_token(self.ws), "")
 
 
 if __name__ == "__main__":

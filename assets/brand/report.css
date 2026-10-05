@@ -269,7 +269,7 @@ td.neg {
   letter-spacing: -0.02em;
   margin: 0;
 }
-/* Der Bezug klein neben der Zahl, nicht in ihr. "31 von 1.480" im
+/* Der Bezug klein neben der Zahl, nicht in ihr. "31 von 1.200" im
    Display-Schnitt bricht mitten in der Zahl um und zerlegt die Form. Der
    Fehler steht schon in der audit-light-Skill, und er ist am 07.09.2026
    trotzdem noch einmal passiert. */

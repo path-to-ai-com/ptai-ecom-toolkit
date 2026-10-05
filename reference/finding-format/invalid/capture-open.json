@@ -1,0 +1,88 @@
+{
+  "_case": "Aufnahme-Auftrag ohne Ergebnis",
+  "id": "TRS-02",
+  "statement": "Der Cookie-Dialog bietet auf der ersten Ebene kein gleichwertiges Ablehnen",
+  "metrics": [
+    {
+      "label": "Dienste vor der Einwilligung",
+      "value": "7 von 12",
+      "context": "Script-Tags ohne Sperr-Attribut"
+    }
+  ],
+  "explanation": "Ein Consent Layer ist das Einwilligungsfenster, das vor dem Laden nicht notwendiger Dienste erscheinen soll.",
+  "benchmark": "Üblich ist ein gleichwertiger Ablehnen-Button auf der ersten Ebene.",
+  "effect": "Wer keine Cookies möchte, braucht einen zusätzlichen Klick.",
+  "why": "Ein Dialog ohne gleichwertige Ablehnen-Option ist ein häufig abgemahntes Muster.",
+  "fix": "Eine Schaltfläche Alle ablehnen auf der ersten Ebene ergänzen.",
+  "evidence": "screens.json > start desktop; crawl.json > summary.third_party_script_hosts",
+  "evidence_text": "Der Cookie-Dialog zeigt auf der ersten Ebene nur Alle akzeptieren und Nein, anpassen; sieben von zwölf Diensten laden vorher.",
+  "severity": "hoch",
+  "confidence": "plausible",
+  "effort": "medium",
+  "url": "https://beispielshop.de/",
+  "facts": [
+    {
+      "kind": "effect",
+      "text": "Wer ablehnen will, braucht einen Klick mehr, und sieben Dienste laden schon vor der Entscheidung."
+    },
+    {
+      "kind": "cause",
+      "text": "Das Cookie-Werkzeug zeigt auf der ersten Ebene nur Alle akzeptieren und Nein, anpassen."
+    }
+  ],
+  "proof": {
+    "columns": [
+      {
+        "blocks": [
+          {
+            "type": "image",
+            "capture": {
+              "url": "https://beispielshop.de/",
+              "device": "desktop",
+              "consent": "shown",
+              "crop": {
+                "text": "Wir verwenden Cookies"
+              },
+              "rings": [
+                {
+                  "text": "Alle akzeptieren"
+                }
+              ],
+              "absent": [
+                {
+                  "text": "Alle ablehnen"
+                }
+              ]
+            },
+            "alt": "Cookie-Dialog der Startseite mit Alle akzeptieren und Nein, anpassen, markiert sind beide Schaltflächen",
+            "title": "Cookie-Dialog der Startseite",
+            "addition": "Alle ablehnen, gleichwertig neben Alle akzeptieren",
+            "device": "desktop"
+          }
+        ]
+      },
+      {
+        "blocks": [
+          {
+            "type": "metric",
+            "ref": 0
+          },
+          {
+            "type": "chips",
+            "groups": [
+              {
+                "label": "Laden vor der Einwilligung",
+                "items": [
+                  "Newsletter-Dienst",
+                  "Bundle-App",
+                  "Suche",
+                  "Preistest"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

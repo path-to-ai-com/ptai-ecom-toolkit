@@ -7,12 +7,16 @@ den Kunden und ist so geschrieben, dass er direkt rausgehen kann.
 Der Setup-Wizard (`/ptai-ecom:setup`) prüft gegen genau diese Liste und meldet
 je Zeile OK, fehlt oder kaputt.
 
+Diese Datei gilt für Audit und Report, die nur lesen. Für eine Theme-Migration, die in ein
+unveröffentlichtes Theme schreibt, gelten zusätzlich die Zugänge aus
+`reference/theme-migration/access-write.md`.
+
 ---
 
 ## Teil A: einmalig beim Betreiber
 
 Die Reihenfolge ist nicht beliebig, jeder Schritt baut auf dem vorherigen auf.
-Schritt 6 zuerst anstoßen, er wartet auf eine Freigabe durch Google.
+Schritt 6 früh anstoßen, die Freigabe kann bei Google liegen.
 
 ### 1. Google-Cloud-Projekt
 
@@ -78,25 +82,64 @@ DataForSEO kennt weder Projekte noch Unterkonten. Die Zuordnung je Kunde
 passiert über das Feld `tag` und die Datei `dfs-ledger.jsonl` im
 Kunden-Workspace, siehe Spec Abschnitt 13.
 
-### 6. Google-Ads-Entwicklertoken
+### 6. Google Ads API im Cloud-Projekt
 
-**Zuerst anstoßen, das dauert.** Ein Entwicklertoken hängt an einem
-Google-Ads-Verwaltungskonto und wird von Google freigegeben. Ohne Token kommt
-die SEA-Baseline aus einem Berichtsexport des Kunden, der Audit läuft trotzdem.
+**Ein Entwicklertoken gibt es nicht mehr.** Google hat es am 09.09.2026
+abgeschafft. Die Zugriffsstufe hängt seitdem am Cloud-Projekt aus Schritt 1,
+dem das Dienstkonto gehört; ein Google-Ads-Verwaltungskonto braucht es dafür
+nicht. Ohne diesen Schritt kommt die SEA-Baseline aus einem Berichtsexport des
+Kunden, der Audit läuft trotzdem.
 
-Weg: Google-Ads-Verwaltungskonto anlegen oder verwenden, dort unter "Tools und
-Einstellungen" → "API-Center" das Token beantragen.
+Weg: im Projekt die Google Ads API aktivieren, dann auf ihrer Übersichtsseite
+"Apply for access" ausfüllen. Der Antrag fragt nach dem Verwendungszweck; hier
+zählt die Beschreibung als Reporting-Werkzeug für betreute Konten.
 
-**Der Antrag endet nicht mit "Token da".** Ein Token bekommt eine
-Zugriffsebene, und die niedrigste erlaubt ausschließlich Aufrufe gegen
-Testkonten. Für einen Kundenaudit reicht das nicht. Nach der Freigabe deshalb
-prüfen, welche Ebene das Token hat, und gegebenenfalls die Höherstufung
-beantragen. Das Token und der Zugang zum Werbekonto des Kunden sind zwei
-verschiedene Dinge: das Token gehört uns, den Zugang gibt der Kunde. Der Antrag fragt nach dem
-Verwendungszweck; hier zählt die Beschreibung als Reporting-Werkzeug für
-betreute Konten.
+**Aktivieren allein reicht nicht.** Ein frisches Projekt steht auf der
+Teststufe und darf ausschließlich Testkonten abfragen. Gegen ein echtes
+Kundenkonto antwortet die API dann mit
+`CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION`, obwohl das Dienstkonto das Konto
+schon sieht. Für einen Kundenaudit braucht es mindestens die Stufe Explorer:
+sie erlaubt echte Konten mit 2.880 Abfragen am Tag, das reicht für einen
+lesenden Pull. Am 02.10.2026 hat Google sie direkt nach dem Antrag vergeben,
+ohne Wartezeit. Basic und Standard verlangen seit dem 09.09.2026 eine
+Markenverifizierung des Cloud-Projekts. Ob die Stufe steht, zeigt
+`pull-ads --check` gegen ein echtes Kundenkonto.
 
-Das Token gehört als `PTAI_GOOGLE_ADS_TOKEN` in `~/.config/ptai-ecom/.env`.
+Die Zugriffsstufe und der Zugang zum Werbekonto des Kunden sind zwei
+verschiedene Dinge: die Stufe gehört uns, den Zugang gibt der Kunde.
+
+### 7. Feste Ausgangsadresse für den Audit
+
+Steht vor einem Kundenshop eine Firewall, schaltet der Kunde den Audit über die
+IP-Adresse frei (Teil B, "Eure Firewall"). Dafür braucht der Audit Adressen,
+die sich nicht ändern. Ein Heimanschluss taugt dafür nicht: der Anbieter kann
+IPv4-Adresse und IPv6-Präfix neu vergeben, und macOS wechselt seine
+IPv6-Adresse zusätzlich regelmäßig.
+
+Der Weg ist ein Server mit fester IPv4- und IPv6-Adresse als
+[Tailscale-Exit-Node](https://tailscale.com/kb/1103/exit-nodes). Für die Dauer
+des Laufs leitet der Rechner, der den Audit fährt, seinen gesamten Verkehr über
+diesen Server, und der Shop sieht nur dessen Adressen. Der Server wird einmal
+als Exit-Node angeboten und in der Tailscale-Konsole freigegeben.
+
+Vor jedem Lauf, `<exit-node>` ist der Name des Servers im Tailnet:
+
+```bash
+tailscale set --exit-node=<exit-node>
+curl -4 -s https://api64.ipify.org
+curl -6 -s https://api64.ipify.org
+```
+
+Beide Abrufe müssen die Adressen des Servers zeigen, und genau diese beiden
+Werte gehören in Teil B für `<audit-ipv4>` und `<audit-ipv6>`. Zeigt einer der
+Abrufe die Adresse des eigenen Anschlusses, läuft dieser Verkehr am Server
+vorbei, und die Firewall weist ihn trotz Freigabe ab.
+
+Nach dem Lauf:
+
+```bash
+tailscale set --exit-node=
+```
 
 ### Offen, im ersten Setup zu klären
 
@@ -113,9 +156,10 @@ Das Token gehört als `PTAI_GOOGLE_ADS_TOKEN` in `~/.config/ptai-ecom/.env`.
 
 ## Teil B: was wir vom Kunden brauchen
 
-Ab hier ist der Text für den Kunden. Vor dem Verschicken vier Platzhalter
+Ab hier ist der Text für den Kunden. Vor dem Verschicken sechs Platzhalter
 ersetzen: `<betreiber-name>`, `<betreiber-mail>`, `<dienstkonto-mail>`,
-`<shop-domain>`.
+`<shop-domain>`, `<audit-ipv4>`, `<audit-ipv6>`. Die beiden Adressen sind die
+festen Ausgangsadressen aus Teil A, Schritt 7.
 
 ---
 
@@ -185,19 +229,38 @@ einbringen.
 
 *Tools und Einstellungen → Zugriff und Sicherheit → Nutzer → Hinzufügen*
 
-**Der Crawler in eurer Firewall**
+**Eure Firewall**
 
-Falls vor dem Shop eine Bot-Erkennung läuft (bei Shopify ist das fast immer
-Cloudflare), eine Ausnahme für den User-Agent `ptai-audit`. Ohne sie weist die
-Firewall den Crawl auf einem Teil der Seiten ab, und genau die Kategorieseiten
-sind davon am häufigsten betroffen. Langsamer crawlen hilft dagegen nicht: die
-Abweisung hängt nicht am Tempo, sondern daran, dass die Firewall einen
-unbekannten Crawler sieht.
+Falls ihr vor dem Shop eine eigene Bot-Erkennung betreibt, etwa Cloudflare,
+brauche ich für den Tag des Laufs eine Ausnahme für meine IP-Adressen. Ohne sie
+weist die Firewall einen Teil der Abrufe ab. Langsamer abrufen hilft dagegen
+nicht, weil die Firewall nicht auf das Tempo reagiert, sondern darauf, dass
+jemand automatisiert abruft. Die Ausnahme hängt an der IP-Adresse und nicht am
+User-Agent, weil ich neben dem Crawler auch einen normalen Browser für die
+Screenshots und für die Kaufstrecke einsetze.
 
-*Cloudflare → Security → WAF → Tools → User Agent Blocking, oder eine
-Custom Rule mit Action "Skip" für diesen User-Agent*
+In die Ausnahme gehören zwei Einträge, die IPv4-Adresse `<audit-ipv4>` und die
+IPv6-Adresse `<audit-ipv6>`. Ich rufe euren Shop während des Audits
+ausschließlich über diese beiden Adressen ab, und beide ändern sich nicht.
 
-Ohne die Ausnahme läuft der Audit trotzdem. Die abgewiesenen Seiten stehen im
+*Cloudflare → Security → Security rules → Create rule → Custom rules, im
+älteren Dashboard Security → WAF → Custom rules*
+
+Die Regel bekommt als Bedingung "IP Source Address" mit "is in" und die beiden
+Einträge, als Aktion "Skip", und dort setzt ihr alle Häkchen, die Cloudflare
+anbietet. Sie gehört an die erste Stelle der Liste, weil Cloudflare die Regeln
+der Reihe nach prüft.
+
+Läuft bei euch der kostenlose "Bot Fight Mode", greift die Skip-Regel an dieser
+Stelle nicht. Dann legt ihr die beiden Einträge zusätzlich als "IP access rule"
+mit der Aktion "Allow" an.
+
+*Cloudflare → Security → Security rules → Create rule → IP access rules*
+
+Nach dem Lauf sage ich euch Bescheid, dann könnt ihr die Ausnahme wieder
+löschen. Den Crawl erkennt ihr in euren Logs am User-Agent `ptai-audit`.
+
+Der Audit läuft auch ohne die Ausnahme. Die abgewiesenen Seiten stehen im
 Report als nicht messbar samt Zahl, statt still zu fehlen.
 
 ## Wenn etwas fehlt

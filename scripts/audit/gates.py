@@ -12,6 +12,17 @@ Diese Regel stand bisher nur als Satz im Ablauf der Orchestrator-Skill.
 Ein Satz in einer Prosa-Anleitung wird im Lauf übersprungen; deshalb hier.
 """
 
+#: Der Anker, unter dem eine geprüfte Aussage zum Preistest in
+#: `reporting/context.json` steht. Keine Befund-Kennung, sondern ein fester
+#: Name, weil die Sperre an keinem Befund hängt, sondern am Zustand des Shops.
+PRICE_TEST_TOPIC = "price-test"
+
+#: Die Arten von Einträgen, die einen Fund entkräften dürfen. Eine Korrektur
+#: sagt, dass unsere Messung falsch war, eine Entscheidung, dass der Zustand
+#: bewusst so ist. Ein Grund oder ein Vorhaben entkräften nichts: sie erklären
+#: einen laufenden Test, sie heben ihn nicht auf.
+PRICE_TEST_CLEARING_KINDS = ("correction", "decision")
+
 #: Kennungen, an denen ein Preistest-Werkzeug im Seitenquelltext sichtbar
 #: wird. Bewusst kurz und durch Beobachtung gewachsen, nicht geraten: hier
 #: steht nur, was tatsächlich einmal in einem Crawl gesehen oder in der Spec
@@ -87,7 +98,26 @@ def finding_signals(findings: list | None) -> list[str]:
     return signals
 
 
-def price_test_verdict(crawl: dict | None, findings: list | None = None) -> dict:
+def price_test_clearance(context: list | None) -> dict | None:
+    """Der jüngste Eintrag, der einen gefundenen Preistest entkräftet.
+
+    Gemeint ist der Fall, in dem das Werkzeug nachweislich da ist und trotzdem
+    keinen Preis testet. So lag es in einem echten Shop: das Skript wurde auf
+    jeder Seite ausgeliefert, von mehreren angelegten Experiences lief eine
+    einzige, und die testete Inhalte auf einer Seite statt Preise. Mehrere
+    Abrufe derselben Produktseite lieferten denselben Preis, und in den
+    Bestellungen des Messzeitraums stand kein automatischer Rabatt. Ohne
+    diesen Weg bleiben Handel und Conversion für immer leer, weil ein
+    geladenes Skript als laufender Test gilt.
+    """
+    clearing = [entry for entry in (context or [])
+                if PRICE_TEST_TOPIC in (entry.get("about") or [])
+                and entry.get("kind") in PRICE_TEST_CLEARING_KINDS]
+    return clearing[-1] if clearing else None
+
+
+def price_test_verdict(crawl: dict | None, findings: list | None = None,
+                       context: list | None = None) -> dict:
     """Das Ergebnis der Preistest-Prüfung, so wie `write_block()` es erwartet.
 
     Drei Felder, und `checked` ist das wichtigste: ohne Crawl wurde nicht
@@ -109,6 +139,18 @@ def price_test_verdict(crawl: dict | None, findings: list | None = None) -> dict
                              "Preistest nicht geprüft."}
     signals = price_test_signals(crawl) + finding_signals(findings)
     if signals:
+        # Eine geprüfte Aussage kann den Fund entkräften, nie umgekehrt: sie
+        # sagt, dass das gefundene Werkzeug keinen Preis testet. Der Fund
+        # bleibt trotzdem im Beleg stehen, sonst liest sich das Ergebnis wie
+        # "nichts gefunden", und beim nächsten Lauf sucht jemand von vorn.
+        cleared = price_test_clearance(context)
+        if cleared:
+            return {"checked": True, "running": False,
+                    "evidence": ("Preistest-Werkzeug gefunden: "
+                                 + "; ".join(signals)
+                                 + f". Entkräftet am {cleared.get('date')} "
+                                 f"({cleared.get('source')}): "
+                                 f"{cleared.get('statement')}")}
         return {"checked": True, "running": True,
                 "evidence": "Preistest-Werkzeug gefunden: " + "; ".join(signals)}
     return {"checked": True, "running": False,

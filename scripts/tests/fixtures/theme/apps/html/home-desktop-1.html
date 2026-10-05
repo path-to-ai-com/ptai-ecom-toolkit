@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Beispielshop</title>
+<script>var Shopify = Shopify || {};
+Shopify.shop = "beispiel.myshopify.com";
+Shopify.locale = "de";
+Shopify.currency = {"active":"EUR","rate":"1.0"};
+Shopify.country = "DE";
+Shopify.theme = {"name":"Beispiel Theme","id":000000000000,"schema_name":"Beispiel","schema_version":"1.0.0","theme_store_id":null,"role":"main"};
+Shopify.theme.handle = "null";
+Shopify.cdnHost = "beispielshop.example/cdn";</script>
+<script id="shopify-features" type="application/json">{"accessToken":"","betas":["rich-media-storefront-analytics"]}</script>
+<script>(function() {
+  var isLoaded = false;
+  function asyncLoad() {
+    if (isLoaded) return;
+    isLoaded = true;
+    var urls = ["https:\/\/static.klaviyo.com\/onsite\/js\/klaviyo.js?company_id=BSP123&shop=beispiel.myshopify.com","https:\/\/scripts.unbekannt-app.example\/loader.js?shop=beispiel.myshopify.com"];
+    for (var i = 0; i < urls.length; i++) {
+      var s = document.createElement('script');
+      s.type = 'text/javascript';
+      s.async = true;
+      s.src = urls[i];
+      var x = document.getElementsByTagName('script')[0];
+      x.parentNode.insertBefore(s, x);
+    }
+  };
+  if(window.attachEvent) {
+    window.attachEvent('onload', asyncLoad);
+  } else {
+    window.addEventListener('load', asyncLoad, false);
+  }
+})();</script>
+<script id="web-pixels-manager-setup">(function e(e,d,r,n,o){})({shopId: 1, storefrontBaseUrl: "https://beispielshop.example", extensionsBaseUrl: "https://extensions.shopifycdn.com/cdn/shopifycloud/web-pixels-manager", surface: "storefront-renderer", webPixelsConfigList: [{"id":"1","configuration":"{\"pixel_id\":\"100000000000001\",\"pixel_type\":\"facebook_pixel\"}","eventPayloadVersion":"v1","runtimeContext":"OPEN","scriptVersion":"2","type":"APP","apiClientId":1000001,"privacyPurposes":["ANALYTICS","MARKETING","SALE_OF_DATA"]},{"id":"2","configuration":"{\"config\":\"{\\\"google_tag_ids\\\":[\\\"G-BEISPIEL01\\\",\\\"AW-000000000\\\"]}\",\"gtag_events\":[{\"type\":\"purchase\",\"action_label\":[\"G-BEISPIEL01\",\"AW-000000000\/beispielLabel\"]},{\"type\":\"page_view\",\"action_label\":[\"G-BEISPIEL01\"]}]}","eventPayloadVersion":"v1","runtimeContext":"OPEN","scriptVersion":"1","type":"APP","apiClientId":1000002,"privacyPurposes":[]},{"id":"3","eventPayloadVersion":"1","runtimeContext":"LAX","scriptVersion":"1","type":"CUSTOM","privacyPurposes":["ANALYTICS","MARKETING"]}], isMerchantRequest: false, initData: {}});</script>
+</head>
+<body>
+<main><h1>Beispielshop</h1><p>Synthetische Seite für die Tests von theme.apps.</p></main>
+</body>
+</html>

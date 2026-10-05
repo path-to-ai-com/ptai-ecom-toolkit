@@ -209,6 +209,34 @@ Laufs.
 
 **`discipline` ist `seo`, nicht `competition`.** Der Dateiname trägt die Sektion des Reports, das Feld die Disziplin des Maßnahmen-Backlogs; die gültigen Werte stehen in `scripts/audit/measures.py` unter `LABELS["discipline"]`. Wettbewerbsbefunde werden zu SEO-Maßnahmen, deshalb `seo`. Ein Wert außerhalb dieser Liste lässt `measures.create()` scheitern, und der Befund fällt still aus dem Backlog. Am 07.09.2026 betraf das 39 Prozent aller Befunde eines Laufs.
 
+**Vier Felder machen den Befund im Portal anschaulich.** Der Vertrag steht in
+`${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Lies ihn, bevor du den
+ersten Befund schreibst; er gilt, nicht eine Kopie hier. Für den vollen Audit
+heißt das je Befund:
+
+- **`facts`:** `{"kind": "effect", "text": ...}` immer, `{"kind": "cause",
+  "text": ...}` nur, wenn die Ursache belegt ist. Sonst nichts, auch kein
+  `now`: die Handlung ist die eine Maßnahme zum Befund. Jeder Text ein ganzer
+  Satz, höchstens 160 Zeichen.
+- **`evidence_text`:** der Beleg als ein Satz für den Kunden, mit den Zahlen,
+  die ihn tragen, etwa "318 von 1.204 Produktseiten haben keinen internen Link
+  aus einer Kategorieseite." Nie ein Pfad, der bleibt in `evidence`. Phase 3
+  übernimmt den Satz in die Maßnahme.
+- **`url`:** die eine Seite im Shop, um die es geht, nur `https`. Fehlt, wenn
+  der Befund den ganzen Shop betrifft.
+- **`proof`:** der Beleg aus Bausteinen. Eine Kennzahl ist `{"type": "metric",
+  "ref": <Index in metrics>}` und wird nie ein zweites Mal ausgeschrieben; eine
+  Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
+  Typisch hier: `grid` für Sichtbarkeit je Wettbewerber und Plattform, `chips` für
+  Begriffe, bei denen nur die anderen ranken.
+- **`decision`:** nur, wenn es zwei echte, verschiedene Wege gibt, mit
+  `recommended` und `reason`. Phase 3 macht die empfohlene Option zur
+  Maßnahme, die andere zeigt das Portal als Geprüfte Alternative.
+
+**Bilder schreibst du keine.** Bild-Aufträge (`capture`) kommen nur aus den
+Analysen für Conversion, Content und Vertrauen, die als einzige Screenshots
+lesen. Dein Beleg sind Kennzahl, Tabelle, Verteilung oder Liste.
+
 **Zwei Felder tragen, was der Report bisher nicht hatte:**
 
 **`explanation` ist die Erklärung, nicht die Wiederholung.** Sie sagt, was der Fachbegriff
@@ -315,12 +343,13 @@ Kundendokument. Ein Wort je Sache, und keines aus der Werkzeugwelt:
 | die erfassten Seiten | Seiten im Shop, geoeffnet und geprueft | gecrawlte Seiten, URLs, Adressen |
 | die eingefrorenen Zahlen | Baseline | Nullpunkt, Ausgangswerte, Startwerte |
 | die Kennzahl je Bestellung | Bestellwert | Warenkorbwert |
-| fremde Skripte | Skripte fremder Anbieter | Fremdtechnik, Third-Party-Skripte |
+| fremde Skripte | Drittanbieter-Dienste | Fremdtechnik, Skripte fremder Anbieter |
 | der naechste Lauf | der spaetere Report | Folgereport |
 
 **Dateinamen und Feldpfade gehoeren ausschliesslich in `evidence`.** Dort
 stehen sie, damit ein Mensch nachrechnen kann. In `statement`, `effect`,
-`why`, `fix` und in jedem `metrics`-Eintrag stehen sie nie: der Leser hat
+`why`, `fix`, `facts`, `evidence_text`, den Texten im `proof` und in jedem
+`metrics`-Eintrag stehen sie nie: der Leser hat
 Fragen zu seinem Shop, keine zu unseren Snapshots.
 
 **Deutsch mit echten Umlauten.** ä, ö, ü, ß, nie ae, oe, ue oder ss. Das gilt

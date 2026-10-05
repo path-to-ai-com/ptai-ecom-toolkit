@@ -27,6 +27,7 @@ gegen null laeuft.
 sieht ein Bereich, den niemand pruefen konnte, aus wie ein Bereich ohne
 Probleme. Ihr Gewicht wird auf die uebrigen verteilt.
 """
+# naming-lint: schema (Audit-Ausgabe, durch bestehende Kundenlaeufe eingefroren: score.json liegt in mehreren Kunden-Workspaces, das Portal liest es)
 from __future__ import annotations
 
 #: Sektion zu Bereich, plus Gewicht des Bereichs am Gesamtscore. Die

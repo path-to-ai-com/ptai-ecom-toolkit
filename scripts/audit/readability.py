@@ -31,6 +31,7 @@ Zielwert fuer "Fachdokument an eine Geschaeftsfuehrung ohne Fachsprache" gibt
 es im Deutschen nicht. Validiert sind nur die Werte fuer Leichte und Einfache
 Sprache, und die sind fuer diesen Zweck zu niedrig.
 """
+# naming-lint: schema (Audit-Ausgabe, durch bestehende Kundenlaeufe eingefroren)
 from __future__ import annotations
 
 import re

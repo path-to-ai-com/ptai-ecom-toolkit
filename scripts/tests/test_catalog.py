@@ -272,3 +272,48 @@ class TestMargenschwelle(unittest.TestCase):
         notes = self._notes(0, 500)
         self.assertIn("Keine einzige Variante", notes)
         self.assertNotIn("Prozent", notes)
+
+
+class TestDuplicateDescriptions(unittest.TestCase):
+    """Kriterium con.duplicate-product-copy: gleicher Text bei mehreren
+    Produkten, gezählt über einen Fingerabdruck statt über den Text."""
+
+    def test_the_hash_ignores_case_and_whitespace(self):
+        self.assertEqual(catalog_build.description_hash("Feines  Silber\nRing"),
+                         catalog_build.description_hash("feines silber ring"))
+
+    def test_an_empty_description_has_no_hash(self):
+        self.assertIsNone(catalog_build.description_hash("   "))
+
+    def test_groups_only_active_products(self):
+        rows = [catalog_build.flatten(product(handle=h, description="Herstellertext", status=s))
+                for h, s in (("a", "ACTIVE"), ("b", "ACTIVE"), ("c", "DRAFT"))]
+        snapshot = catalog_build.build(rows, [])
+        self.assertEqual(snapshot["summary"]["duplicate_description_groups"], 1)
+        self.assertEqual(snapshot["summary"]["products_with_duplicate_description"], 2)
+        self.assertEqual(snapshot["duplicate_descriptions"], [{"count": 2, "handles": ["a", "b"]}])
+
+    def test_the_text_itself_never_reaches_the_snapshot(self):
+        rows = [catalog_build.flatten(product(handle=h, description="Geheimer Text")) for h in "ab"]
+        self.assertNotIn("Geheimer Text", json.dumps(catalog_build.build(rows, [])))
+
+
+class TestSoldOut(unittest.TestCase):
+    """Kriterium tec.sold-out-handling braucht die ausverkauften Handles."""
+
+    def with_availability(self, handle, *flags):
+        raw = product(handle=handle, variants=tuple((None, "10.00", "5.00") for _ in flags))
+        for node, flag in zip(raw["variants"]["nodes"], flags):
+            node["availableForSale"] = flag
+        return catalog_build.flatten(raw)
+
+    def test_sold_out_means_no_variant_available(self):
+        rows = [self.with_availability("a", False, False), self.with_availability("b", False, True)]
+        snapshot = catalog_build.build(rows, [])
+        self.assertEqual(snapshot["summary"]["products_sold_out"], 1)
+        self.assertEqual(snapshot["products_sold_out"], ["a"])
+
+    def test_without_the_field_it_is_not_measured_not_zero(self):
+        # Rohdaten aus einer Abfrage ohne availableForSale: None, nie 0.
+        snapshot = catalog_build.build([catalog_build.flatten(product())], [])
+        self.assertIsNone(snapshot["summary"]["products_sold_out"])

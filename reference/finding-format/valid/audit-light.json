@@ -1,0 +1,60 @@
+{
+  "_case": "Befund des Audit Light: freie Labels, Sofort umsetzbar, Bild in einer Option",
+  "severity": "crit",
+  "title": "Kaufbutton liegt auf dem Handy unter der Erstansicht",
+  "body": "Wer auf dem Handy landet, sieht ohne Scrollen weder Preis noch Button.",
+  "recommendation": "Kaufbereich nach oben ziehen.",
+  "impact": "Mehr Besucher sehen den Kaufbutton.",
+  "evidence": "Aufnahme der Produktseite auf dem Handy.",
+  "url": "https://beispielshop.de/products/beispiel-produkt",
+  "facts": [
+    {
+      "label": "WARUM ES ZÄHLT",
+      "text": "Wer auf dem Handy landet, sieht ohne Scrollen weder Preis noch Button."
+    },
+    {
+      "kind": "cause",
+      "text": "Die Produktvorlage stellt die Galerie vor den Kaufbereich."
+    },
+    {
+      "now": true,
+      "text": "Die mitlaufende Kaufleiste ab dem ersten Scrollen einblenden."
+    }
+  ],
+  "proof": {
+    "columns": [
+      {
+        "blocks": [
+          {
+            "type": "metric",
+            "value": "2,4",
+            "unit": "Bildschirmhöhen",
+            "label": "bis zum Kaufbutton"
+          }
+        ]
+      }
+    ]
+  },
+  "decision": {
+    "question": "Kaufbereich nach oben ziehen oder die Leiste früher zeigen?",
+    "options": [
+      {
+        "title": "Kaufbereich nach oben",
+        "text": "Preis und Button direkt unter das Bild.",
+        "image": {
+          "type": "image",
+          "src": "proof/option-a.jpg",
+          "alt": "Entwurf A",
+          "title": "Entwurf A"
+        }
+      },
+      {
+        "title": "Leiste früher zeigen",
+        "text": "Die Kaufleiste ist vom Seitenanfang an sichtbar."
+      }
+    ],
+    "recommended": 0,
+    "reason": "A, weil die Leiste nur den Button zeigt, keinen Preis."
+  },
+  "lens": "kaufstrecke"
+}

@@ -222,6 +222,57 @@ Laufs.
 
 **`discipline` ist `trust`.** Der Dateiname trägt die Sektion des Reports, das Feld die Disziplin des Maßnahmen-Backlogs; die gültigen Werte stehen in `scripts/audit/measures.py` unter `LABELS["discipline"]`. Ein Wert außerhalb dieser Liste lässt `measures.create()` scheitern, und der Befund fällt still aus dem Backlog. Am 07.09.2026 betraf das 39 Prozent aller Befunde eines Laufs.
 
+**Vier Felder machen den Befund im Portal anschaulich.** Der Vertrag steht in
+`${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Lies ihn, bevor du den
+ersten Befund schreibst; er gilt, nicht eine Kopie hier. Für den vollen Audit
+heißt das je Befund:
+
+- **`facts`:** `{"kind": "effect", "text": ...}` immer, `{"kind": "cause",
+  "text": ...}` nur, wenn die Ursache belegt ist. Sonst nichts, auch kein
+  `now`: die Handlung ist die eine Maßnahme zum Befund. Jeder Text ein ganzer
+  Satz, höchstens 160 Zeichen.
+- **`evidence_text`:** der Beleg als ein Satz für den Kunden, mit den Zahlen,
+  die ihn tragen, etwa "318 von 1.204 Produktseiten haben keinen internen Link
+  aus einer Kategorieseite." Nie ein Pfad, der bleibt in `evidence`. Phase 3
+  übernimmt den Satz in die Maßnahme.
+- **`url`:** die eine Seite im Shop, um die es geht, nur `https`. Fehlt, wenn
+  der Befund den ganzen Shop betrifft.
+- **`proof`:** der Beleg aus Bausteinen. Eine Kennzahl ist `{"type": "metric",
+  "ref": <Index in metrics>}` und wird nie ein zweites Mal ausgeschrieben; eine
+  Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
+  Typisch hier: ein `image` der Stelle, um die es geht, etwa der Cookie-Dialog mit
+  markierten Knöpfen, `rows` für Pflichtangaben und ihren Fundort.
+- **`decision`:** nur, wenn es zwei echte, verschiedene Wege gibt, mit
+  `recommended` und `reason`. Phase 3 macht die empfohlene Option zur
+  Maßnahme, die andere zeigt das Portal als Geprüfte Alternative.
+
+**Ein Bild entsteht aus einem Auftrag, nicht aus einem Screenshot.** Zeigt ein
+Bild, was der Befund meint, schreibst du einen `image`- oder `phone`-Baustein
+mit `capture`, `alt` und `title`, aber ohne `src`. Nach Phase 2 nimmt
+`shoot_proof.py` jedes Bild auf (Vertrag, Abschnitt "Aufnahme-Auftrag
+capture"):
+
+```json
+{"type": "phone",
+ "capture": {"url": "https://<shop>/products/<handle>",
+             "markers": [{"target": {"text": "In den Warenkorb"}, "text": "In den Warenkorb"}]},
+ "alt": "Produktseite auf dem Handy, der Kaufbutton liegt unter dem Ende der Erstansicht",
+ "title": "Produktseite auf dem Handy"}
+```
+
+- Ein Ziel (`crop`, `rings`, `markers[].target`) trifft genau ein sichtbares
+  Element. Nimm den Text, der auf dem Screenshot steht. Trifft er mehrere,
+  etwa einen zweiten Kaufbutton in einer mitlaufenden Leiste, scheitert der
+  Auftrag; dann einen Selektor aus `crawl.json` nehmen.
+- `absent` nennt, was nicht da sein darf. Ist es beim Aufnehmen da, ist der
+  Mangel behoben, und es entsteht kein Bild.
+- `consent` bleibt weg, der Cookie-Dialog wird dann abgelehnt. Nur wenn der
+  Befund vom Dialog selbst handelt, steht dort `"shown"`.
+- `alt` sagt, was zu sehen und was markiert ist, `title` ist die Überschrift
+  der großen Ansicht. Beides liest der Kunde.
+- Höchstens drei Bilder je Befund. Ein Bild ersetzt keine Zahl: der Befund
+  steht weiter auf einer Zahl aus den Daten, das Bild zeigt, wo.
+
 **Zwei Felder tragen, was der Report bisher nicht hatte:**
 
 **`explanation` ist die Erklärung, nicht die Wiederholung.** Sie sagt, was der Fachbegriff
@@ -328,12 +379,13 @@ Kundendokument. Ein Wort je Sache, und keines aus der Werkzeugwelt:
 | die erfassten Seiten | Seiten im Shop, geoeffnet und geprueft | gecrawlte Seiten, URLs, Adressen |
 | die eingefrorenen Zahlen | Baseline | Nullpunkt, Ausgangswerte, Startwerte |
 | die Kennzahl je Bestellung | Bestellwert | Warenkorbwert |
-| fremde Skripte | Skripte fremder Anbieter | Fremdtechnik, Third-Party-Skripte |
+| fremde Skripte | Drittanbieter-Dienste | Fremdtechnik, Skripte fremder Anbieter |
 | der naechste Lauf | der spaetere Report | Folgereport |
 
 **Dateinamen und Feldpfade gehoeren ausschliesslich in `evidence`.** Dort
 stehen sie, damit ein Mensch nachrechnen kann. In `statement`, `effect`,
-`why`, `fix` und in jedem `metrics`-Eintrag stehen sie nie: der Leser hat
+`why`, `fix`, `facts`, `evidence_text`, den Texten im `proof` und in jedem
+`metrics`-Eintrag stehen sie nie: der Leser hat
 Fragen zu seinem Shop, keine zu unseren Snapshots.
 
 **Deutsch mit echten Umlauten.** ä, ö, ü, ß, nie ae, oe, ue oder ss. Das gilt

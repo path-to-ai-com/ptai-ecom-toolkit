@@ -1,3 +1,4 @@
+# naming-lint: schema (Audit-Ausgabe, durch bestehende Kundenlaeufe eingefroren)
 # -*- coding: utf-8 -*-
 """Das Auswertungsfenster: zwölf Monate gegen das Vorjahr.
 

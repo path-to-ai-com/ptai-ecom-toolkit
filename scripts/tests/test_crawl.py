@@ -7,6 +7,7 @@ import gzip
 import io
 import sys
 import unittest
+from unittest import mock
 import urllib.error
 from pathlib import Path
 
@@ -236,6 +237,66 @@ class TestNormalize(unittest.TestCase):
     def test_mailto_and_tel_return_none(self):
         self.assertIsNone(crawl.normalize("mailto:a@example.org", BASE))
         self.assertIsNone(crawl.normalize("tel:+49", BASE))
+
+
+class TestNormalizePagination(unittest.TestCase):
+    """Die Blätterseite einer Liste ist eine eigene Seite. Bis zum 02.10.2026
+    fiel `?page=2` mit jeder anderen Query weg, und jedes Produkt, das erst ab
+    Seite 2 einer Kategorie verlinkt ist, galt im Crawl als unverlinkt."""
+
+    def test_page_two_stays_its_own_url(self):
+        self.assertEqual(crawl.normalize("/collections/ringe?page=2", BASE),
+                         f"{BASE}/collections/ringe?page=2")
+
+    def test_variant_is_still_the_same_page(self):
+        self.assertEqual(crawl.normalize("/products/ring?variant=1", BASE),
+                         f"{BASE}/products/ring")
+
+    def test_mixed_query_keeps_only_page(self):
+        # Filter, Sortierung und Tracking zeigen dieselbe Seite anders; nur
+        # die Seitenzahl ergibt eine eigene Adresse, egal an welcher Stelle.
+        self.assertEqual(
+            crawl.normalize("/collections/ringe?sort_by=price-ascending&page=3"
+                            "&filter.v.availability=1", BASE),
+            f"{BASE}/collections/ringe?page=3")
+        self.assertEqual(crawl.normalize("/collections/ringe?page=3&variant=7&utm_source=x", BASE),
+                         f"{BASE}/collections/ringe?page=3")
+
+    def test_page_one_is_the_list_itself(self):
+        self.assertEqual(crawl.normalize("/collections/ringe?page=1", BASE),
+                         f"{BASE}/collections/ringe")
+
+    def test_a_page_value_that_is_no_page_number_drops(self):
+        for value in ("0", "abc", "", "-2", "2.5", "²"):
+            with self.subTest(value=value):
+                self.assertEqual(crawl.normalize(f"/collections/ringe?page={value}", BASE),
+                                 f"{BASE}/collections/ringe")
+
+    def test_leading_zeros_do_not_make_a_second_url(self):
+        self.assertEqual(crawl.normalize("/collections/ringe?page=02", BASE),
+                         f"{BASE}/collections/ringe?page=2")
+
+    def test_the_last_page_value_counts(self):
+        self.assertEqual(crawl.normalize("/collections/ringe?page=2&page=4", BASE),
+                         f"{BASE}/collections/ringe?page=4")
+
+    def test_anchor_and_trailing_slash_still_drop(self):
+        self.assertEqual(crawl.normalize("/collections/ringe/?page=2#produkte", BASE),
+                         f"{BASE}/collections/ringe?page=2")
+
+    def test_page_parameter_on_a_foreign_host_stays_foreign(self):
+        self.assertIsNone(crawl.normalize("https://fremd.example.org/c?page=2", BASE))
+
+    def test_parse_page_lists_each_page_once(self):
+        html = ('<html><body>'
+                '<a href="/collections/ringe?page=2">2</a>'
+                '<a href="/collections/ringe?page=2&sort_by=price">2</a>'
+                '<a href="/collections/ringe?page=1">1</a>'
+                '<a href="/collections/ringe?variant=3">x</a>'
+                '</body></html>')
+        page = crawl.parse_page(html, f"{BASE}/collections/ringe")
+        self.assertEqual(page["internal_links"], [f"{BASE}/collections/ringe?page=2",
+                                                  f"{BASE}/collections/ringe"])
 # ---------------------------------------------------------------------------
 # Abruf-Hälfte: kein Test öffnet einen Socket. Die Nahtstelle ist überall
 # die injizierbare Funktion `fetch(url) -> dict`; ein FakeFetch ersetzt sie
@@ -650,6 +711,15 @@ class TestBuildSummary(unittest.TestCase):
         summary = crawl.build_summary([], blocked_links=7)
         self.assertEqual(summary["blocked_links"], 7)
 
+    def test_max_click_depth_skips_an_address_whose_canonical_target_was_crawled(self):
+        pages = [
+            {"url": "https://s.de/c/x", "status": 200, "indexable": True,
+             "canonical": "https://s.de/x", "click_depth": 5},
+            {"url": "https://s.de/x", "status": 200, "indexable": True,
+             "canonical": "https://s.de/x", "click_depth": 2},
+        ]
+        self.assertEqual(crawl.build_summary(pages)["max_click_depth"], 2)
+
 
 def _page(html_links=""):
     return response(200, body=f"<html><body>{html_links}</body></html>".encode(),
@@ -694,6 +764,26 @@ class TestCrawl(unittest.TestCase):
         pages = crawl.crawl("https://a.example", [], fake, max_urls=2, delay=0)
         self.assertEqual(len(pages), 2)
 
+    def test_a_product_linked_only_from_page_two_is_reached(self):
+        # Der Fall vom 02.10.2026: die Kategorie zeigt auf Seite 1 nur einen
+        # Teil ihrer Produkte, der Rest hängt an `?page=2`. Ohne die
+        # Folgeseite stünde das Produkt als verwaist im Snapshot.
+        fake = FakeFetch({
+            "https://a.example": _page('<a href="/collections/ketten">Ketten</a>'),
+            "https://a.example/collections/ketten": _page(
+                '<a href="/products/eins">1</a><a href="/collections/ketten?page=2">2</a>'),
+            "https://a.example/collections/ketten?page=2": _page(
+                '<a href="/products/zwei">2</a><a href="/collections/ketten?page=1">1</a>'),
+            "https://a.example/products/eins": _page(),
+            "https://a.example/products/zwei": _page(),
+        })
+        pages = crawl.crawl("https://a.example", ["https://a.example/products/zwei"], fake,
+                            max_urls=10, delay=0)
+        depth = {s["url"]: s["click_depth"] for s in pages}
+        self.assertEqual(depth["https://a.example/collections/ketten?page=2"], 2)
+        self.assertEqual(depth["https://a.example/products/zwei"], 3)
+        self.assertEqual(len(pages), 5)
+
     def test_one_failed_url_does_not_end_the_run(self):
         fake = FakeFetch({
             "https://a.example": _page('<a href="/kaputt">K</a><a href="/gut">G</a>'),
@@ -705,6 +795,121 @@ class TestCrawl(unittest.TestCase):
         self.assertIn("error", by_url["https://a.example/kaputt"])
         self.assertNotIn("error", by_url["https://a.example/gut"])
         self.assertEqual(len(pages), 3)
+
+
+def _canonical_page(canonical, html_links=""):
+    """Eine HTML-Seite mit Canonical im Head."""
+    body = (f'<html><head><link rel="canonical" href="{canonical}"></head>'
+            f"<body>{html_links}</body></html>")
+    return response(200, body=body.encode(), headers={"content-type": "text/html"})
+
+
+class TestCrawlClickDepthViaCanonical(unittest.TestCase):
+    """Eine Seite reicht ihre Tiefe an ihr Canonical-Ziel weiter.
+
+    Der Fall vom 02.10.2026: die Produktkarte einer Kategorie verlinkt
+    `/collections/<c>/products/<h>`, das ist schon die Produktseite mit
+    Canonical auf `/products/<h>`. Über Links allein stand die kanonische
+    Adresse einen Klick tiefer als ihr Inhalt.
+    """
+
+    HOME = "https://a.example"
+    IN_COLLECTION = "https://a.example/collections/ringe/products/eins"
+    PRODUCT = "https://a.example/products/eins"
+
+    def shop(self, **extra):
+        responses = {
+            self.HOME: _page('<a href="/collections/ringe">Ringe</a>'),
+            "https://a.example/collections/ringe": _page(
+                '<a href="/collections/ringe/products/eins">Eins</a>'),
+            self.IN_COLLECTION: _canonical_page(self.PRODUCT, '<a href="/products/eins">Eins</a>'),
+            self.PRODUCT: _canonical_page(self.PRODUCT, '<a href="/pages/pflege">Pflege</a>'),
+            "https://a.example/pages/pflege": _page(),
+        }
+        responses.update(extra)
+        return FakeFetch(responses)
+
+    def run_crawl(self, fake, sitemap=()):
+        pages = crawl.crawl(self.HOME, list(sitemap), fake, max_urls=20, delay=0)
+        return {p["url"]: p for p in pages}
+
+    def test_the_canonical_product_gets_the_depth_of_its_collection_address(self):
+        by_url = self.run_crawl(self.shop())
+        self.assertEqual(by_url[self.IN_COLLECTION]["click_depth"], 2)
+        self.assertEqual(by_url[self.PRODUCT]["click_depth"], 2)
+
+    def test_the_link_depth_stays_available(self):
+        by_url = self.run_crawl(self.shop())
+        self.assertEqual(by_url[self.PRODUCT]["link_depth"], 3)
+        self.assertEqual(by_url[self.IN_COLLECTION]["link_depth"], 2)
+        self.assertEqual(by_url[self.HOME]["link_depth"], 0)
+        self.assertEqual(by_url[self.HOME]["click_depth"], 0)
+
+    def test_pages_linked_from_the_canonical_target_follow(self):
+        # Was erst die kanonische Adresse verlinkt, liegt einen Klick unter
+        # deren Inhalt, nicht unter ihrer Linktiefe.
+        by_url = self.run_crawl(self.shop())
+        self.assertEqual(by_url["https://a.example/pages/pflege"]["click_depth"], 3)
+        self.assertEqual(by_url["https://a.example/pages/pflege"]["link_depth"], 4)
+
+    def test_a_canonical_never_makes_a_page_deeper(self):
+        fake = self.shop(**{self.HOME: _page(
+            '<a href="/collections/ringe">Ringe</a><a href="/products/eins">Eins</a>')})
+        by_url = self.run_crawl(fake)
+        self.assertEqual(by_url[self.PRODUCT]["click_depth"], 1)
+        self.assertEqual(by_url[self.PRODUCT]["link_depth"], 1)
+
+    def test_a_target_known_only_from_the_sitemap_is_no_orphan(self):
+        # Die Collection-Adresse verlinkt ihre kanonische Form nicht; die
+        # steht nur in der Sitemap. Ihr Inhalt ist trotzdem in zwei Klicks
+        # erreichbar.
+        fake = self.shop(**{self.IN_COLLECTION: _canonical_page(self.PRODUCT)})
+        by_url = self.run_crawl(fake, sitemap=[self.PRODUCT])
+        self.assertIsNone(by_url[self.PRODUCT]["link_depth"])
+        self.assertEqual(by_url[self.PRODUCT]["click_depth"], 2)
+
+    def test_an_unknown_canonical_target_is_not_fetched(self):
+        # Weder verlinkt noch in der Sitemap: der Crawl ruft das Ziel nicht
+        # ab (FakeFetch würde werfen), und keine Seite ändert ihre Tiefe.
+        fake = self.shop(**{self.IN_COLLECTION: _canonical_page("https://a.example/products/zwei")})
+        by_url = self.run_crawl(fake)
+        self.assertNotIn("https://a.example/products/zwei", by_url)
+        for p in by_url.values():
+            self.assertEqual(p["click_depth"], p["link_depth"])
+
+    def test_percent_encoding_case_does_not_separate_the_target(self):
+        # Shopify kodiert das Canonical klein (%c2%ae), das Theme den Link
+        # groß (%C2%AE).
+        product = "https://a.example/products/perle-%C2%AE"
+        fake = self.shop(**{
+            "https://a.example/collections/ringe": _page(
+                '<a href="/collections/ringe/products/perle-%C2%AE">Perle</a>'),
+            "https://a.example/collections/ringe/products/perle-%C2%AE": _canonical_page(
+                "https://a.example/products/perle-%c2%ae", '<a href="/products/perle-%C2%AE">P</a>'),
+            product: _canonical_page("https://a.example/products/perle-%c2%ae"),
+        })
+        by_url = self.run_crawl(fake)
+        self.assertEqual(by_url[product]["click_depth"], 2)
+
+    def test_summary_and_index_count_the_content_once(self):
+        # Die Collection-Adresse trägt keinen eigenen Inhalt: in `deepest`
+        # steht das Produkt einmal, als kanonische Adresse.
+        pages = list(self.run_crawl(self.shop()).values())
+        index = crawl.build_findings_index(pages)
+        urls = [entry["url"] for entry in index["deepest"]]
+        self.assertNotIn(self.IN_COLLECTION, urls)
+        self.assertIn(self.PRODUCT, urls)
+        self.assertEqual(index["deepest"][0], {"url": "https://a.example/pages/pflege",
+                                               "click_depth": 3})
+        self.assertEqual(crawl.build_summary(pages)["max_click_depth"], 3)
+
+    def test_throttled_pages_keep_their_link_depth(self):
+        fake = self.shop(**{"https://a.example/pages/pflege": response(429)})
+        with mock.patch.object(crawl.time, "sleep"):
+            by_url = self.run_crawl(fake)
+        self.assertTrue(by_url["https://a.example/pages/pflege"]["throttled"])
+        self.assertEqual(by_url["https://a.example/pages/pflege"]["link_depth"], 4)
+        self.assertEqual(by_url["https://a.example/pages/pflege"]["click_depth"], 3)
 
 
 class TestCrawlDisallow(unittest.TestCase):
@@ -744,6 +949,18 @@ class TestCrawlDisallow(unittest.TestCase):
         pages = crawl.crawl("https://a.example", [], fake, max_urls=10, delay=0)
         self.assertEqual(len(pages), 2)
 
+    def test_a_rule_on_the_page_query_blocks_the_following_page(self):
+        # Seit die Folgeseite eine Query trägt, muss die Prüfung sie sehen;
+        # mit dem Pfad allein würde `?page=2` trotz Sperre abgerufen.
+        fake = FakeFetch({
+            "https://a.example": _page('<a href="/collections/ketten?page=2">2</a>'),
+        })
+        blocked = set()
+        pages = crawl.crawl("https://a.example", [], fake, max_urls=10, delay=0,
+                            disallow_rules=["/*?page="], blocked_target=blocked)
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(blocked, {"https://a.example/collections/ketten?page=2"})
+
     def test_home_is_fetched_despite_a_matching_rule(self):
         # Die explizit angeforderte Startseite ist der Einstiegspunkt, keine
         # entdeckte Verlinkung, und wird deshalb immer abgerufen.
@@ -753,7 +970,188 @@ class TestCrawlDisallow(unittest.TestCase):
         self.assertEqual(len(pages), 1)
 
 
+class TestRobotsProductToken(unittest.TestCase):
+    """RFC 9309: der Vergleich läuft über das Produkt-Token, case-insensitiv.
+    Googles Referenz-Parser liest eine User-agent-Zeile bis zum ersten
+    Zeichen außerhalb von Buchstaben, Bindestrich und Unterstrich."""
+
+    def test_plain_token(self):
+        self.assertEqual(crawl.robots_product_token("ptai-audit"), "ptai-audit")
+
+    def test_case_does_not_matter(self):
+        self.assertEqual(crawl.robots_product_token("PTAI-Audit"), "ptai-audit")
+
+    def test_version_suffix_is_cut_off(self):
+        self.assertEqual(crawl.robots_product_token("ptai-audit/1.0"), "ptai-audit")
+
+    def test_a_longer_name_stays_a_different_name(self):
+        self.assertEqual(crawl.robots_product_token("ptai-audit-beta"), "ptai-audit-beta")
+
+    def test_star_has_no_token(self):
+        self.assertEqual(crawl.robots_product_token("*"), "")
+
+
+class TestSelectRobotsGroup(unittest.TestCase):
+    """Welche Gruppe gilt. Eine eigene Gruppe für ptai-audit ersetzt `*`
+    vollständig, erst ohne sie gilt `*` (RFC 9309, Abschnitt 2.2.1)."""
+
+    def test_own_group_replaces_the_star_group(self):
+        rules = {"*": ["/admin"], "ptai-audit": ["/"]}
+        self.assertEqual(crawl.select_robots_group(rules), ("ptai-audit", ["/"]))
+
+    def test_own_group_is_found_case_insensitively(self):
+        rules = {"*": [], "PTAI-Audit": ["/x"]}
+        self.assertEqual(crawl.select_robots_group(rules), ("ptai-audit", ["/x"]))
+
+    def test_own_group_with_version_is_found(self):
+        rules = {"ptai-audit/1.0": ["/x"]}
+        self.assertEqual(crawl.select_robots_group(rules), ("ptai-audit", ["/x"]))
+
+    def test_without_own_group_the_star_group_applies(self):
+        rules = {"*": ["/admin"], "GPTBot": ["/"]}
+        self.assertEqual(crawl.select_robots_group(rules), ("*", ["/admin"]))
+
+    def test_a_prefix_of_the_name_is_not_our_group(self):
+        rules = {"*": [], "ptai": ["/"], "ptai-audit-beta": ["/"]}
+        self.assertEqual(crawl.select_robots_group(rules), ("*", []))
+
+    def test_several_own_groups_are_combined(self):
+        rules = {"ptai-audit": ["/a", "/b"], "PTAI-AUDIT": ["/b", "/c"]}
+        self.assertEqual(crawl.select_robots_group(rules), ("ptai-audit", ["/a", "/b", "/c"]))
+
+    def test_empty_own_group_allows_what_the_star_group_blocks(self):
+        # Eine eigene Gruppe ohne Regel ist eine Freigabe. Sie gilt statt `*`,
+        # also sperrt `/admin` für diesen Crawler nichts mehr.
+        rules = {"*": ["/admin"], "ptai-audit": []}
+        self.assertEqual(crawl.select_robots_group(rules), ("ptai-audit", []))
+
+    def test_neither_group_means_no_rules(self):
+        self.assertEqual(crawl.select_robots_group({"GPTBot": ["/"]}), (None, []))
+        self.assertEqual(crawl.select_robots_group({}), (None, []))
+
+    def test_end_to_end_from_robots_text(self):
+        text = ("User-agent: *\nDisallow: /admin\n\n"
+                "User-agent: ptai-audit\nDisallow: /\n")
+        rules = crawl.parse_robots(text)["disallow_rules"]
+        self.assertEqual(crawl.select_robots_group(rules), ("ptai-audit", ["/"]))
+
+    def test_shared_group_with_star_gives_the_same_rules(self):
+        text = "User-agent: ptai-audit\nUser-agent: *\nDisallow: /x\n"
+        rules = crawl.parse_robots(text)["disallow_rules"]
+        self.assertEqual(crawl.select_robots_group(rules), ("ptai-audit", ["/x"]))
+
+    def test_the_token_is_the_one_in_the_user_agent(self):
+        # Ein Shop schreibt in seine Gruppe, was er im Log sieht. Weichen die
+        # beiden auseinander, trifft seine Gruppe nie.
+        self.assertIn(f"{crawl.ROBOTS_TOKEN}/", crawl.USER_AGENT)
+
+
+class TestIsHomeBlocked(unittest.TestCase):
+    HOME = "https://a.example/"
+
+    def test_own_group_with_root_disallow_blocks(self):
+        self.assertTrue(crawl.is_home_blocked(self.HOME, "ptai-audit", ["/"]))
+
+    def test_own_group_with_a_wildcard_blocks(self):
+        self.assertTrue(crawl.is_home_blocked(self.HOME, "ptai-audit", ["/*"]))
+        self.assertTrue(crawl.is_home_blocked(self.HOME, "ptai-audit", ["/$"]))
+
+    def test_own_group_with_a_subpath_does_not_block(self):
+        self.assertFalse(crawl.is_home_blocked(self.HOME, "ptai-audit", ["/admin"]))
+
+    def test_star_group_never_blocks_the_home(self):
+        # Ein `Disallow: /` für alle ist ein Befund über den Shop, keine
+        # Absage an diesen Crawler. Die Startseite wird weiter abgerufen.
+        self.assertFalse(crawl.is_home_blocked(self.HOME, "*", ["/"]))
+
+    def test_without_group_nothing_blocks(self):
+        self.assertFalse(crawl.is_home_blocked(self.HOME, None, []))
+
+
+def _robots(text):
+    return {"found": True, **crawl.parse_robots(text)}
+
+
+class TestBuildSnapshotRobots(unittest.TestCase):
+    """Der Lauf nach robots.txt, mit FakeFetch. `process_page` und
+    `resolve_sitemap_tree` fangen jeden Fehler ab, auch den von FakeFetch
+    bei einer unerwarteten URL; ob etwas abgerufen wurde, zeigt deshalb nur
+    `fake.calls`."""
+
+    SITEMAP = "https://a.example/sitemap.xml"
+
+    def _run(self, robots_text, responses):
+        fake = FakeFetch(responses)
+        with contextlib.redirect_stderr(io.StringIO()) as errors:
+            snapshot = crawl.build_snapshot("https://a.example", _robots(robots_text),
+                                            [self.SITEMAP], fake, max_urls=10, delay=0)
+        return snapshot, fake, errors.getvalue()
+
+    def test_own_group_with_root_disallow_fetches_nothing(self):
+        snapshot, fake, errors = self._run(
+            "User-agent: *\nDisallow: /admin\n\nUser-agent: ptai-audit\nDisallow: /\n", {})
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(snapshot["pages"], [])
+        summary = snapshot["summary"]
+        self.assertTrue(summary["home_blocked_by_robots"])
+        self.assertEqual(summary["robots_group"], "ptai-audit")
+        self.assertEqual(summary["url_count"], 0)
+        self.assertIn("ptai-audit", errors)
+
+    def test_own_group_replaces_the_star_rules_during_the_crawl(self):
+        # `*` sperrt /products, die eigene Gruppe nur /admin: für diesen
+        # Crawler gilt allein die eigene.
+        snapshot, fake, _ = self._run(
+            "User-agent: *\nDisallow: /products\n\nUser-agent: ptai-audit\nDisallow: /admin\n",
+            {
+                self.SITEMAP: response(200, body=URLSET_A),
+                "https://a.example/": _page('<a href="/products/x">P</a><a href="/admin/y">A</a>'),
+                "https://a.example/products/x": _page(),
+                "https://a.example/eins": _page(),
+                "https://a.example/zwei": _page(),
+            })
+        fetched = {p["url"] for p in snapshot["pages"]}
+        self.assertIn("https://a.example/products/x", fetched)
+        self.assertNotIn("https://a.example/admin/y", fake.calls)
+        self.assertEqual(snapshot["summary"]["blocked_links"], 1)
+        self.assertEqual(snapshot["summary"]["robots_group"], "ptai-audit")
+        self.assertFalse(snapshot["summary"]["home_blocked_by_robots"])
+
+    def test_star_group_with_root_disallow_still_fetches_the_home(self):
+        # Unverändertes Verhalten: ein `Disallow: /` für alle ist ein Befund,
+        # den der Audit zeigen muss, und die Startseite gehört dazu.
+        snapshot, fake, _ = self._run(
+            "User-agent: *\nDisallow: /\n",
+            {self.SITEMAP: response(200, body=URLSET_A), "https://a.example/": _page()})
+        self.assertIn("https://a.example/", fake.calls)
+        self.assertEqual(len(snapshot["pages"]), 1)
+        self.assertEqual(snapshot["summary"]["robots_group"], "*")
+        self.assertFalse(snapshot["summary"]["home_blocked_by_robots"])
+
+    def test_without_robots_the_group_is_none(self):
+        fake = FakeFetch({self.SITEMAP: response(200, body=URLSET_A),
+                          "https://a.example/": _page(),
+                          "https://a.example/eins": _page(),
+                          "https://a.example/zwei": _page()})
+        robots = {"found": False, "reason": "HTTP 404", "sitemaps": [],
+                  "disallow_rules": {}, "ai_crawler_rules": {}}
+        with contextlib.redirect_stderr(io.StringIO()):
+            snapshot = crawl.build_snapshot("https://a.example", robots, [self.SITEMAP],
+                                            fake, max_urls=10, delay=0)
+        self.assertIsNone(snapshot["summary"]["robots_group"])
+        self.assertEqual(snapshot["summary"]["url_count"], 3)
+
+
 class TestCheck(unittest.TestCase):
+    def test_own_group_with_root_disallow_returns_exit_one_without_fetching(self):
+        fake = FakeFetch({})
+        robots = _robots("User-agent: ptai-audit\nDisallow: /\n")
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = crawl.check("https://a.example", robots, ["https://a.example/sitemap.xml"], fake)
+        self.assertEqual(code, 1)
+        self.assertEqual(fake.calls, [])
+        self.assertIn("ptai-audit", output.getvalue())
+
     def test_ok_returns_exit_zero(self):
         fake = FakeFetch({"https://a.example/sitemap.xml": response(200, body=URLSET_A)})
         robots = {"found": False, "sitemaps": []}
@@ -969,17 +1367,17 @@ class TestSelbstpruefung(unittest.TestCase):
     """
 
     @staticmethod
-    def _seiten(title, n=40):
+    def _pages(title, n=40):
         return [{"status": 200, "title": title} for _ in range(n)]
 
     def test_ein_zahlungsicon_als_titel_wird_als_eigener_fehler_benannt(self):
-        hinweise = crawl.self_check(self._seiten("Visa"))
+        hinweise = crawl.self_check(self._pages("Visa"))
         self.assertEqual(len(hinweise), 1)
         self.assertIn("Visa", hinweise[0])
         self.assertIn("Fehler beim Auslesen", hinweise[0])
 
     def test_ein_anderer_wiederholter_titel_wird_zur_nachpruefung_gemeldet(self):
-        hinweise = crawl.self_check(self._seiten("Beispielshop Schmuck"))
+        hinweise = crawl.self_check(self._pages("Beispielshop Schmuck"))
         self.assertEqual(len(hinweise), 1)
         self.assertIn("gegenpruefen", hinweise[0])
 
@@ -989,7 +1387,7 @@ class TestSelbstpruefung(unittest.TestCase):
 
     def test_zu_wenige_seiten_melden_nichts(self):
         """Bei fuenf Seiten ist ein gemeinsamer Titel kein Signal."""
-        self.assertEqual(crawl.self_check(self._seiten("Visa", n=5)), [])
+        self.assertEqual(crawl.self_check(self._pages("Visa", n=5)), [])
 
 
 class TestDrosselungWiederholt(unittest.TestCase):

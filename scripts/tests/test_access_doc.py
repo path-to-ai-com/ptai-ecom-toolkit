@@ -13,7 +13,7 @@ EXPLAINED = {
     # Einstufung kommt mit der Anbindung, die Anforderung bleibt bis dahin stehen.
     "Klaviyo": "Pilot, noch nicht angebunden",
     # Keine Datenquelle, deshalb nicht in tiers.py.
-    "Der Crawler in eurer Firewall": "keine Datenquelle",
+    "Eure Firewall": "keine Datenquelle",
 }
 
 
@@ -71,16 +71,18 @@ class TestOperatorName(unittest.TestCase):
     Betreiber, der die Vorlage kopiert, hätte das übersehen können.
     """
 
-    def test_four_placeholders_are_named(self):
+    def test_six_placeholders_are_named(self):
         intro = " ".join(part_b().split("# Zugänge für den Audit")[0].split())
-        self.assertIn("vier Platzhalter", intro)
+        self.assertIn("sechs Platzhalter", intro)
         self.assertIn("`<betreiber-name>`", intro)
 
     def test_the_list_names_exactly_the_placeholders_in_use(self):
         # Bis zum 11.09.2026 nannte die Liste `<datum>`, das nirgends vorkam.
         head, body = part_b().split("# Zugänge für den Audit", 1)
-        self.assertEqual(set(re.findall(r"<([a-z-]+)>", head)),
-                         set(re.findall(r"<([a-z-]+)>", body + mail())))
+        # Ziffern gehören dazu, sonst fielen <audit-ipv4> und <audit-ipv6> still
+        # aus dem Vergleich.
+        self.assertEqual(set(re.findall(r"<([a-z0-9-]+)>", head)),
+                         set(re.findall(r"<([a-z0-9-]+)>", body + mail())))
 
     def test_the_customer_text_is_signed_with_the_placeholder(self):
         self.assertTrue(part_b().rstrip().rstrip("-").rstrip().endswith("<betreiber-name>"))

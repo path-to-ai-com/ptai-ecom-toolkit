@@ -1,0 +1,16 @@
+{
+  "sections": {
+    "banner_1": {
+      "type": "hero",
+      "settings": {
+        "show_title": true,
+        "section_width": "page-width"
+      },
+      "blocks": {},
+      "block_order": []
+    }
+  },
+  "order": [
+    "banner_1"
+  ]
+}

@@ -71,3 +71,21 @@ class TestByMonth(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestQueryPages(unittest.TestCase):
+    """Anfrage und rankende Seite als Paar, für con.query-page-type."""
+
+    def test_each_pair_becomes_one_row(self):
+        rows = gsc_pull.parse_query_page_rows({"rows": [
+            {"keys": ["ring silber", "https://s.de/collections/ringe"], "clicks": 3,
+             "impressions": 90, "ctr": 0.0333333, "position": 4.456},
+        ]})
+        self.assertEqual(rows, [{"query": "ring silber", "page": "https://s.de/collections/ringe",
+                                 "clicks": 3, "impressions": 90, "ctr": 0.0333, "position": 4.46}])
+
+    def test_a_row_without_both_keys_is_skipped(self):
+        self.assertEqual(gsc_pull.parse_query_page_rows({"rows": [{"keys": ["nur anfrage"]}]}), [])
+
+    def test_no_rows_is_an_empty_list(self):
+        self.assertEqual(gsc_pull.parse_query_page_rows({}), [])

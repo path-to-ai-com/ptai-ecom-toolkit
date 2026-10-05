@@ -1,0 +1,37 @@
+{
+  "sections": {
+    "main": {
+      "type": "main-product",
+      "settings": {},
+      "custom_css": [
+        ".product h1 { letter-spacing: 0.1em; }"
+      ],
+      "blocks": {
+        "title": {
+          "type": "title",
+          "settings": {
+            "show_vendor": false
+          }
+        },
+        "price": {
+          "type": "price",
+          "settings": {}
+        },
+        "reviews": {
+          "type": "shopify://apps/beispiel-bewertungen/blocks/sterne/00000000-0000-0000-0000-000000000000",
+          "settings": {
+            "size": 14
+          }
+        }
+      },
+      "block_order": [
+        "title",
+        "price",
+        "reviews"
+      ]
+    }
+  },
+  "order": [
+    "main"
+  ]
+}

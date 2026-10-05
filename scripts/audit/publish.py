@@ -36,11 +36,20 @@ from audit import manifest
 
 #: Dateien auf Workspace-Ebene, die zum Shop gehoeren und nicht zu einem
 #: einzelnen Lauf: der Massnahmen-Backlog bewegt sich ueber Laeufe hinweg, die
-#: Baseline ist der eingefrorene Nullpunkt. Beide braucht die App fuer die
-#: Ansichten Massnahmen und Kennzahlen, und beide liegen deshalb neben den
-#: Laeufen statt in einem von ihnen.
-SHOP_FILES = ("measures.json", "measures.md")
+#: Baseline ist der eingefrorene Nullpunkt, das Feedback haelt fest, was von
+#: aussen hereinkam und auf welche Massnahme es zeigt. Alle drei braucht die
+#: App fuer die Ansichten Massnahmen und Kennzahlen, und alle drei liegen
+#: deshalb neben den Laeufen statt in einem von ihnen.
+SHOP_FILES = ("measures.json", "measures.md", "feedback.json")
 SHOP_DIRS = ("baseline",)
+
+#: Diese Staende wandern zusaetzlich in den Lauf. Die Dateien auf Shop-Ebene
+#: sind der aktuelle Stand und werden bei jedem publish ueberschrieben; die
+#: Kopie im Lauf ist der Stand zur Zeit dieses Laufs und bleibt. Erst sie macht
+#: den Vergleich zweier Laeufe moeglich, ohne dass eine Datenbank noetig waere.
+#: Das Feedback gehoert dazu, weil eine Zuordnung sich zwischen zwei Laeufen
+#: bewegt: aus einer vermuteten wird eine bestaetigte.
+SNAPSHOT_FILES = ("measures.json", "feedback.json")
 
 #: Aus "Beispielshop" wird "beispielshop", aus "Nord & Stein" wird "nord-stein".
 _NON_SLUG_CHARS = re.compile(r"[^a-z0-9]+")
@@ -74,6 +83,39 @@ def load_config(workspace) -> dict:
     return config
 
 
+def proof_problems(run_dir: Path, files: dict) -> list[str]:
+    """Was an den Belegbildern eines Laufs fehlt, bevor er hochgeht.
+
+    Zwei Fälle, beide aus dem Vertrag `reference/finding-format.md`: ein Bild-
+    oder Handy-Block mit einem Aufnahme-Auftrag (`capture`) ohne `src` ist noch
+    nicht aufgenommen, und ein `src` oder `full_src`, das nicht im Lauf liegt,
+    zeigt im Portal ein kaputtes Bild. Beides sieht der Kunde, deshalb hält es
+    den Upload auf, statt erst im Portal aufzufallen.
+    """
+    problems = []
+    for name in sorted(n for n in files if n.startswith("findings/") and n.endswith(".json")):
+        try:
+            data = json.loads((run_dir / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            problems.append(f"{name}: nicht lesbar ({exc})")
+            continue
+        findings = data.get("findings") if isinstance(data, dict) else None
+        for finding in findings or []:
+            columns = ((finding.get("proof") or {}).get("columns") or []) if isinstance(finding, dict) else []
+            for column in columns:
+                for block in (column or {}).get("blocks") or []:
+                    if not isinstance(block, dict) or block.get("type") not in ("image", "phone"):
+                        continue
+                    where = f"{name} {finding.get('id') or '?'}"
+                    if block.get("capture") and not block.get("src"):
+                        problems.append(f"{where}: Aufnahme offen, erst shoot_proof.py laufen lassen")
+                    for key in ("src", "full_src"):
+                        src = block.get(key)
+                        if src and src not in files:
+                            problems.append(f"{where}: {src} fehlt im Lauf")
+    return problems
+
+
 def manifest_key(brand: str) -> str:
     """Wo das Manifest einer Brand liegt, im Ziel wie im Bucket.
 
@@ -84,16 +126,25 @@ def manifest_key(brand: str) -> str:
     return f"brands/{brand}/manifest.json"
 
 
-def prepare(workspace, run_id: str, target, today: date | None = None) -> dict:
+def prepare(workspace, run_id: str, target, today: date | None = None,
+            note: str | None = None, replace: bool = False,
+            visible: bool = False, account_slug: str | None = None) -> dict:
     """Kopiert den Lauf ans Ziel und traegt ihn ins Manifest.
 
     `target` ist die Wurzel des Buckets, lokal oder gemountet. Der Upload in
     einen echten Bucket ersetzt spaeter genau diese Kopie; die Struktur
     darunter bleibt dieselbe, damit der Wechsel keine Migration ist.
+
+    **Eine neue Fassung eines veroeffentlichten Laufs braucht `visible`.**
+    `add_run` uebernimmt die Freigabe, die neue Fassung waere also sofort beim
+    Kunden. Ohne `visible` bricht `prepare` deshalb vor dem Kopieren ab
+    (Spec `ptai-portal` 2026-10-02, Abschnitt 17, Punkt 2). `account_slug`
+    schickt den Lauf an eine andere Marke, etwa die Testmarke `portal-test`,
+    damit wir ihn dort ansehen, bevor der Kunde ihn sieht.
     """
     workspace, target = Path(workspace), Path(target)
     config = load_config(workspace)
-    brand = config["account_slug"]
+    brand = account_slug or config["account_slug"]
     shop = slugify(config.get("brand") or brand)
 
     run_dir = workspace / "reporting" / "runs" / run_id
@@ -105,14 +156,39 @@ def prepare(workspace, run_id: str, target, today: date | None = None) -> dict:
     files = manifest.collect_files(run_dir)
     if not files:
         raise SystemExit(f"Lauf {run_id} hat keine Dateien zum Hochladen")
+    problems = proof_problems(run_dir, files)
+    if problems:
+        raise SystemExit("Belegbilder unvollständig, nichts kopiert:\n  " + "\n  ".join(problems))
 
-    run_target = target / manifest.path_for(brand, shop, run_id)
+    # **Das Manifest wird vor dem Kopieren gelesen**, weil der Zielpfad an der
+    # Fassungsnummer haengt und die nur das Manifest kennt.
+    manifest_path = target / manifest_key(brand)
+    manifest_data = (manifest.load(manifest_path) if manifest_path.exists()
+                     else manifest.empty(brand, config.get("brand") or brand))
+    existing = next((r for r in manifest_data.get("runs") or []
+                     if r["shop"] == shop and r["run_id"] == run_id), None)
+    if existing and existing.get("released") and not visible:
+        raise SystemExit(
+            f"Lauf {run_id} ist für den Kunden sichtbar, eine neue Fassung wäre es "
+            "sofort auch. Mit --visible hochladen, wenn sie das sein soll, oder "
+            "vorher mit --account-slug an eine Testmarke. Nichts kopiert.")
+    revision = manifest.next_revision(manifest_data, shop, run_id, replace=replace)
+
+    run_target = target / manifest.path_for(brand, shop, run_id, revision)
     if run_target.exists():
         shutil.rmtree(run_target)
     for rel in files:
         source, dest = run_dir / rel, run_target / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)
+
+    # Liegt im Lauf schon eine eigene Fassung, gilt seine: der Schnappschuss
+    # ergaenzt, er ueberschreibt nie.
+    for name in SNAPSHOT_FILES:
+        snapshot_source = workspace / "reporting" / name
+        if name not in files and snapshot_source.exists():
+            shutil.copy2(snapshot_source, run_target / name)
+            files[name] = snapshot_source.stat().st_size
 
     # Der Backlog und die Baseline gehoeren dem Shop, nicht dem Lauf. Sie
     # wandern bei jedem publish mit, weil sie sich zwischen den Laeufen
@@ -140,9 +216,6 @@ def prepare(workspace, run_id: str, target, today: date | None = None) -> dict:
             shutil.copy2(path, dest)
             shop_files[rel] = path.stat().st_size
 
-    manifest_path = target / manifest_key(brand)
-    manifest_data = (manifest.load(manifest_path) if manifest_path.exists()
-                     else manifest.empty(brand, config.get("brand") or brand))
     # Der Shop bekommt seinen Anzeigenamen, damit die App ihn nennen kann,
     # ohne den Slug zu verschoenern.
     manifest_data.setdefault("shops", {})[shop] = {
@@ -154,20 +227,27 @@ def prepare(workspace, run_id: str, target, today: date | None = None) -> dict:
     manifest_data = manifest.add_run(manifest_data, shop=shop, run_id=run_id,
                                      kind=kind, cadence=cadence,
                                      period=state.get("period"),
-                                     run_date=run_id[:10], files=files, today=today)
+                                     run_date=run_id[:10], files=files,
+                                     revision=revision, note=note,
+                                     title=state.get("title"), today=today)
     manifest.save(manifest_path, manifest_data)
+    # Eine Freigabe bleibt über neue Fassungen erhalten (`manifest.add_run`).
+    # Gemeldet wird deshalb der Stand aus dem Manifest, nicht ein fester Wert.
+    entry = next(r for r in manifest_data["runs"]
+                 if r["shop"] == shop and r["run_id"] == run_id)
     return {"brand": brand, "shop": shop, "run_id": run_id,
             "files": len(files), "shop_files": len(shop_files),
+            "revision": revision,
             "path": str(run_target), "manifest": str(manifest_path),
-            "released": False}
+            "released": entry["released"]}
 
 
 #: Wie eine Datei im Bucket ausgeliefert wird. Ohne den richtigen Typ laedt der
 #: Browser die Web-Fassung herunter, statt sie anzuzeigen.
 CONTENT_TYPES = {".html": "text/html", ".pdf": "application/pdf",
                  ".json": "application/json", ".md": "text/markdown",
-                 ".png": "image/png", ".jpg": "image/jpeg",
-                 ".csv": "text/csv", ".txt": "text/plain"}
+                 ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                 ".webp": "image/webp", ".csv": "text/csv", ".txt": "text/plain"}
 
 
 def upload(local_root, url: str, service_key: str, bucket: str = "runs") -> dict:
@@ -266,6 +346,19 @@ def main(argv=None) -> int:
     p.add_argument("--run-id", required=True)
     p.add_argument("--target", required=True,
                    help="Ordner, in dem der Lauf fuer den Upload vorbereitet wird")
+    p.add_argument("--note",
+                   help="ein Satz, was an dieser Fassung korrigiert wurde; er "
+                        "steht im Verlauf beim Kunden")
+    p.add_argument("--replace", action="store_true",
+                   help="in die laufende Fassung schreiben statt eine neue zu "
+                        "oeffnen; fuer die Korrektur, die noch niemand gesehen "
+                        "hat. Sie erscheint nicht im Verlauf")
+    p.add_argument("--visible", action="store_true",
+                   help="eine neue Fassung eines schon veroeffentlichten Laufs "
+                        "hochladen; sie ist danach sofort beim Kunden sichtbar")
+    p.add_argument("--account-slug",
+                   help="an diese Marke statt an die aus reporting/config.json, "
+                        "etwa portal-test fuer eine Vorschau")
     p.add_argument("--upload", action="store_true",
                    help="danach in den Bucket laden, braucht SUPABASE_URL und "
                         "SUPABASE_SERVICE_ROLE_KEY in der Umgebung; liegt im "
@@ -284,14 +377,23 @@ def main(argv=None) -> int:
                   "Umgebung. Nichts vorbereitet, nichts hochgeladen.",
                   file=sys.stderr)
             return 1
-        origin = fetch_manifest(a.target, load_config(a.workspace)["account_slug"],
+        origin = fetch_manifest(a.target,
+                                a.account_slug or load_config(a.workspace)["account_slug"],
                                 url, key)
         print({"local": "Manifest lag schon im Ziel und bleibt, wie es ist",
                "remote": "Manifest aus dem Bucket übernommen",
                "new": "Brand ist neu im Bucket, das Manifest beginnt leer"}[origin])
 
-    result = prepare(a.workspace, a.run_id, a.target)
+    result = prepare(a.workspace, a.run_id, a.target,
+                     note=a.note, replace=a.replace,
+                     visible=a.visible, account_slug=a.account_slug)
     print(f"{result['files']} Dateien nach {result['path']}")
+    if result["revision"] > 1:
+        print(f"Fassung {result['revision']:02d}"
+              + (f": {a.note}" if a.note else ": Korrektur ohne Notiz"))
+    if a.replace:
+        print("--replace: in die laufende Fassung geschrieben, kein Eintrag "
+              "im Verlauf.")
     print(f"{result['shop_files']} Dateien auf Shop-Ebene "
           "(Massnahmen und Baseline, sie gelten ueber Laeufe hinweg)")
     print(f"Manifest: {result['manifest']}")
@@ -303,8 +405,11 @@ def main(argv=None) -> int:
         if upload_result["errors"]:
             return 1
 
-    print("Freigabe: nein. Der Lauf ist für den Kunden unsichtbar, bis "
-          "release ihn freigibt.")
+    if result["released"]:
+        print("Freigabe: ja, übernommen. Der Kunde sieht diese Fassung.")
+    else:
+        print("Freigabe: nein. Der Lauf ist für den Kunden unsichtbar, bis "
+              "release ihn freigibt.")
     return 0
 
 
