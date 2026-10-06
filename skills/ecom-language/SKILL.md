@@ -162,5 +162,4 @@ Vor der Freigabe, in dieser Reihenfolge:
 
 Diese Skill regelt das Vokabular und den Aufbau eines Befunds. Sie regelt **nicht** den Aufbau
 eines Reports (`workos:report`, falls installiert), nicht die Stimme in Mails und Posts
-und nicht die Cover-Headline. Wo ein Report verkauft statt beschreibt, gilt dort und nur dort
-`workos:voice`, falls installiert.
+und nicht Titel und Einstieg (`workos:report`, falls installiert).

@@ -6,14 +6,14 @@
     "url": "https://path-to-ai.com"
   },
   "metadata": {
-    "description": "E-Commerce-Audit, audit-light, Monats-Report und Theme-Migration für Shopify-Shops: Setup in zwei Teilen, Pulls aus Shopify, GA4, Search Console, PageSpeed, DataForSEO, Google Ads und GEO, Kunden-PDF, Wochen-Puls und der Umzug auf ein aktuelles Theme wie Horizon.",
-    "version": "0.3.0"
+    "description": "Claude-Code-Plugin für Shopify-Shops: Audit, audit-light, Monats-Report, Wochen-Puls, Datenabfragen aus Shopify, GA4, Search Console, PageSpeed, DataForSEO, Google Ads und AI-Suche sowie Theme-Migration auf ein aktuelles Theme wie Horizon.",
+    "version": "0.3.1"
   },
   "plugins": [
     {
       "name": "ptai-ecom",
       "source": "./",
-      "description": "E-Commerce-Audit, audit-light, Monats-Report und Theme-Migration für Shopify-Shops: Setup in zwei Teilen, Pulls aus Shopify, GA4, Search Console, PageSpeed, DataForSEO, Google Ads und GEO, Kunden-PDF, Wochen-Puls und der Umzug auf ein aktuelles Theme wie Horizon.",
+      "description": "Claude-Code-Plugin für Shopify-Shops: Audit, audit-light, Monats-Report, Wochen-Puls, Datenabfragen aus Shopify, GA4, Search Console, PageSpeed, DataForSEO, Google Ads und AI-Suche sowie Theme-Migration auf ein aktuelles Theme wie Horizon.",
       "category": "productivity"
     }
   ]

@@ -1684,8 +1684,8 @@ Sitzung, die ihn gemacht hat. Die Trennung ist jetzt fest:
 
 | # | Element | Steckt im Template als | Gefüllt aus |
 |---|---|---|---|
-| 1 | Kopf | `__COVER_HEADLINE__` plus feste Dokumentzeile | Sitzung, Pitch-Gate |
-| 2 | Einstieg | `__INTRO__` | Sitzung, vier Sätze, siehe unten |
+| 1 | Kopf | `__COVER_HEADLINE__` plus feste Dokumentzeile | Sitzung, schlichter Titel, siehe unten |
+| 2 | Einstieg | `__INTRO__` | Sitzung, Ergebnis zuerst, siehe unten |
 | 3 | Die größten Probleme | `__PROBLEMS__` | Sitzung, zwei bis vier Kacheln |
 | 3b | Kennzahlenleiste | sechs `__KPI_*__` plus Notizen | Script |
 | 3c | Path to AI E-Com Score | `__SCORES__` | Script |
@@ -2194,13 +2194,11 @@ Auftrag, und der Anlass war *"wir müllen eigentlich zu"*.
 
 ### Kopf, Einstieg und Schlussblock
 
-**Die Cover-Headline läuft durch ein Pitch-Gate, falls eins installiert ist.**
-Ist `workos:voice` installiert, die Skill aufrufen, Gate durchlaufen, Ergebnis
-abwarten, dann erst einsetzen. Sie ist zusammen mit dem Schlussblock eines von
-genau zwei Elementen im Dokument, für die das gilt. Mit oder ohne Gate handelt
-sie vom Leser und vom Wert, nie vom Mangel:
-`IHR HABT ALLES. ES KOMMT NUR NICHT AN.` ist am 04.09.2026 genau daran
-gescheitert.
+**Die Cover-Headline ist ein schlichter Titel**: Gegenstand und Shop, bei einem
+klaren Ergebnis dazu die Zahl, so wie eine Fachperson einen Bericht betitelt.
+Kein Pitch-Gate, kein Gegensatz aus zwei Kurzsätzen, kein Vorwurf. Entschieden am
+05.10.2026: zugespitzte Headlines aus dem Pitch-Gate wurden fast alle verworfen,
+die schlichten Titel nicht.
 
 **Der Einstieg beginnt mit dem Ergebnis, nicht mit dem Umfang.** Bis zum
 07.09.2026 stand hier eine Reihenfolge, die mit "Was ich angesehen habe"
@@ -2314,8 +2312,7 @@ einer Wiederverwendung von `report.html`:
    Zahlen vor Augen entsteht ein Statussatz ohne Beleg**, und genau deshalb
    stehen sie in der Vorlage statt in dieser Skill.
 
-   `cover_headline` und `next_step` laufen vorher durch das Pitch-Gate in
-   `workos:voice`, falls installiert, siehe unten. Beide dürfen HTML enthalten,
+   `cover_headline` und `next_step` sind schlichte Sätze, siehe unten. Beide dürfen HTML enthalten,
    `intro`, `takeaways` und `next_step` erwarten es (`<p>`, `<ol><li>`).
 
 4. **Erneut aufrufen, jetzt baut das Script.** Es setzt die Pfade

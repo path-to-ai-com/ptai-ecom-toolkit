@@ -762,8 +762,8 @@ Eintrag seine `confidence` mit, sonst rechnet die Engine mit dem Vorgabewert 0,7
 
 **Ist `workos:report` installiert, lädt der Lauf sie für Tonfall und Prüfungen**,
 bevor der erste Satz entsteht. Sie hält die vier Textarten im Report auseinander
-und ruft `workos:voice` für Cover-Headline und Schlussblock. Wo sie dieser Skill
-widerspricht, gilt diese Skill.
+und lädt die Vorbilder. Kein Text läuft durch `workos:voice` oder ein Pitch-Gate.
+Wo sie dieser Skill widerspricht, gilt diese Skill.
 
 Was hier gilt, ob sie installiert ist oder nicht:
 
@@ -771,13 +771,13 @@ Was hier gilt, ob sie installiert ist oder nicht:
   `market.callouts`). Kein "JSON-LD", "Canonical", "DOM", keine Selektoren, keine
   Dateinamen. Die Mechanik gehört in die Befunde, dort ist Tiefe erwünscht.
 - **Der Aufmacher hängt am stärksten Einzelfund**, nicht an einer Hausthese, und
-  er ist nie ein Vorwurf. Test: zuckt der Inhaber zusammen, oder denkt er "das
-  schau ich mir an"?
+  er ist nie ein Vorwurf. Er steht als schlichter Satz mit Gegenstand und Zahl,
+  so wie eine Fachperson einen Befund benennt, nicht als zugespitzter Gegensatz
+  (entschieden am 05.10.2026).
 - **Das Cover trägt immer einen Aufmacher zum stärksten Befund**, nie eine
-  Dokumentzeile. Ist das Pitch-Gate noch nicht bestätigt, steht dort ein
-  Vorschlag, und die Übergabe legt ihn zur Bestätigung vor.
-- **Die Zusammenfassung argumentiert.** `exec.headline` spitzt den stärksten
-  Befund zu, `exec.summary` hat zwei Absätze: was trägt, dann das Muster der
+  Dokumentzeile. Die Übergabe legt ihn Yves zur Bestätigung vor.
+- **Die Zusammenfassung argumentiert.** `exec.headline` benennt den stärksten
+  Befund, `exec.summary` hat zwei Absätze: was trägt, dann das Muster der
   Lücken, beide mit Zahlen. Sie beginnt nie mit dem Prüfumfang ("Ich habe ...
   durchgesehen"), der steht unter Quellen und Methodik.
 - **Das Scoring bleibt `exec.scoreStyle: "potenzial"`.** Eine andere Darstellung

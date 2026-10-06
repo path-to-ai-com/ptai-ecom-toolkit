@@ -9,162 +9,136 @@
 
 # ptai-ecom-toolkit
 
-**Endlich weißt du, was du mit deinen Shop-Zahlen als Nächstes tun sollst.**
+Plugin für Claude Code mit Skills für Shopify-Shops. Es enthält drei Bereiche:
 
-Wenn du für SEO, SEA oder CRM Agenturen bezahlst, bist du pro Disziplin schnell bei mehreren
-tausend Euro im Monat. Zurück kommen oft Reports voller Zahlen, und die nächsten Schritte musst du
-dir selbst überlegen.
+- **Audit und Report:** zieht Daten aus Shopify, Google Analytics 4, Search Console, Google Ads, PageSpeed, DataForSEO und der AI-Suche, wertet sie aus und erstellt Maßnahmen mit Beleg sowie PDFs.
+- **Prüfungen von außen:** Crawl, Screenshots und Prüfungen eines Shops ohne Zugänge.
+- **Theme-Migration:** überführt ein bestehendes Shopify-Theme in ein aktuelles Online-Store-2.0-Theme wie Horizon. Vorher werden Theme, Templates, Funktionen, Apps, Tracking und SEO-Ausgabe erfasst, damit beim Wechsel nichts fehlt.
 
-Genau so habe ich es als E-Commerce-Verantwortlicher erlebt. Die Agenturen, mit denen ich
-gearbeitet habe, haben Feedback nur auf Nachfrage gegeben und mir nie Maßnahmen mitgegeben.
-Deshalb habe ich diesen Audit gebaut: Ich will meinen Kunden das Ergebnis geben, das ich damals
-selbst erwartet hätte. Der Audit zieht die echten Daten deines Shops aus Shopify, GA4, Search
-Console, Google Ads und der AI-Suche und wertet sie über alle Kanäle hinweg aus.
-
-Danach weißt du, wo dein Shop steht, und hast eine nach Hebel sortierte Liste konkreter
-Maßnahmen, jede mit Beleg. Die Maßnahmen gibst du direkt an Claude und setzt sie in deinem Shop um.
-
-Als E-Com-Manager oder Founder ziehst du den Audit für deinen eigenen Shop. Als Investor ziehst du
-denselben Audit mit den Zugängen einer Brand aus deinem Portfolio und siehst, wo sie über alle
-Kanäle steht und wo ihre größten Hebel liegen. Für einen ersten Blick ohne Zugänge reicht
-`audit-light` mit der Shop-URL.
-
-Nutz das Toolkit selbst: Es ist kostenlos, läuft lokal in Claude Code und ist mit zwei Befehlen
-installiert (siehe [Installation](#installation)). Melde dich gerne jederzeit bei mir auf
-[LinkedIn](https://www.linkedin.com/in/yves-schleich/).
+Das Plugin läuft lokal in Claude Code und ist kostenlos.
 
 ## Was drin ist
 
-Du startest mit dem Setup, ziehst dann den Audit und danach jeden Monat den Report.
-
 ### Einrichten
 
-| Skill | Wofür |
+| Skill | Funktion |
 |---|---|
-| `ptai-ecom:setup` | Du richtest das Toolkit Schritt für Schritt ein: einmal auf deinem Rechner die Schlüssel für Datenquellen wie PageSpeed und DataForSEO, danach für jeden Shop die Zugänge zu Shopify, GA4 und Search Console. Vorher siehst du, was schon funktioniert und was noch fehlt. |
+| `ptai-ecom:setup` | Richtet das Plugin ein: einmal je Rechner die Schlüssel für PageSpeed, DataForSEO und die GEO-Abfragen, danach je Shop die Zugänge zu Shopify, GA4 und Search Console. Zeigt vorher, was schon eingerichtet ist und was fehlt. |
 
 ### Audit und Report
 
-| Skill | Wofür |
+| Skill | Funktion |
 |---|---|
-| `ptai-ecom:audit` | Du ziehst den großen Audit mit den Zugängen des Shops und siehst, wo er über alle Kanäle steht, von Umsatz und Traffic über SEO, AI-Suche und Google Ads bis zu Conversion und Vertrauen. Am Ende hast du eine nach Hebel sortierte Liste konkreter Maßnahmen und ein PDF zum Weitergeben. |
-| `ptai-ecom:audit-light` | Du bekommst einen ersten Audit allein aus der Shop-URL, ohne Zugänge, als PDF. Der Light-Audit prüft von außen, ob der Shop bei Google und in der AI-Suche gefunden wird, wie der Kauf abläuft, ob Pflichtangaben und Vertrauenssignale da sind, wie das Sortiment präsentiert ist und wo der Shop im Markt steht. |
-| `ptai-ecom:report` | Du bekommst jeden Monat einen Report als PDF mit Umsatz, Traffic, SEO, Ladezeiten und AI-Sichtbarkeit, jeweils im Vergleich zum Vormonat, und mit den Maßnahmen, die daraus folgen. |
-| `ptai-ecom:pulse` | Du siehst jede Woche die wichtigsten Kennzahlen im Vergleich zur Vorwoche, mit einem Kommentar nur dort, wo etwas auffällt. |
+| `ptai-ecom:audit` | Vollständiger Audit mit den Zugängen des Shops: Umsatz, Traffic, SEO, AI-Suche, Google Ads, Conversion und Vertrauen. Ergebnis ist eine nach Wirkung sortierte Maßnahmenliste und ein PDF. |
+| `ptai-ecom:audit-light` | Audit allein aus der Shop-URL, ohne Zugänge, als PDF: Auffindbarkeit bei Google und in der AI-Suche, Kaufprozess, Pflichtangaben, Sortiment und Wettbewerb. |
+| `ptai-ecom:report` | Monatlicher Report als PDF mit Umsatz, Traffic, SEO, Ladezeiten und AI-Sichtbarkeit im Vergleich zum Vormonat, mit den Maßnahmen daraus. |
+| `ptai-ecom:pulse` | Wöchentlicher Überblick über die wichtigsten Kennzahlen im Vergleich zur Vorwoche, mit Kommentar nur bei Auffälligkeiten. |
 
 ### Datenquellen
 
-Audit und Report holen ihre Zahlen über diese Skills. Einzeln rufst du eine dieser Skills nur auf, wenn du genau eine Quelle brauchst. Die fünf Skills mit DataForSEO kosten je Abfrage Geld, und in der Config legst du dafür eine Obergrenze fest.
+Audit und Report holen ihre Daten über diese Skills. Einzeln werden sie nur aufgerufen, wenn genau eine Quelle gebraucht wird. Die fünf DataForSEO-Skills kosten je Abfrage Geld; die Obergrenze steht in der Config.
 
-| Skill | Quelle | Was du bekommst |
+| Skill | Quelle | Ergebnis |
 |---|---|---|
 | `ptai-ecom:pull-shopify` | Shopify | Umsatz, Bestellungen, Warenkorbwert, Top-Produkte, Sessions, Bestand, Neu- und Bestandskunden |
-| `ptai-ecom:pull-shopify-catalog` | Shopify | wie vollständig deine Produkte gepflegt sind: SEO-Titel und -Beschreibungen, Bilder mit Alt-Text, Preise, Kollektionen |
-| `ptai-ecom:pull-shopify-tech` | Shopify und Crawl | welches Theme läuft, welche Tools und Skripte eingebunden sind, Sprachen, Märkte und Zahlungsarten |
-| `ptai-ecom:pull-ga4` | Google Analytics 4 | woher deine Besucher kommen, auf welchen Seiten sie landen und wo sie im Kaufprozess abspringen |
-| `ptai-ecom:pull-gsc` | Google Search Console | mit welchen Suchbegriffen und Seiten dein Shop bei Google gefunden wird, Tag für Tag, dazu Sitemaps und eine Stichprobe zur Indexierung |
-| `ptai-ecom:pull-cwv` | PageSpeed Insights | wie schnell deine wichtigsten Seitentypen für echte Besucher laden (Core Web Vitals), mit dem Verlauf der letzten Wochen |
-| `ptai-ecom:pull-ads` | Google Ads | wofür dein Werbebudget ausgegeben wird: Ausgaben, ROAS, verpasste Einblendungen samt Grund und Suchbegriffe, die Geld kosten und nichts verkaufen |
-| `ptai-ecom:pull-klaviyo` | Klaviyo | Flows, Kampagnen mit Betreff und Text, Listen, Segmente und Formulare; noch in Erprobung |
-| `ptai-ecom:pull-dfs-rankings` | DataForSEO | für welche Suchbegriffe dein Shop rankt und wie sichtbar er gegenüber dem Wettbewerb ist |
-| `ptai-ecom:pull-dfs-competitors` | DataForSEO | wer bei Google für deine Kategorie-Begriffe auftaucht, auf Wunsch mit den Begriffen, für die dein stärkster Wettbewerber rankt und du nicht |
-| `ptai-ecom:pull-dfs-keywords` | DataForSEO | wie oft nach deinen Produkt- und Kategoriebegriffen gesucht wird, wie umkämpft sie sind und was ein Klick kostet |
-| `ptai-ecom:pull-dfs-shopping` | DataForSEO | ob dein Shop bei Google Shopping gelistet ist und zu welchen Preisen der Wettbewerb dort verkauft |
-| `ptai-ecom:pull-dfs-backlinks` | DataForSEO | welche Seiten auf deinen Shop verlinken und wie stark und sauber dein Linkprofil im Vergleich zum Wettbewerb ist |
-| `ptai-ecom:check-geo` | ChatGPT, Perplexity, Google AI | ob deine Marke in den Antworten der AI-Suchen vorkommt und ob deren Crawler deine Seiten lesen dürfen |
+| `ptai-ecom:pull-shopify-catalog` | Shopify | Pflegestand der Produkte: SEO-Titel und -Beschreibungen, Bilder mit Alt-Text, Preise, Kollektionen |
+| `ptai-ecom:pull-shopify-tech` | Shopify und Crawl | Theme, eingebundene Tools und Skripte, Sprachen, Märkte, Zahlungsarten |
+| `ptai-ecom:pull-ga4` | Google Analytics 4 | Traffic-Quellen, Landingpages, Abbrüche im Kaufprozess |
+| `ptai-ecom:pull-gsc` | Google Search Console | Suchbegriffe und Seiten je Tag, Sitemaps, Stichprobe zur Indexierung |
+| `ptai-ecom:pull-cwv` | PageSpeed Insights | Core Web Vitals der wichtigsten Seitentypen mit Verlauf |
+| `ptai-ecom:pull-ads` | Google Ads | Ausgaben, ROAS, verpasste Einblendungen mit Grund, Suchbegriffe ohne Umsatz |
+| `ptai-ecom:pull-klaviyo` | Klaviyo | Flows, Kampagnen mit Betreff und Text, Listen, Segmente, Formulare |
+| `ptai-ecom:pull-dfs-rankings` | DataForSEO | Rankings und Sichtbarkeit im Vergleich zum Wettbewerb |
+| `ptai-ecom:pull-dfs-competitors` | DataForSEO | Wettbewerber zu den Kategorie-Begriffen, optional deren Begriffe ohne eigenes Ranking |
+| `ptai-ecom:pull-dfs-keywords` | DataForSEO | Suchvolumen, Wettbewerb und Klickpreis der Produkt- und Kategoriebegriffe |
+| `ptai-ecom:pull-dfs-shopping` | DataForSEO | Präsenz bei Google Shopping und Preise des Wettbewerbs |
+| `ptai-ecom:pull-dfs-backlinks` | DataForSEO | Verlinkende Seiten, Stärke und Qualität des Linkprofils im Vergleich zum Wettbewerb |
+| `ptai-ecom:check-geo` | ChatGPT, Perplexity, Google AI | Vorkommen der Marke in Antworten der AI-Suchen und Zugriff ihrer Crawler |
 
 ### Prüfungen von außen
 
-Diese Skills brauchen keine Zugänge und sehen deinen Shop so, wie ein Besucher und Google ihn sehen.
+Diese Skills brauchen keine Zugänge.
 
-| Skill | Wofür |
+| Skill | Funktion |
 |---|---|
-| `ptai-ecom:crawl-site` | Du siehst, welche Seiten Fehler liefern, weiterleiten oder nicht indexiert werden können, wie tief Seiten in der Navigation liegen und ob strukturierte Daten gepflegt sind. |
-| `ptai-ecom:capture-screens` | Du bekommst Screenshots aller Seitentypen auf Desktop und Handy und des Kaufprozesses bis zur Zahlungsauswahl, damit der Zustand vor jeder Änderung am Shop festgehalten ist. |
-| `ptai-ecom:lens-purchase-path` | Du siehst, woran ein Kauf scheitern kann, von der Produktseite über den Warenkorb bis zur Zahlungsauswahl, ohne dass eine Bestellung ausgelöst wird. |
-| `ptai-ecom:lens-trust` | Du siehst, ob Impressum, Widerruf, AGB, Datenschutz, Preis- und Versandangaben, Bewertungen und Siegel vorhanden und auffindbar sind; eine juristische Prüfung ersetzt die Skill nicht. |
-| `ptai-ecom:lens-assortment` | Du siehst, ob Filter, Varianten, Produkttexte, Bilder, Empfehlungen und der Umgang mit ausverkauften Artikeln Besuchern das Finden und Kaufen leicht machen. |
+| `ptai-ecom:crawl-site` | Crawlt den Shop: Fehlerseiten, Weiterleitungen, nicht indexierbare Seiten, Klicktiefe, strukturierte Daten. |
+| `ptai-ecom:capture-screens` | Screenshots aller Seitentypen auf Desktop und Mobil sowie des Kaufprozesses bis zur Zahlungsauswahl. |
+| `ptai-ecom:lens-purchase-path` | Prüft den Kaufprozess von der Produktseite bis zur Zahlungsauswahl, ohne eine Bestellung auszulösen. |
+| `ptai-ecom:lens-trust` | Prüft Impressum, Widerruf, AGB, Datenschutz, Preis- und Versandangaben, Bewertungen und Siegel auf Vorhandensein und Auffindbarkeit. Keine juristische Prüfung. |
+| `ptai-ecom:lens-assortment` | Prüft Filter, Varianten, Produkttexte, Bilder, Empfehlungen und den Umgang mit ausverkauften Artikeln. |
 
 ### Theme-Migration
 
-Neu seit Oktober 2026 und noch in Erprobung: Rückmeldungen nehme ich gern auf. Mit diesen Skills hebst du dein Theme auf ein aktuelles 2.0-Theme wie Horizon, ohne dass Templates, Funktionen, Apps, Tracking oder SEO verloren gehen. `theme-migration` führt durch alle Phasen, die anderen Skills lassen sich auch einzeln nutzen. Geschrieben wird nur in ein unveröffentlichtes Theme, veröffentlichen tust du selbst.
+Überführt ein bestehendes Shopify-Theme (Vintage oder Online Store 2.0) in ein aktuelles 2.0-Theme, zum Beispiel Horizon. `theme-migration` führt durch alle Phasen; die übrigen Skills sind auch einzeln nutzbar. Geschrieben wird nur in ein unveröffentlichtes Theme. Veröffentlicht wird von Hand, nie durch eine Skill.
 
-| Skill | Wofür |
+| Skill | Funktion |
 |---|---|
-| `ptai-ecom:theme-migration` | Du hebst dein Theme Schritt für Schritt auf ein aktuelles 2.0-Theme wie Horizon, mit Freigaben an den entscheidenden Stellen, einem Abgleich mit dem Live-Shop vor dem Launch und einem Prüfplan danach. |
-| `ptai-ecom:snapshot-theme` | Du sicherst ein Theme vollständig und belegt, bevor jemand es anfasst. |
-| `ptai-ecom:inventory-theme` | Du siehst, welche Templates wirklich leben, was am Theme angepasst ist und was es auf jeder Seite kann. |
-| `ptai-ecom:inventory-apps` | Du siehst jede App und jeden Dienst mit Einbindungsweg, was den Theme-Wechsel überlebt und wer an welches Messziel sendet. |
-| `ptai-ecom:compare-themes` | Du misst die Gestaltung deines Shops und legst zwei Themes als Bildpaare nebeneinander. |
-| `ptai-ecom:map-theme` | Du legst fest, was aus dem alten Theme im neuen wird, mit jeder Entscheidung festgehalten. |
-| `ptai-ecom:build-theme` | Du baust das neue Theme reproduzierbar und updatefähig, ohne den Shop anzufassen. |
-| `ptai-ecom:upload-theme` | Du lädst in ein unveröffentlichtes Theme hoch und siehst, dass jede Datei angekommen ist. |
-| `ptai-ecom:verify-theme` | Du lässt den Entwurf je Disziplin gegen den heutigen Shop prüfen und bekommst danach die Testrunde für dein Team. |
-| `ptai-ecom:sync-live-theme` | Du siehst, was sich im Live-Shop seit der Sicherung geändert hat und was davon ins neue Theme muss. |
+| `ptai-ecom:theme-migration` | Führt durch die Phasen Setup, Sicherung, Bestandsaufnahme, Zuordnung, Neubau, Upload, Prüfung, Abgleich, Abnahme, Launch und Nachsorge. Hält den Stand und die Freigaben fest. |
+| `ptai-ecom:snapshot-theme` | Sichert ein Theme vollständig mit einem Manifest aller Dateien. |
+| `ptai-ecom:inventory-theme` | Erfasst Theme-Typ, genutzte Templates, Anpassungen gegenüber dem Original, Funktionen je Seitentyp, Metafelder, Übersetzungen und SEO-Ausgabe. |
+| `ptai-ecom:inventory-apps` | Erfasst alle Apps und Fremddienste mit Einbindungsweg, Tracking je Messziel und Consent-Verhalten. Kennzeichnet, was einen Theme-Wechsel nicht übersteht. |
+| `ptai-ecom:compare-themes` | Misst die Gestaltung des Shops und vergleicht zwei Themes mit Bildpaaren, Stilwerten und SEO-Ausgabe. |
+| `ptai-ecom:map-theme` | Erstellt die Zuordnung vom alten zum neuen Theme: Templates, Sections, Einstellungen, Gestaltung, Funktionen. |
+| `ptai-ecom:build-theme` | Erzeugt das neue Theme aus Sicherung und Zuordnung in einem eigenen Repo, mit Prüfung durch Theme Check. |
+| `ptai-ecom:upload-theme` | Lädt das Theme in ein unveröffentlichtes Theme hoch und prüft jede Datei nach dem Upload. |
+| `ptai-ecom:verify-theme` | Prüft den Entwurf gegen das Live-Theme: Struktur, Inhalt, SEO, Gestaltung, Funktionen, Apps und Tracking, Ladezeit, Barrierefreiheit, Sprachen. Erstellt danach die Testrunde. |
+| `ptai-ecom:sync-live-theme` | Zeigt Änderungen im Live-Shop seit der Sicherung und welche davon ins neue Theme übernommen werden müssen. |
 
-### Im Hintergrund
+### Hilfs-Skills
 
-| Skill | Wofür |
+| Skill | Funktion |
 |---|---|
-| `ptai-ecom:ecom-language` | Audit, Report und die Analyse-Agents nutzen diese Skill, damit jeder Befund dieselbe Fachsprache spricht und jeder Fachbegriff beim ersten Auftreten erklärt ist. |
-| `ptai-ecom:match-feedback` | Du hältst eine Liste mit Änderungswünschen aus deinem Team gegen die Maßnahmen aus dem Audit und siehst je Punkt, ob es ihn schon gibt, ob er vermutlich dazugehört, ob er neu ist, ob erst eine Rückfrage an dein Team nötig ist oder ob er nicht in dieses Projekt fällt. Danach steht an jeder Maßnahme, welchen Wunsch sie beantwortet. |
-| `ptai-ecom:test-round` | Du schreibst die Testrunde vor einem Launch: eine Anleitung, mit der das Team deines Kunden den neuen Shop testet, dazu die Schwerpunkte, die es bewertet und kommentiert. |
+| `ptai-ecom:ecom-language` | Einheitliche Fachsprache für Audit, Report und Analyse-Agents; jeder Fachbegriff wird beim ersten Auftreten erklärt. |
+| `ptai-ecom:match-feedback` | Gleicht eine Liste mit Änderungswünschen mit den Maßnahmen aus dem Audit ab und ordnet jeden Wunsch zu. |
+| `ptai-ecom:test-round` | Erstellt eine Testrunde vor einem Launch: Testanleitung und Prüfpunkte für das Team. |
 
-Für den großen Audit werten elf Analyse-Agents die Daten aus, jeder für eine Disziplin:
+Der Audit nutzt elf Analyse-Agents, je einen für eine Disziplin:
 `audit-data-quality` (Messqualität), `audit-commerce` (Umsatz, Warenkorb, Wiederkäufer),
 `audit-traffic` (Kanäle und Landingpages), `audit-seo-technical` (technisches SEO),
 `audit-seo-content` (SEO-Inhalte), `audit-geo` (AI-Suche), `audit-sea` (Google Ads),
-`audit-conversion` (Kaufstrecke und Conversion), `audit-content-brand` (Content und Marke),
+`audit-conversion` (Kaufprozess und Conversion), `audit-content-brand` (Content und Marke),
 `audit-competition` (Wettbewerb) und `audit-trust` (Vertrauen und Pflichtangaben). Der Audit
-startet die Agents selbst, einzeln rufst du sie nicht auf.
+startet sie selbst.
 
 ## Voraussetzungen
 
 - Claude Code mit Plugin-Unterstützung.
 - `python3` ab 3.10 mit `google-auth` und `requests` (`pip3 install --user google-auth requests`).
 - `jq`, `curl` und `git`.
-- Node.js (getestet mit Version 22) für die Render- und Versandskripte von `audit-light`.
+- Node.js ab 22 (für `audit-light` und die Shopify CLI).
 - Shopify CLI (`npm install -g @shopify/cli@latest`).
-- Ein headless Browser für PDFs und Screenshots: bevorzugt die Headless Shell von Playwright (`npx playwright install chromium-headless-shell`), Google Chrome oder Chromium gehen auch.
+- Headless-Browser für PDFs und Screenshots: bevorzugt die Headless Shell von Playwright (`npx playwright install chromium-headless-shell`), alternativ Google Chrome oder Chromium.
+- Für die Browser-Skripte der Theme-Migration: `uv` (startet Playwright ohne eigene Installation).
 
 ## Installation
 
-Technisch heißt das Plugin `ptai-ecom`, danach richten sich die Installation und die Namen der
-Skills:
+Das Plugin heißt `ptai-ecom`:
 
 ```text
 /plugin marketplace add yves-s/ptai-ecom-toolkit
 /plugin install ptai-ecom@ptai-ecom
 ```
 
-Danach stehen die Skills als `/ptai-ecom:setup`, `/ptai-ecom:audit` und so weiter
-bereit.
+Die Skills stehen danach als `/ptai-ecom:setup`, `/ptai-ecom:audit` usw. zur Verfügung. Aktualisieren mit `/plugin marketplace update ptai-ecom`.
 
 ## Setup in zwei Teilen
 
-**Teil 1, einmal je Rechner.** `/ptai-ecom:setup` legt `~/.config/ptai-ecom/.env`
-mit den Rechten `600` an und führt durch die Schlüssel des Betreibers:
-PageSpeed-Key, DataForSEO und die GEO-Keys. Google Ads braucht keinen
-Schlüssel mehr, nur die freigeschaltete API im Cloud-Projekt. Dazu kommen sechs Einstellungen, alle optional:
+**Teil 1, einmal je Rechner.** `/ptai-ecom:setup` legt `~/.config/ptai-ecom/.env` mit den Rechten `600` an und fragt die Schlüssel ab: PageSpeed, DataForSEO und die GEO-Schlüssel. Google Ads braucht keinen eigenen Schlüssel, nur die freigeschaltete API im Cloud-Projekt. Dazu kommen sechs optionale Einstellungen:
 
 | Einstellung | Vorgabe | Wofür |
 |---|---|---|
 | `PTAI_ACCOUNTS_ROOT` | `~/ptai-ecom/accounts` | Ordner mit einem Unterordner je Kunde, darin `entity.md`, Screenshots und Deliverables |
-| `PTAI_OPERATOR_NAME` | `Dienstleister` | wie der Betreiber im Maßnahmen-Katalog und im Audit heißt; nur ausdrücklich gesetzt zeigt der Schluss von Audit, Monats-Report und `audit-light` die Zeile Unternehmen |
-| `PTAI_OPERATOR_CONTACT` | keine | wer beim Betreiber ansprechbar ist, etwa ein Name; Zeile Ansprechpartner im Schluss von Audit, Monats-Report und `audit-light` |
-| `PTAI_OPERATOR_EMAIL` | keine | Mailadresse; Zeile E-Mail im Schluss von Audit, Monats-Report und `audit-light` |
-| `PTAI_OPERATOR_BOOKING_URL` | keine | Terminlink mit `https://`; Zeile Termin im Schluss von Audit, Monats-Report und `audit-light` |
-| `PTAI_CLOSING_FILE` | keine | Pfad zu einer HTML-Datei mit der eigenen Schlussseite; ersetzt in Audit, Monats-Report und `audit-light` den Schluss aus den Zeilen darüber |
+| `PTAI_OPERATOR_NAME` | `Dienstleister` | Name des Betreibers im Maßnahmenkatalog und im Audit; nur wenn gesetzt, steht er auch auf der letzten Seite von Audit, Report und `audit-light` |
+| `PTAI_OPERATOR_CONTACT` | keine | Ansprechpartner auf der letzten Seite von Audit, Report und `audit-light` |
+| `PTAI_OPERATOR_EMAIL` | keine | Mailadresse auf der letzten Seite von Audit, Report und `audit-light` |
+| `PTAI_OPERATOR_BOOKING_URL` | keine | Terminlink mit `https://` auf der letzten Seite von Audit, Report und `audit-light` |
+| `PTAI_CLOSING_FILE` | keine | Pfad zu einer HTML-Datei mit eigener letzter Seite; ersetzt die Seite aus den Einstellungen darüber |
 
-Der Schluss zeigt eine Zeile je gesetztem und gültigem Wert, keinen Satz. Ohne
-eine einzige gültige Einstellung endet jedes Dokument nur mit der Herkunftszeile.
-Wie eine eigene Schlussseite gebaut sein muss, steht unter "Eigene Marke".
+Die letzte Seite zeigt je gesetztem und gültigem Wert eine Zeile. Ist kein Wert gesetzt, endet jedes Dokument mit der Herkunftszeile. Der Aufbau einer eigenen letzten Seite steht unter "Eigene Marke".
 
-**Teil 2, je Kunde.** Im Workspace des Kunden schreibt der Wizard
-`reporting/config.json`, legt das Dienstkonto für GA4 und Search Console unter
-`secrets/` ab und baut aus `reference/access.md`, Teil B, die Anforderung an den
-Kunden: nur die Zugänge, die noch fehlen, als Text zum Verschicken.
-`scripts/check_env.sh` prüft Rechner und Workspace ohne Seiteneffekte.
+**Teil 2, je Shop.** Im Workspace des Shops schreibt das Setup `reporting/config.json`, legt das Dienstkonto für GA4 und Search Console unter `secrets/` ab und erstellt aus `reference/access.md`, Teil B, die Liste der noch fehlenden Zugänge zum Versand an den Shop. `scripts/check_env.sh` prüft Rechner und Workspace, ohne etwas zu ändern.
+
+Für die Theme-Migration kommt im selben Workspace der Block `theme_migration` in `reporting/config.json` dazu, und es braucht Schreibzugriff auf Themes. Beides beschreibt `reference/theme-migration/access-write.md`.
 
 ## Einstufung der Quellen
 
@@ -178,9 +152,7 @@ Kunden: nur die Zugänge, die noch fehlen, als Text zum Verschicken.
 | Empfohlen | GEO-Keys | GEO-Sichtbarkeit per API. Es bleibt der Browser-Weg mit Login in jedem Lauf |
 | Optional | Google Ads | SEA. Betrifft nur Shops mit Suchanzeigen, und Google muss das Cloud-Projekt erst für echte Konten freigeben |
 
-Eine fehlende Quelle bricht keinen Lauf ab: sie erscheint im Dokument als nicht
-verfügbar, mit Grund. Jeder bezahlte DataForSEO-Aufruf landet mit Kosten in
-`reporting/dfs-ledger.jsonl`.
+Eine fehlende Quelle bricht keinen Lauf ab; sie steht im Dokument als nicht verfügbar, mit Grund. Jeder bezahlte DataForSEO-Aufruf wird mit Kosten in `reporting/dfs-ledger.jsonl` protokolliert.
 
 ## Datenablage
 
@@ -192,48 +164,39 @@ reporting/
   baseline/01/                    baseline.json und baseline.md, blockweise eingefroren
   measures.json, measures.md      Maßnahmen-Backlog über alle Läufe
   dfs-ledger.jsonl                eine Zeile je bezahltem DataForSEO-Aufruf
+migration/                        nur bei einer Theme-Migration
+  snapshots/                      Sicherungen mit manifest.json
+  inventory/                      Bestandsaufnahme, Apps, Tracking, Gestaltung
+  mapping/                        Zuordnung alt zu neu und Entscheidungen
+  sync/                           Abgleiche mit dem Live-Shop
 ```
 
 Formeln, Schwellen und Benchmarks stehen in `reference/metrics.md`.
 
 ## Was nicht passiert
 
-- **Kein Schreiben in Kundensysteme.** Alle Skills lesen nur, außer `upload-theme`, und auch die schreibt nur in ein unveröffentlichtes Theme. Veröffentlicht wird nie von einer Skill.
+- **Kein Schreiben in Shop-Systeme**, mit einer Ausnahme: `upload-theme` schreibt in ein unveröffentlichtes Theme. Keine Skill veröffentlicht ein Theme.
 - **Keine Secrets in Git.** `.env` und `secrets/` sind ignoriert, das Setup prüft das.
 - **Keine Datenbank, keine Infrastruktur.** Die Historie liegt als Dateien unter `reporting/`.
 
 ## Eigene Marke
 
-PDFs und Reports erscheinen im Erscheinungsbild von Path to AI: Logo, Farben und
-Schriften unter `assets/brand/`. Audit, Monats-Report und der Report von
-`audit-light` enden mit derselben letzten Seite. Ohne weitere Einstellung zeigt
-sie die Kontaktdaten des Betreibers aus den Einstellungen oben, keinen Satz dazu.
-Path to AI steht dort nur als Herkunft des Plugins, nicht als Absender
-(`scripts/audit/closing.py`, für `audit-light`
-`scripts/report/sales/report-pdf-full.mjs`). Wer eine eigene Marke will, tauscht
-Logo und `assets/brand/report.css` aus.
+PDFs und Reports nutzen das Erscheinungsbild von Path to AI: Logo, Farben und Schriften unter `assets/brand/`. Audit, Report und `audit-light` enden mit derselben letzten Seite. Ohne weitere Einstellung stehen dort die Kontaktdaten des Betreibers aus den Einstellungen oben. Path to AI steht dort nur als Herkunft des Plugins, nicht als Absender (`scripts/audit/closing.py`, für `audit-light` `scripts/report/sales/report-pdf-full.mjs`). Für eine eigene Marke werden das Logo und `assets/brand/report.css` ersetzt.
 
-Eine eigene Schlussseite liegt außerhalb des Plugins, als eine HTML-Datei, auf
-die `PTAI_CLOSING_FILE` zeigt. Das Plugin setzt ihren Inhalt unverändert als
-letzte Seite ein, in der Web-Fassung des Audits als Blatt mittig unter dem
-Inhalt. Die Datei hält:
+Eine eigene letzte Seite ist eine HTML-Datei außerhalb des Plugins, auf die `PTAI_CLOSING_FILE` zeigt. Das Plugin setzt ihren Inhalt unverändert als letzte Seite ein, in der Web-Fassung des Audits mittig unter dem Inhalt. Anforderungen an die Datei:
 
 - genau ein `<section>`-Element auf oberster Ebene, darin optional ein `<style>`-Element,
 - nur Selektoren unter der eigenen Klasse dieses Elements,
 - alle Bilder und Schriften als `data:`-URIs,
 - eine volle A4-Seite im Hochformat: `break-before: page; width: 210mm; height: 297mm; box-sizing: border-box`,
-- keine der Zeichenfolgen `<!-- CLOSING:start -->`, `<!-- CLOSING:end -->` und `__CLOSING__`: damit markiert das Plugin den Schluss im Dokument, und Audit und Monats-Report verweigern eine Seite, die sie enthält.
+- keine der Zeichenfolgen `<!-- CLOSING:start -->`, `<!-- CLOSING:end -->` und `__CLOSING__`; das Plugin markiert damit die letzte Seite, und Audit und Report lehnen eine Datei ab, die sie enthält.
 
-Fehlt die Datei, ist sie nicht lesbar oder leer, endet das Dokument mit dem
-Schluss aus den Kontaktzeilen, und eine Zeile auf stderr nennt den Grund.
+Fehlt die Datei oder ist sie leer oder nicht lesbar, wird die Seite aus den Einstellungen verwendet, und eine Zeile auf stderr nennt den Grund.
 
 ## Tests
 
-`bash scripts/run_tests.sh` startet die Python- und die JavaScript-Suite. Kein
-Test geht ins Netz.
+`bash scripts/run_tests.sh` startet die Python- und die JavaScript-Tests. Kein Test greift auf das Netz zu.
 
 ## Lizenz
 
-MIT, siehe `LICENSE`. Ausgenommen sind der Name Path to AI und das Logo. Die
-Schriften stehen unter der SIL Open Font License 1.1, die Lizenztexte liegen in
-`assets/brand/fonts/LICENSES/`.
+MIT, siehe `LICENSE`. Ausgenommen sind der Name Path to AI und das Logo. Die Schriften stehen unter der SIL Open Font License 1.1, die Lizenztexte liegen in `assets/brand/fonts/LICENSES/`.
