@@ -1,137 +1,105 @@
 ---
 name: lens-trust
-description: Vertrauen und Pflichtangaben eines Shops von außen prüfen, also Impressum, Widerrufsbelehrung, AGB, Datenschutzerklärung, Preisangaben samt Grundpreis, Versandkostenhinweis, Bewertungen am Kaufpunkt und Prüfsiegel. Stellt fest, was vorhanden und auffindbar ist, und bewertet ausdrücklich nicht juristisch. Nutzen als Linse L4 in ptai-ecom:audit-light, oder wenn der Nutzer wissen will, ob ein Shop die Angaben zeigt, die ein deutscher Käufer erwartet. Liefert belegte Befunde mit Deep-Link.
+description: Prüft Vertrauen und Pflichtangaben eines Shops von außen: Impressum, Widerrufsbelehrung, AGB, Datenschutzerklärung, Preisangaben samt Grundpreis, Versandkostenhinweis, Bewertungen am Kaufpunkt und Prüfsiegel. Stellt fest, was vorhanden und auffindbar ist, und bewertet ausdrücklich nicht juristisch. Einsetzen als Linse L4 in ptai-ecom:audit-light oder wenn der Nutzer wissen will, ob ein Shop die Angaben zeigt, die ein deutscher Käufer erwartet. Liefert belegte Befunde mit Deep-Link.
 ---
 
 # lens-trust: Pflichtangaben und Vertrauen, von außen
 
-Der Teil des Audits, der einem Händler am schnellsten weh tut und am schnellsten
-zu schließen ist. Ein fehlendes Impressum kostet nichts in der Umsetzung und
-viel im Ernstfall.
+Mängel bei Pflichtangaben sind für Händler riskant und meist mit wenig Aufwand behebbar (Beispiel: fehlendes Impressum).
 
-## Die eine Regel, die über allem steht
+## Grundregel: feststellen, nicht urteilen
 
-**Diese Linse stellt fest, sie urteilt nicht.** Ein Befund lautet "vorhanden",
-"nicht auffindbar" oder "unvollständig gegenüber der üblichen Praxis". Er lautet
-**nie** "rechtswidrig", "abmahnfähig" oder "verstößt gegen". Der Report ist kein
-Rechtsrat, und ein falsches Rechtsurteil im Anschreiben eines kalten Leads ist
-schlimmer als ein fehlender Befund.
+| Erlaubt | Verboten |
+|---|---|
+| "vorhanden" | "rechtswidrig" |
+| "nicht auffindbar" | "abmahnfähig" |
+| "unvollständig gegenüber der üblichen Praxis" | "verstößt gegen" |
 
-Die richtige Formulierung für einen Mangel: *"Auf der Produktseite ist kein
-Grundpreis je Kilogramm ausgewiesen. Bei Waren nach Gewicht ist das üblich und
-sollte anwaltlich geprüft werden."* Nicht: *"Verstoß gegen die
-Preisangabenverordnung."*
+- Der Report ist kein Rechtsrat. Ein falsches Rechtsurteil im Anschreiben an einen kalten Lead wiegt schwerer als ein fehlender Befund.
+- Richtig: *"Auf der Produktseite ist kein Grundpreis je Kilogramm ausgewiesen. Bei Waren nach Gewicht ist das üblich und sollte anwaltlich geprüft werden."*
+- Falsch: *"Verstoß gegen die Preisangabenverordnung."*
 
-## Was diese Linse nicht kann
+## Grenzen der Linse
 
-- **Keine Vollständigkeitsprüfung eines Rechtstexts.** Ob eine
-  Widerrufsbelehrung inhaltlich trägt, entscheidet ein Anwalt. Geprüft wird, ob
-  sie existiert, erreichbar ist und die üblichen Bestandteile benennt.
-- **Was hinter der Kasse liegt, bleibt ungeprüft**, solange kein Testkauf
-  stattfindet. Die Pflichtangaben im Bestellprozess (Button-Beschriftung,
-  Bestellübersicht) sind dann `not_checkable` mit genau diesem Grund.
-- **Siegel-Echtheit** ist nur prüfbar, wenn das Siegel verlinkt ist. Ein Bild
-  ohne Link ist ein Befund, kein Betrugsvorwurf.
+- **Keine inhaltliche Prüfung von Rechtstexten.** Ob eine Widerrufsbelehrung inhaltlich ausreicht, entscheidet ein Anwalt. Geprüft wird: existiert, erreichbar, nennt die üblichen Bestandteile.
+- **Hinter der Kasse ungeprüft**, solange kein Testkauf stattfindet. Pflichtangaben im Bestellprozess (Button-Beschriftung, Bestellübersicht) sind dann `not_checkable` mit diesem Grund.
+- **Siegel-Echtheit nur bei verlinktem Siegel prüfbar.** Ein Bild ohne Link ist ein Befund, kein Betrugsvorwurf.
 
-## Die Prüfpunkte
+## Prüfpunkte
 
 ### 1. Impressum
 
-- Aus dem Footer jeder Seite erreichbar, mit maximal einem Klick?
-- Enthält es Firmenname mit Rechtsform, Anschrift, vertretungsberechtigte Person,
-  eine Kontaktmöglichkeit und, bei einer eingetragenen Gesellschaft, Register und
-  Nummer?
-- Stimmt der Firmenname mit dem überein, der im Shop auftritt? Eine Marke, die
-  im Impressum plötzlich einer fremd klingenden GmbH gehört, ist kein Mangel,
-  aber ein Punkt fürs Gespräch.
+- Aus dem Footer jeder Seite mit höchstens einem Klick erreichbar?
+- Enthält: Firmenname mit Rechtsform, Anschrift, vertretungsberechtigte Person, Kontaktmöglichkeit; bei eingetragener Gesellschaft Register und Nummer?
+- Firmenname deckungsgleich mit dem Auftritt im Shop? Gehört die Marke laut Impressum einer fremd klingenden GmbH: kein Mangel, aber ein Gesprächspunkt.
 
-`crit`, wenn kein Impressum auffindbar ist. `warn` bei fehlenden Einzelangaben.
+| Mangel | Schweregrad |
+|---|---|
+| kein Impressum auffindbar | `crit` |
+| Einzelangaben fehlen | `warn` |
 
 ### 2. Widerruf, AGB, Datenschutz
 
-Je Dokument: erreichbar aus dem Footer, eigene URL, lesbar ohne Login.
+Je Dokument: aus dem Footer erreichbar, eigene URL, ohne Login lesbar.
 
-- **Widerrufsbelehrung:** vorhanden? Wird eine Frist genannt? Gibt es ein
-  Muster-Formular oder einen Hinweis darauf?
+- **Widerrufsbelehrung:** vorhanden? Frist genannt? Muster-Formular oder Hinweis darauf?
 - **AGB:** vorhanden und datiert?
-- **Datenschutzerklärung:** vorhanden? Nennt sie die eingesetzten Dienste? Der
-  Crawl-Snapshot listet die eingebundenen Fremdskripte, das ist der Gegencheck:
-  ein Shop, der Google Analytics lädt, es aber nicht nennt, ist ein Befund.
-
-Der Abgleich Fremdskripte gegen Datenschutzerklärung ist der stärkste Fund
-dieser Gruppe, weil er belegbar ist: Skript-Host aus `crawl.json`, Volltext der
-Erklärung, keine Erwähnung.
+- **Datenschutzerklärung:** vorhanden? Nennt sie die eingesetzten Dienste?
+  - Gegencheck: der Crawl-Snapshot listet die eingebundenen Fremdskripte. Lädt der Shop etwa Google Analytics, ohne es zu nennen, ist das ein Befund.
+  - Stärkster Fund dieser Gruppe, weil belegbar: Skript-Host aus `crawl.json`, Volltext der Erklärung, keine Erwähnung.
 
 ### 3. Cookie-Dialog
 
-- Gibt es einen, bevor nicht notwendige Dienste laden?
-- Ist "Ablehnen" gleichwertig sichtbar wie "Akzeptieren", oder muss man sich
-  durch eine zweite Ebene klicken?
-- Laden Tracking-Skripte schon vor der Einwilligung? Im Crawl sichtbar, wenn ein
-  Skript-Host ohne Interaktion auftaucht.
+- Erscheint er, bevor nicht notwendige Dienste laden?
+- "Ablehnen" gleichwertig sichtbar wie "Akzeptieren", oder erst auf einer zweiten Ebene?
+- Laden Tracking-Skripte vor der Einwilligung? Im Crawl sichtbar, wenn ein Skript-Host ohne Interaktion auftaucht.
 
-**Diesen Befund hart nachprüfen.** Ein aus einem Screenshot abgeleiteter
-Cookie-Befund war schon einmal falsch. Wenn nur das Bild vorliegt und nicht der
-Ladevorgang, ist es ein Prüfauftrag mit `confidence: "low"`.
+**Diesen Befund hart nachprüfen.** Aus Screenshots abgeleitete Cookie-Befunde können falsch sein. Liegt nur das Bild vor, nicht der Ladevorgang: Prüfauftrag mit `confidence: "low"`.
 
 ### 4. Preisangaben
 
-- Steht bei jedem Preis, dass er die Mehrwertsteuer enthält, und dass Versand
-  hinzukommt?
-- **Grundpreis:** bei Waren nach Gewicht, Volumen, Länge oder Stückzahl je
-  Einheit ausgewiesen (je Kilogramm, je Liter, je 100 Stück)? Das fehlt häufig
-  und ist billig zu beheben.
-- Streichpreise: ist erkennbar, worauf sie sich beziehen?
+- Bei jedem Preis: Mehrwertsteuer enthalten, Versand zusätzlich?
+- **Grundpreis:** bei Waren nach Gewicht, Volumen, Länge oder Stückzahl je Einheit ausgewiesen (je Kilogramm, je Liter, je 100 Stück)? Fehlt häufig, billig zu beheben.
+- Streichpreise: Bezug erkennbar?
 
 ### 5. Versandkosten
 
-- Aus dem Footer eine eigene Seite mit Kosten und Lieferzeiten?
-- Steht der Hinweis auch am Preis, nicht nur in der Fußzeile?
-
-Überschneidet sich bewusst mit `lens-purchase-path` Punkt 3. Dort ist es ein
-Conversion-Fund, hier ein Pflichtangaben-Fund. **Beim Konsolidieren wird daraus
-ein Befund**, der stärkere Beleg gewinnt.
+- Eigene Seite mit Kosten und Lieferzeiten, aus dem Footer erreichbar?
+- Hinweis auch am Preis, nicht nur in der Fußzeile?
+- Überschneidung mit `lens-purchase-path` Punkt 3 ist gewollt: dort Conversion-Fund, hier Pflichtangaben-Fund. **Beim Konsolidieren wird daraus ein Befund**, der stärkere Beleg zählt.
 
 ### 6. Bewertungen am Kaufpunkt
 
-- Gibt es Bewertungen, und stehen sie auf der Produktseite oder nur auf einer
-  Unterseite?
-- Ist die Zahl der Bewertungen genannt, oder nur Sterne?
-- Steht dabei, woher sie stammen und ob sie geprüft sind?
-- Ist ein Durchschnitt sichtbar, den die Suchmaschine auch lesen kann? Der
-  Gegencheck kommt aus dem Schema-Befund von L1: Sterne im Bild, aber kein
-  `aggregateRating` in den strukturierten Daten, ist ein häufiger und gut
-  belegbarer Fund.
+- Bewertungen auf der Produktseite oder nur auf einer Unterseite?
+- Zahl der Bewertungen genannt, oder nur Sterne?
+- Herkunft und Prüfung angegeben?
+- Durchschnitt für Suchmaschinen lesbar? Gegencheck mit dem Schema-Befund von L1: Sterne im Bild ohne `aggregateRating` in den strukturierten Daten ist ein häufiger, gut belegbarer Fund.
 
-**Ohne Screenshot kein Absenz-Befund.** Review-Widgets werden fast immer erst im
-Browser gerendert.
+**Ohne Screenshot kein Absenz-Befund.** Review-Widgets rendern fast immer erst im Browser.
 
 ### 7. Siegel und Mitgliedschaften
 
-- Welche werden gezeigt (Trusted Shops, Käufersiegel, Zahlungsanbieter, eigene
-  Garantien)?
-- Sind sie verlinkt und beim Aussteller nachprüfbar? Ein nicht verlinktes Siegel
-  ist ein `warn`: es wirkt nur, wenn es prüfbar ist.
-- Stehen sie am Kaufpunkt oder nur im Footer?
+- Welche gezeigt (Trusted Shops, Käufersiegel, Zahlungsanbieter, eigene Garantien)?
+- Verlinkt und beim Aussteller nachprüfbar? Nicht verlinktes Siegel = `warn`, da es nur prüfbar wirkt.
+- Am Kaufpunkt oder nur im Footer?
 
 ### 8. Kontaktweg
 
-- Findet ein Käufer eine Telefonnummer, eine Mailadresse oder ein Formular ohne
-  zu suchen?
-- Gibt es Angaben zu Erreichbarkeit oder Antwortzeit?
+- Telefonnummer, Mailadresse oder Formular ohne Suchen auffindbar?
+- Angaben zu Erreichbarkeit oder Antwortzeit?
 
 ## Ausgabe
 
 Zwei Dateien nach `<run>/findings/`:
 
-**`L4-trust.json`**: Array mit denselben Feldern wie die übrigen Linsen:
-`severity`, `title`, `detail`, `recommendation`, `evidence`, `url`, `impact`,
-`effort`, `confidence`, `lens: "trust"`.
+| Datei | Inhalt |
+|---|---|
+| `L4-trust.json` | Array mit denselben Feldern wie die übrigen Linsen: `severity`, `title`, `detail`, `recommendation`, `evidence`, `url`, `impact`, `effort`, `confidence`, `lens: "trust"` |
+| `L4-trust.coverage.json` | jeder der acht Punkte in `checked` oder in `not_checkable` mit Grund |
 
-**`L4-trust.coverage.json`**: jeder der acht Punkte steht in `checked` oder
-in `not_checkable` mit Grund.
+**Pflicht im Report, sobald diese Linse einen Mangel meldet:**
 
-**Zwei Dinge, die im Report stehen müssen**, sobald diese Linse einen Mangel
-meldet: der Satz, dass es sich um eine Feststellung und keine Rechtsprüfung
-handelt, und die Empfehlung, die betroffenen Punkte anwaltlich prüfen zu lassen.
-Beides gehört in `recommendation`, nicht in eine Fußnote, die niemand liest.
+1. Hinweis, dass es eine Feststellung und keine Rechtsprüfung ist.
+2. Empfehlung, die betroffenen Punkte anwaltlich prüfen zu lassen.
+
+Beides in `recommendation`, nicht in eine Fußnote.

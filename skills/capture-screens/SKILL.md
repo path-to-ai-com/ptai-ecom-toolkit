@@ -1,59 +1,43 @@
 ---
 name: capture-screens
-description: Screenshots aller Seitentypen (Desktop und Mobil) plus ein manuell durchlaufener Kaufprozess bis zur Zahlungsauswahl für den Audit-Lauf aufnehmen und in runs/<run-id>/screens.json indexieren; dazu Belegbilder zu Befunden aus den Aufnahme-Aufträgen im Lauf (shoot_proof.py). Nutzen, wenn der Audit-Orchestrator (/ptai-ecom:audit) Phase 1 durchläuft, oder wenn der Nutzer explizit Screenshots vom Kunden-Shop aufnehmen will. Der einzige Pull, der nicht wiederholbar ist, weil der Vorher-Zustand ohne Bild weg ist, sobald der Kunde sein Theme ändert. Liest reporting/config.json im Kunden-Workspace.
+description: Nimmt für den Audit-Lauf Screenshots aller Seitentypen (Desktop und Mobil) plus einen manuell durchlaufenen Kaufprozess bis zur Zahlungsauswahl auf und indexiert sie in runs/<run-id>/screens.json; dazu Belegbilder zu Befunden aus den Aufnahme-Aufträgen im Lauf (shoot_proof.py). Einsetzen, wenn der Audit-Orchestrator (/ptai-ecom:audit) Phase 1 durchläuft oder der Nutzer ausdrücklich Screenshots vom Kunden-Shop will. Einziger nicht wiederholbarer Pull: ohne Bild ist der Vorher-Zustand weg, sobald der Kunde sein Theme ändert. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # capture-screens: Screenshots je Seitentyp und der Kaufprozess
 
-Nimmt für jeden konfigurierten Seitentyp zwei Screenshots auf (Desktop und
-Mobil) und führt danach von Hand durch den Kaufprozess bis zur
-Zahlungsauswahl. Beides ist der visuelle Vorher-Zustand des Shops, Spec
-Abschnitt 7. Anders als jeder andere Pull dieses Plugins ist er einmalig: ein
-Theme-Wechsel beim Kunden löscht den Vorher-Zustand ersatzlos, keine der
-anderen Quellen (Shopify, GA4, GSC, CWV) lässt sich das nachträglich ziehen.
-Deshalb hat diese Skill Vorrang vor allen anderen Pulls, sobald das Theme-
-Ende des Kunden feststeht.
+- Je konfiguriertem Seitentyp zwei Screenshots (Desktop und Mobil), danach der Kaufprozess bis zur Zahlungsauswahl.
+- Beides dokumentiert den visuellen Vorher-Zustand des Shops (Spec Abschnitt 7).
+- Einmaliger Pull: ein Theme-Wechsel beim Kunden löscht den Vorher-Zustand; die übrigen Quellen (Shopify, GA4, GSC, CWV) liefern ihn nicht nach.
+- Darum Vorrang vor allen anderen Pulls, sobald das Theme-Ende des Kunden feststeht.
 
-**Die Bilddateien gehen in den Kundenordner (`drive_path`), nie nach
-`reporting/`.** Dieser Ordner wird im Kunden-Repo committet, und
-Shop-Screenshots sind kein Code-Artefakt, das dort hingehört. Nur der Index
-`screens.json` liegt im Workspace, die Bilder selbst liegen ausschließlich im
-Kundenordner.
+## Ablageorte
 
-**Die eine Ausnahme sind Belegbilder zu Befunden** (Abschnitt Belegbilder
-unten). Sie gehören zu einer Fassung eines Laufs, gehen mit ihm ins Portal und
-liegen deshalb in `reporting/runs/<run-id>/proof/`, von Git ignoriert. Ihre
-Quelle ist der Bucket, nicht das Repo.
+- **Bilddateien in den Kundenordner (`drive_path`), nie nach `reporting/`.** `reporting/` wird im Kunden-Repo committet, Shop-Screenshots gehören dort nicht hin.
+- Nur der Index `screens.json` liegt im Workspace.
+- **Ausnahme Belegbilder zu Befunden** (Abschnitt Belegbilder): sie gehören zu einer Fassung eines Laufs, gehen mit ihm ins Portal und liegen in `reporting/runs/<run-id>/proof/`, von Git ignoriert. Quelle ist der Bucket, nicht das Repo.
 
 ## Voraussetzungen
 
 Im Kunden-Workspace (aktuelles Arbeitsverzeichnis):
 
-- `reporting/config.json` mit `account_slug`, `drive_path` und optional
-  `page_types` (fehlende Typen sind erlaubt, siehe unten)
-- Ein headless Browser für die automatisierten Aufnahmen: bevorzugt die
-  Headless Shell von Playwright, Chrome oder Chromium gehen auch
-- `jq` installiert (baut die JSON-Ausgabe von `shoot.sh`)
-- Schreibzugriff auf den Kundenordner aus `drive_path`
+- `reporting/config.json` mit `account_slug`, `drive_path`, optional `page_types` (fehlende Typen erlaubt, siehe unten).
+- Headless Browser für die automatischen Aufnahmen: bevorzugt die Headless Shell von Playwright, Chrome oder Chromium gehen auch.
+- `jq` installiert (baut die JSON-Ausgabe von `shoot.sh`).
+- Schreibzugriff auf den Kundenordner aus `drive_path`.
 
-Fehlt `account_slug` oder `drive_path`, oder ist `drive_path` relativ, verweigert
-bereits `scripts/audit/config.py: validate()` den Lauf, bevor diese Skill
-überhaupt anfängt: ohne Ziel würden die Bilder sonst im Repo landen, und genau
-das verletzt die PII-Regel aus Spec Abschnitt 13.
+Fehlt `account_slug` oder `drive_path`, oder ist `drive_path` relativ, lehnt `scripts/audit/config.py: validate()` den Lauf schon vor dieser Skill ab. Ohne Ziel kämen die Bilder ins Repo, entgegen der PII-Regel aus Spec Abschnitt 13.
 
 ## Ablage
 
-- **Bilder:** `<drive_path>/material/<datum>-audit-screenshots/`. `drive_path`
-  aus `config.json` ist der absolute Pfad zum Kundenordner (Beispiel:
-  `/pfad/zum/kundenordner/beispielshop`), meist
-  `<PTAI_ACCOUNTS_ROOT>/<account_slug>`. `<datum>` ist das Tagesdatum des
-  Laufs, `YYYY-MM-DD`.
-- **Index:** `reporting/runs/<run-id>/screens.json`. Die `run-id` kommt
-  vom Orchestrator, wenn diese Skill Teil eines Audit- oder Report-Laufs ist
-  (`skills/audit/SKILL.md`); läuft sie solo, wird sie einmalig selbst
-  bestimmt (Ablauf Schritt 1). **Die Analysen lesen Screenshots
-  ausschließlich über diesen Index, nie über ein Directory-Listing.** Ein
-  Bild ohne Eintrag existiert für sie nicht.
+| Was | Wo |
+|---|---|
+| Bilder | `<drive_path>/material/<datum>-audit-screenshots/` |
+| Index | `reporting/runs/<run-id>/screens.json` |
+
+- `drive_path` aus `config.json` = absoluter Pfad zum Kundenordner (Beispiel: `/pfad/zum/kundenordner/beispielshop`), meist `<PTAI_ACCOUNTS_ROOT>/<account_slug>`.
+- `<datum>` = Tagesdatum des Laufs, `YYYY-MM-DD`.
+- `run-id` kommt vom Orchestrator, wenn die Skill Teil eines Audit- oder Report-Laufs ist (`skills/audit/SKILL.md`); solo einmalig selbst bestimmen (Schritt 1).
+- **Die Analysen lesen Screenshots nur über diesen Index, nie über ein Directory-Listing.** Ein Bild ohne Eintrag existiert für sie nicht.
 
 ## Ablauf
 
@@ -69,17 +53,11 @@ das verletzt die PII-Regel aus Spec Abschnitt 13.
    "
    ```
 
-   Läuft diese Skill innerhalb eines bereits laufenden Audits oder Reports,
-   dessen Lauf-ID übernehmen, nie neu berechnen: sonst landen Bilder
-   desselben Laufs an einem Mitternachtsübergang in zwei verschiedenen
-   `runs/`-Ordnern.
+   Innerhalb eines laufenden Audits oder Reports dessen Lauf-ID übernehmen, nie neu berechnen; sonst verteilen sich Bilder eines Laufs bei einem Mitternachtsübergang auf zwei `runs/`-Ordner.
 
-2. **Zielordner bestimmen:** `drive_path` aus `reporting/config.json` lesen,
-   `material/$(date +%F)-audit-screenshots/` anhängen, Ordner anlegen
-   (`mkdir -p`). `drive_path` ist absolut, eine Wurzel davor gibt es nicht.
+2. **Zielordner bestimmen:** `drive_path` aus `reporting/config.json` lesen, `material/$(date +%F)-audit-screenshots/` anhängen, mit `mkdir -p` anlegen. `drive_path` ist absolut, keine Wurzel davor.
 
-3. **Seitentypen lesen.** Immer alle sechs Standardtypen, auch ohne
-   Override in der Config:
+3. **Seitentypen lesen**, immer alle sechs Standardtypen, auch ohne Override:
 
    ```bash
    python3 -c "
@@ -91,108 +69,70 @@ das verletzt die PII-Regel aus Spec Abschnitt 13.
    "
    ```
 
-   Das Ergebnis hat immer die Schlüssel `start, collection, product,
-   cart, search, blog`. Ein Typ ohne Override liefert `null`.
+   Schlüssel immer `start, collection, product, cart, search, blog`. Typ ohne Override: `null`.
 
-4. **Je Typ mit einer URL** (`null` ausgeschlossen, siehe Schritt 5):
+4. **Je Typ mit URL** (`null` ausgeschlossen, siehe Schritt 5):
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/skills/capture-screens/scripts/shoot.sh" \
      --url "<url>" --name "<page-type>" --target "<Zielordner aus Schritt 2>"
    ```
 
-   Die Zeile `IMAGES_JSON: [...]` aus der Ausgabe trägt die fertigen
-   Einträge (Seitentyp, Gerät, Aufnahmezeit, Quell-URL, absoluter Pfad) für
-   `screens.json`, unverändert übernehmen, nie Pfad oder Zeitstempel selbst
-   neu tippen. Der Exit-Code ist die Anzahl fehlgeschlagener Aufnahmen (0, 1
-   oder 2): bei über 0 die stderr-Zeilen in die Meldung an den Nutzer
-   aufnehmen, aber mit den übrigen Seitentypen weitermachen. Ein
-   fehlgeschlagener Typ bekommt keinen Eintrag in `screens.json`, dafür aber
-   eine Zeile in der Meldung an den Nutzer ("Aufnahme fehlgeschlagen:
-   <typ>, Grund: ..."), damit ein fehlendes Bild sichtbar bleibt statt in
-   der Ausgabe unterzugehen.
+   - Die Zeile `IMAGES_JSON: [...]` enthält die fertigen Einträge (Seitentyp, Gerät, Aufnahmezeit, Quell-URL, absoluter Pfad) für `screens.json`. Unverändert übernehmen, Pfad und Zeitstempel nie neu tippen.
+   - Exit-Code = Zahl fehlgeschlagener Aufnahmen (0, 1 oder 2).
+   - Bei über 0: stderr-Zeilen in die Meldung an den Nutzer, mit den übrigen Typen weitermachen.
+   - Fehlgeschlagener Typ: kein Eintrag in `screens.json`, aber eine Zeile an den Nutzer ("Aufnahme fehlgeschlagen: <typ>, Grund: ...").
 
-5. **Ein Typ ohne URL (`null`) wird nie übersprungen, sondern gemeldet.**
-   Kein Aufruf von `shoot.sh`, aber eine Zeile "nicht konfiguriert:
-   <Seitentyp>" in der Meldung an den Nutzer und im `not_configured`-Feld
-   von `screens.json` (siehe Schema unten). Läuft diese Skill innerhalb des
-   Audit-Orchestrators, landet dieselbe Information in
-   `runs/<run-id>/source-status.md`; diese Skill selbst schreibt diese Datei
-   nicht, sie meldet nur.
+5. **Typ ohne URL (`null`) melden, nie stillschweigend überspringen.**
+   - Kein Aufruf von `shoot.sh`.
+   - Zeile "nicht konfiguriert: <Seitentyp>" an den Nutzer und Eintrag im Feld `not_configured` von `screens.json` (Schema unten).
+   - Im Audit-Orchestrator steht dieselbe Information in `runs/<run-id>/source-status.md`; diese Skill schreibt die Datei nicht, sie meldet nur.
 
-6. **`screens.json` schreiben**, alle gesammelten Bild-Einträge plus die
-   Liste nicht konfigurierter Typen, siehe Schema unten. Existiert die Datei
-   schon (ein vorheriger Teillauf), Einträge ergänzen statt überschreiben:
-   ein zweiter Anlauf nach einem Abbruch darf bereits fotografierte Typen
-   nicht aus dem Index werfen.
+6. **`screens.json` schreiben:** alle Bild-Einträge plus Liste nicht konfigurierter Typen (Schema unten). Existiert die Datei schon (vorheriger Teillauf): ergänzen, nicht überschreiben, damit bereits fotografierte Typen im Index bleiben.
 
-7. **Kaufprozess von Hand durchlaufen**, siehe unten.
+7. **Kaufprozess durchlaufen**, siehe unten.
 
-8. **Kernergebnis an den Nutzer melden:** wie viele Typen fotografiert
-   (Desktop plus Mobil je Typ), welche nicht konfiguriert waren, welche
-   fehlgeschlagen sind, ob der Kaufprozess durchlaufen wurde, wohin die
-   Bilder gegangen sind (voller Pfad).
+8. **Dem Nutzer melden:**
+   - Zahl fotografierter Typen (Desktop plus Mobil je Typ)
+   - nicht konfigurierte Typen
+   - fehlgeschlagene Typen
+   - ob der Kaufprozess durchlaufen wurde
+   - Ablageort der Bilder (voller Pfad)
 
 ## Der Kaufprozess
 
-Läuft wie der Rest dieser Skill automatisiert, mit den Browser-Werkzeugen
-(nicht mit `shoot.sh`, das ist nur für die Seitentyp-Aufnahmen). Ein Audit,
-der auf einen Menschen wartet, ist kein Werkzeug.
+- Automatisiert mit den Browser-Werkzeugen, nicht mit `shoot.sh` (nur für Seitentyp-Aufnahmen). Ein Audit, der auf einen Menschen wartet, ist kein Werkzeug.
+- **Vor jedem Schritt die Seite lesen, dann handeln.** Nie blind auf eine Koordinate klicken: Seiteninhalt abfragen (Accessibility-Baum oder Text), prüfen, dass die erwartete Stufe erreicht ist, dann den nächsten Schritt auslösen.
 
-**Vor jedem Schritt die Seite lesen, dann handeln.** Nie blind auf eine
-Koordinate klicken: erst den Seiteninhalt abfragen (Accessibility-Baum oder
-Text), prüfen, dass die erwartete Stufe erreicht ist, dann den nächsten
-Schritt auslösen. Das ist der Ersatz für das Auge, das früher danebensaß, und
-der einzige Grund, warum dieser Ablauf überhaupt manuell war.
+1. Ein reguläres Produkt **mit Bestand** öffnen, nie das Beispielprodukt aus `page_types.product`. Bestand aus `shopify.json > availability` oder von der Produktseite.
+2. In den Warenkorb legen, Warenkorb-Ansicht (Drawer oder Seite) fotografieren: `checkout-warenkorb.png`.
+3. Zur Kasse gehen, Kontakt- und Versandadresse mit Platzhalter-Daten füllen. Schritt Versandart-Auswahl fotografieren: `checkout-versand.png`.
+4. Bis zur Zahlungsart-Auswahl gehen, dort **anhalten** und fotografieren: `checkout-zahlung.png`. Sichtbar: die angebotenen Zahlungsarten, keine ausgefüllten Zahlungsfelder.
+5. Kasse verlassen, nichts abschicken.
 
-1. Ein reguläres Produkt **mit Bestand** öffnen, nie das Beispielprodukt aus
-   `page_types.product`. Bestand aus `shopify.json > availability` oder aus
-   der Produktseite selbst.
-2. In den Warenkorb legen, Warenkorb-Ansicht (Drawer oder Seite)
-   fotografieren: `checkout-warenkorb.png`.
-3. Zur Kasse gehen, Kontakt- und Versandadresse mit Platzhalter-Daten
-   ausfüllen. Den Schritt Versandart-Auswahl fotografieren:
-   `checkout-versand.png`.
-4. Bis zur Zahlungsart-Auswahl weitergehen, dort **anhalten** und
-   fotografieren: `checkout-zahlung.png`. Sichtbar sollen die angebotenen
-   Zahlungsarten sein, keine ausgefüllten Zahlungsfelder.
-5. Die Kasse verlassen, nichts abschicken.
+### Verbote
 
-### Was dabei nie passiert
+Gelten unabhängig davon, wer den Ablauf steuert; nur mit ihnen ist die Automatisierung vertretbar.
 
-Diese vier Regeln gelten unabhängig davon, wer oder was den Ablauf steuert,
-und sie sind der Grund, warum die Automatisierung vertretbar ist:
+- **Keine Zahlungsart wählen, nichts absenden, keine Zahlungsdaten eingeben.** Auch nicht bei Zahlungsarten ohne Kartendaten wie "Kauf auf Rechnung". Der Lauf endet an der Auswahl.
+- **Keine echten personenbezogenen Daten**, weder vom Nutzer noch von einem Kunden. Nur erkennbare Platzhalter.
+- **Kein Login.** Kaufweg als Gast. Verlangt der Shop ein Konto: Schritt abbrechen, als Befund melden, kein Konto anlegen.
+- **Kein zweiter Versuch nach einem Fehlklick.** Führt ein Schritt nicht ans Ziel: abbrechen, erreichten Stand protokollieren.
 
-- **Keine Zahlungsart wählen, nichts absenden, keine Zahlungsdaten eingeben.**
-  Auch dann nicht, wenn eine Zahlungsart wie "Kauf auf Rechnung" ohne
-  Kartendaten auskommt. Der Lauf endet an der Auswahl, nicht dahinter.
-- **Keine echten personenbezogenen Daten.** Weder die des Nutzers noch die
-  eines Kunden. Platzhalter, erkennbar als solche.
-- **Kein Login.** Der Kaufweg wird als Gast durchlaufen. Verlangt der Shop
-  zwingend ein Konto, bricht der Schritt ab und meldet das als Befund, statt
-  ein Konto anzulegen.
-- **Kein zweiter Versuch nach einem Fehlklick.** Führt ein Schritt nicht
-  dorthin, wo er hinsollte, wird abgebrochen und der erreichte Stand
-  protokolliert. Ein Skript, das sich durch einen unbekannten Checkout
-  probiert, ist genau das Risiko, das diesen Ablauf früher manuell gemacht
-  hat.
+### Folge im Shop
 
-Ein so verlassener Warenkorb hinterlässt beim Shop eine abgebrochene Session,
-wie sie jeder Besucher auch erzeugt. Er taucht damit in
-`shopify.json > abandoned_checkouts` auf; bei einem Shop mit sehr wenigen
-Bestellungen ist das eine Session von wenigen und gehört als Anmerkung in den
-Lauf, damit niemand sie später für Kundenverhalten hält.
+- Der verlassene Warenkorb erzeugt eine abgebrochene Session wie bei jedem Besucher.
+- Er erscheint in `shopify.json > abandoned_checkouts`.
+- Bei sehr wenigen Bestellungen als Anmerkung in den Lauf schreiben, damit niemand ihn für Kundenverhalten hält.
 
 ### Abschalten
 
-`checkout_capture` in `reporting/config.json` entscheidet, ob dieser Teil
-läuft. **Nie im Lauf nachfragen:** die Aufnahme legt einen echten
-Testwarenkorb im Produktivshop an, und ob das in Ordnung ist, gehört ins
-Setup, einmal je Kunde. Fehlt das Feld, läuft der Kaufweg nicht und die Lücke
-wird im Report ausgewiesen.
-Die Seitentyp-Aufnahmen laufen trotzdem. Sinnvoll bei einem Shop, dessen
-Kasse ein Konto verlangt, und bei jedem Kunden, der einen Testwarenkorb nicht
-will. Fehlt das Feld, gilt `true`.
+- `checkout_capture` in `reporting/config.json` steuert diesen Teil.
+- **Nie im Lauf nachfragen.** Die Aufnahme legt einen echten Testwarenkorb im Produktivshop an; die Freigabe gehört ins Setup, einmal je Kunde.
+- Fehlt das Feld, läuft der Kaufweg nicht, und die Lücke wird im Report ausgewiesen.
+- Die Seitentyp-Aufnahmen laufen in jedem Fall.
+- Sinnvoll abzuschalten bei einer Kasse mit Kontopflicht und bei Kunden, die keinen Testwarenkorb wollen.
+- Fehlt das Feld, gilt `true`.
 
 ## screens.json-Schema
 
@@ -229,24 +169,20 @@ will. Fehlt das Feld, gilt `true`.
 }
 ```
 
-`not_configured` trägt jeden Seitentyp, für den `config.page_types()`
-`null` geliefert hat. Eine leere Liste heißt: alle sechs Typen waren
-konfiguriert, nicht dass die Prüfung ausgefallen ist, das Feld steht immer
-da, auch leer.
+- `not_configured` enthält jeden Seitentyp, für den `config.page_types()` `null` geliefert hat.
+- Leere Liste = alle sechs Typen konfiguriert, nicht ausgefallene Prüfung.
+- Das Feld steht immer, auch leer.
 
 ## Belegbilder zu Befunden
 
-Ein Belegbild zeigt einem Kunden im Portal, was ein Befund meint: den
-Handy-Ausschnitt mit dem Ende der Erstansicht und dem Kaufbutton darunter, den
-Cookie-Dialog mit den markierten Knöpfen. Die Übersichtsaufnahmen oben sind
-dafür ungeeignet, sie zeigen den ganzen Seitentyp und markieren nichts.
+- Ein Belegbild zeigt dem Kunden im Portal, was ein Befund meint, etwa den Handy-Ausschnitt mit Ende der Erstansicht und Kaufbutton darunter oder den Cookie-Dialog mit markierten Knöpfen.
+- Die Übersichtsaufnahmen oben taugen dafür nicht: ganzer Seitentyp, keine Markierung.
 
-**Der Agent nimmt kein Bild auf, er schreibt einen Auftrag.** In einem
-`image`- oder `phone`-Baustein steht `capture` mit Seite, Gerät, Ausschnitt,
-Markierungen und dem, was nicht da sein darf, dazu `alt` und `title`. Der
-Vertrag dazu ist `reference/finding-format.md`, Abschnitt "Aufnahme-Auftrag
-capture". Aufträge schreiben nur die Agents für Conversion, Content und
-Vertrauen.
+**Der Agent schreibt einen Auftrag, kein Bild.**
+
+- In einem `image`- oder `phone`-Baustein steht `capture` mit Seite, Gerät, Ausschnitt, Markierungen und dem, was nicht da sein darf, dazu `alt` und `title`.
+- Vertrag: `reference/finding-format.md`, Abschnitt "Aufnahme-Auftrag capture".
+- Aufträge schreiben nur die Agents für Conversion, Content und Vertrauen.
 
 `scripts/shoot_proof.py` nimmt die offenen Aufträge eines Laufs auf:
 
@@ -256,68 +192,44 @@ uv run --quiet --with playwright==1.58.0 python \
   --run reporting/runs/<run-id>
 ```
 
-Die Version 1.58.0 passt zu den Browsern im Playwright-Cache; eine andere lädt
-sie neu herunter. `--refresh` nimmt alle Aufträge neu auf, `--only CRO-01` nur
-einen Befund.
+- Version 1.58.0 passt zu den Browsern im Playwright-Cache; jede andere lädt sie neu.
+- `--refresh` nimmt alle Aufträge neu auf, `--only CRO-01` nur einen Befund.
 
-- **Ablage:** `reporting/runs/<run-id>/proof/<id>-<n>-<gerät>.jpg`, beim
-  `phone` zusätzlich `...-voll.jpg` für die große Ansicht. Das Ergebnis
-  (`src`, Maße, Markierungen in Prozent, Ende der Erstansicht, Datum) schreibt
-  das Skript neben den Auftrag in die Befund-Datei. Der Auftrag bleibt stehen,
-  damit sich das Bild neu aufnehmen lässt.
-- **Cookie-Dialog:** `consent.py` lehnt ab, auch über die zweite Ebene
-  ("Nein, anpassen", dann "Ablehnen"). Lässt er sich nicht ablehnen, bleibt
-  der Auftrag offen. `consent: "shown"` nimmt den Dialog bewusst auf, etwa für
-  einen Befund über den Dialog selbst. `shoot_declined.py` nutzt dieselbe
-  Ablehnung.
-- **Ein Ziel trifft genau ein sichtbares Element,** sonst bleibt der Auftrag
-  offen. Ein Text trifft den Knopf oder Link, in dem er steht, damit eine
-  Markierung den ganzen Knopf umfasst.
-- **Ist etwas aus `absent` zu sehen,** ist der Mangel behoben, und es entsteht
-  kein Bild. Der Befund braucht dann einen Beleg aus Zahlen oder fällt weg.
-- **Exit 1,** sobald ein Auftrag offen bleibt. `publish` lädt einen Lauf mit
-  offenem Auftrag oder fehlender Bilddatei nicht hoch.
+| Thema | Regel |
+|---|---|
+| **Ablage** | `reporting/runs/<run-id>/proof/<id>-<n>-<gerät>.jpg`, beim `phone` zusätzlich `...-voll.jpg` für die große Ansicht. Das Skript schreibt das Ergebnis (`src`, Maße, Markierungen in Prozent, Ende der Erstansicht, Datum) neben den Auftrag in die Befund-Datei. Der Auftrag bleibt für Neuaufnahmen stehen. |
+| **Cookie-Dialog** | `consent.py` lehnt ab, auch über die zweite Ebene ("Nein, anpassen", dann "Ablehnen"). Nicht ablehnbar: Auftrag bleibt offen. `consent: "shown"` nimmt den Dialog bewusst auf (Befund über den Dialog). `shoot_declined.py` nutzt dieselbe Ablehnung. |
+| **Ziel** | Muss genau ein sichtbares Element treffen, sonst bleibt der Auftrag offen. Ein Text trifft den umgebenden Knopf oder Link, damit die Markierung den ganzen Knopf umfasst. |
+| **`absent` sichtbar** | Mangel behoben, kein Bild. Der Befund braucht dann einen Beleg aus Zahlen oder entfällt. |
+| **Exit 1** | Sobald ein Auftrag offen bleibt. `publish` lädt keinen Lauf mit offenem Auftrag oder fehlender Bilddatei hoch. |
 
-`audit.revision` legt `proof/` mit den Befunden in die Fassung; eine neue
-Fassung nimmt ihre Bilder neu auf.
+- `audit.revision` legt `proof/` mit den Befunden in die Fassung; eine neue Fassung nimmt ihre Bilder neu auf.
 
 ## Fehlerbilder
 
-- **Kein Browser gefunden:** `shoot.sh` bricht sofort ab (Exit 1, vor der
-  ersten Aufnahme). Die Headless Shell installieren
-  (`npx playwright install chromium-headless-shell`) oder Chrome bzw.
-  Chromium, erneut aufrufen.
-- **`jq` fehlt:** dieselbe Behandlung, `shoot.sh` bricht ab, bevor es
-  überhaupt eine URL anfasst.
-- **Eine einzelne Aufnahme schlägt fehl** (Timeout, 4xx/5xx, Netzwerk):
-  `shoot.sh` bricht deswegen nicht ab, die andere Aufnahme desselben Typs
-  läuft weiter, der Exit-Code zählt die fehlgeschlagenen Aufnahmen. Diese
-  Skill meldet den Typ als fehlgeschlagen (Schritt 4), er bleibt ohne
-  Eintrag in `screens.json`, nie mit einem erfundenen Pfad.
-- **Die URL ist nicht erreichbar (DNS, Timeout, TLS):** headless Chrome
-  beendet sich dabei trotzdem mit Exit 0 und schreibt ein Bild, nur eben von
-  Chromes eigener Fehlerseite ("Die Website ist nicht erreichbar"), nicht
-  von der Zielseite. Das ist die eine Fehlerart, die weder am Exit-Code noch
-  an der Dateigröße auffällt, eine Fehlerseite ist einige Zehn-KB groß wie
-  eine echte Seite. `shoot.sh` erkennt sie über eine interne, sprach- und
-  versionsstabile Chromium-Markierung im DOM, verwirft das Bild und zählt
-  die Aufnahme als fehlgeschlagen. Die Headless Shell von Playwright
-  schreibt statt der Fehlerseite ein leeres Bild mit leerem DOM, auch das
-  verwirft `shoot.sh`. Eine echte, vom Kunden-Server
-  ausgelieferte Fehlseite (eigene 404-Seite des Shops) ist davon nicht
-  betroffen und wird normal fotografiert, das ist echter Seiteninhalt, keine
-  Chrome-Fehlermeldung.
-- **Cookie-Consent-Banner im Bild:** erwartet, kein Fehler. Jede Aufnahme
-  läuft mit einem frischen, nicht angemeldeten Chrome-Profil ohne
-  gespeicherte Einwilligung, deshalb erscheint der Banner auf jeder
-  Aufnahme gleich, nicht nur gelegentlich. Wer das Layout darunter braucht,
-  liest es aus der zweiten Aufnahme desselben Laufs falls vorhanden, sonst
-  bleibt der Banner Teil des dokumentierten Ist-Zustands.
-- **Ein Seitentyp mit `null`-URL:** kein Fehler, kein Aufruf von
-  `shoot.sh`, aber immer eine "nicht konfiguriert"-Zeile, nie ein stilles
-  Weglassen (Schritt 5).
-- **Kaufprozess mitten im Ablauf abgebrochen** (Verbindung weg, falsches
-  Element, Kunde meldet sich): keine der bisherigen Kasse-Screenshots
-  verwerfen, sie bleiben gültig. Nur den fehlenden Rest in der Meldung an
-  den Nutzer als offen kennzeichnen, kein zweiter Versuch ohne Rücksprache:
-  ein zweiter Warenkorb mit demselben Produkt ist beim Kunden sichtbar.
+| Fall | Verhalten |
+|---|---|
+| **Kein Browser gefunden** | `shoot.sh` bricht sofort ab (Exit 1, vor der ersten Aufnahme). Headless Shell installieren (`npx playwright install chromium-headless-shell`) oder Chrome bzw. Chromium, erneut aufrufen. |
+| **`jq` fehlt** | Wie oben: `shoot.sh` bricht vor der ersten URL ab. |
+| **Einzelne Aufnahme scheitert** (Timeout, 4xx/5xx, Netzwerk) | `shoot.sh` läuft weiter, die zweite Aufnahme desselben Typs ebenfalls; der Exit-Code zählt die Fehlschläge. Typ als fehlgeschlagen melden (Schritt 4), kein Eintrag in `screens.json`, nie ein erfundener Pfad. |
+| **Ein Seitentyp mit `null`-URL** | Kein Fehler, kein `shoot.sh`-Aufruf, aber immer eine "nicht konfiguriert"-Zeile (Schritt 5). |
+
+**URL nicht erreichbar (DNS, Timeout, TLS)**
+
+- Headless Chrome endet trotzdem mit Exit 0 und schreibt ein Bild von Chromes eigener Fehlerseite ("Die Website ist nicht erreichbar").
+- Weder Exit-Code noch Dateigröße verraten das; die Fehlerseite ist einige Zehn-KB groß wie eine echte Seite.
+- `shoot.sh` erkennt sie an einer internen, sprach- und versionsstabilen Chromium-Markierung im DOM, verwirft das Bild und zählt die Aufnahme als fehlgeschlagen.
+- Die Headless Shell von Playwright schreibt stattdessen ein leeres Bild mit leerem DOM; auch das verwirft `shoot.sh`.
+- Eine vom Kunden-Server ausgelieferte Fehlerseite (eigene 404 des Shops) ist echter Seiteninhalt und wird normal fotografiert.
+
+**Cookie-Consent-Banner im Bild**
+
+- Erwartet, kein Fehler.
+- Jede Aufnahme nutzt ein frisches, nicht angemeldetes Chrome-Profil ohne Einwilligung, der Banner erscheint daher auf jeder Aufnahme.
+- Layout darunter: aus der zweiten Aufnahme desselben Laufs lesen, falls vorhanden; sonst bleibt der Banner Teil des dokumentierten Ist-Zustands.
+
+**Kaufprozess mittendrin abgebrochen** (Verbindung weg, falsches Element, Kunde meldet sich)
+
+- Bisherige Kassen-Screenshots behalten, sie bleiben gültig.
+- Fehlenden Rest in der Meldung an den Nutzer als offen kennzeichnen.
+- Kein zweiter Versuch ohne Rücksprache: ein zweiter Warenkorb mit demselben Produkt ist beim Kunden sichtbar.

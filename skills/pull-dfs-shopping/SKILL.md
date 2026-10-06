@@ -1,29 +1,36 @@
 ---
 name: pull-dfs-shopping
-description: Google-Shopping-Präsenz eines Shops und den Preisvergleich gegen die dort gelisteten Anbieter über die DataForSEO Merchant API ziehen, Ergebnis als Snapshot. Nutzen, wenn ein Audit wissen muss, ob die Brand bei Google Shopping überhaupt gelistet ist und zu welchen Preisen der Wettbewerb dort verkauft. Task-basiert mit Wartezeit, kostet Geld je Aufgabe, Deckel aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
+description: Zieht über die DataForSEO Merchant API, ob eine Brand bei Google Shopping gelistet ist und wie ihre Preise gegen die dort gelisteten Anbieter liegen, und schreibt das Ergebnis als Snapshot. Einsetzen, wenn ein Audit die Shopping-Präsenz der Brand und die Preise des Wettbewerbs dort braucht. Arbeitet task-basiert mit Wartezeit, jede Aufgabe kostet, Obergrenze aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
 ---
 
 # pull-dfs-shopping: Shopping-Präsenz und Preislandkarte
 
-Fragt je Keyword die Google-Shopping-Ergebnisse ab und beantwortet zwei Dinge:
-ist die Brand dort überhaupt gelistet, und wo liegen die Preise des Wettbewerbs.
+Fragt Google Shopping je Keyword ab. Ergebnis:
 
-## Der einzige task-basierte Pull
+- Ist die Brand gelistet?
+- Welche Preise hat der Wettbewerb?
 
-`task_post` legt je Keyword eine Aufgabe an, danach wird gewartet und mit
-`task_get/advanced` abgeholt. **Das Anlegen kostet, das Abholen nicht**, rund
-0,001 USD je Aufgabe (gemessen 12.08.2026). Im Ledger steht deshalb eine Zeile
-je Post und keine je Abholung.
+## Task-basierter Ablauf
 
-Er dauert wegen der Wartezeit deutlich länger als die anderen Pulls und gehört
-an den **Anfang** von Phase 1, nicht ans Ende. Kadenz quartalsweise.
+Dies ist der einzige task-basierte Pull.
+
+1. `task_post` legt je Keyword eine Aufgabe an.
+2. Warten.
+3. `task_get/advanced` holt das Ergebnis.
+
+| Schritt | Kosten |
+|---|---|
+| `task_post` | rund 0,001 USD je Aufgabe (Messung 12.08.2026) |
+| `task_get/advanced` | keine |
+
+- Ledger: eine Zeile je Post, keine je Abholung.
+- Laufzeit deutlich länger als bei den anderen Pulls, darum an den **Anfang** von Phase 1 setzen.
+- Kadenz: quartalsweise.
 
 ## Voraussetzungen
 
-- `reporting/config.json` mit `brand`, `market`, `dfs_budget_usd`,
-  `sources.shopping` nicht `false` und den Keywords, die geprüft werden sollen
-- `PTAI_DFS_LOGIN` und `PTAI_DFS_PASSWORD` in der `.env` des Workspace oder
-  zentral in `~/.config/ptai-ecom/.env`
+- `reporting/config.json` mit `brand`, `market`, `dfs_budget_usd`, `sources.shopping` ungleich `false` und den zu prüfenden Keywords.
+- `PTAI_DFS_LOGIN` und `PTAI_DFS_PASSWORD` in der `.env` des Workspace oder zentral in `~/.config/ptai-ecom/.env`.
 
 ## Ablauf
 
@@ -53,39 +60,24 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-dfs-shopping/scripts/shopping_pull.py
 }
 ```
 
-**Nur `google_shopping_serp` ist ein Angebot.** Die Antwort enthält daneben
-`google_shopping_carousel`, das sind Kategoriekacheln ohne Preis und ohne
-Verkäufer; in der geprüften Antwort waren 3 von 43 Einträgen solche Kacheln.
-Mitgezählt blähen sie die Angebotszahl auf und verwässern genau die Aussage,
-für die dieser Pull da ist. Sie stehen deshalb getrennt als
-`carousel_entries`, und `own_offers + competitor_offers == offers_total` gilt
-ohne sie.
+### Regeln zum Schema
 
-**`own_price_vs_median` ist `null`, wenn es kein eigenes Angebot gibt.** Eine 0
-läse sich als "gleich teuer wie der Markt", und das ist etwas ganz anderes als
-"gar nicht gelistet". Verglichen wird das **günstigste** eigene Angebot gegen
-den Median der übrigen Anbieter, weil der Kunde den günstigsten zuerst sieht.
+- **Angebot ist nur `google_shopping_serp`.** `google_shopping_carousel` sind Kategoriekacheln ohne Preis und Verkäufer (in der geprüften Antwort 3 von 43 Einträgen). Sie zählen separat als `carousel_entries`, sonst wäre die Angebotszahl zu hoch. Ohne sie gilt `own_offers + competitor_offers == offers_total`.
+- **`own_price_vs_median` ist `null` ohne eigenes Angebot.** Eine 0 hieße "gleich teuer wie der Markt", nicht "nicht gelistet".
+- Verglichen wird das **günstigste** eigene Angebot mit dem Median der übrigen Anbieter, da Käufer das günstigste zuerst sehen.
+- **Mehrere Währungen werden vermerkt.** Über zwei Währungen gibt es keinen Preisabstand; `currencies` listet die enthaltenen.
+- **Kein eigenes Angebot ist ein Befund, kein Fehler.** `own_offers: 0` bei 40 fremden Angeboten bedeutet: der Wettbewerb ist bei Shopping sichtbar, die Brand nicht.
 
-**Mehrere Währungen sind ein Vermerk.** Ein Preisabstand über zwei Währungen
-ist keine Zahl; `currencies` zeigt, was drin war.
+## Marken-Erkennung (Heuristik)
 
-**Kein eigenes Angebot ist ein Befund, kein Fehler.** `own_offers: 0` bei
-40 fremden Angeboten heißt: der Wettbewerb ist bei Shopping sichtbar und die
-Brand nicht. Das ist eine der klarsten Aussagen, die dieser Pull liefert.
-
-## Die Marken-Erkennung ist eine Heuristik
-
-Ob ein Angebot das eigene ist, entscheidet der Markenname aus `config.brand`
-gegen das Verkäuferfeld, ohne Rücksicht auf Groß- und Kleinschreibung. Ein Shop,
-der unter mehreren Namen oder über Reseller verkauft, wird dabei **unterzählt**.
-Der Snapshot sagt das in `notes`, damit die Analyse es nicht als Tatsache liest.
+- Eigenes Angebot = Verkäuferfeld enthält den Markennamen aus `config.brand`, Groß- und Kleinschreibung egal.
+- Verkauft ein Shop unter mehreren Namen oder über Reseller, wird er **unterzählt**.
+- Der Snapshot vermerkt das in `notes`, damit die Analyse es nicht als Tatsache nimmt.
 
 ## Fehlerbilder
 
-- **Budgetdeckel erreicht:** Abbruch vor dem `task_post`, kein Geld ausgegeben.
-- **Aufgabe abgelehnt:** wird übersprungen und nicht abgefragt. Eine abgelehnte
-  Aufgabe ohne Ergebnis würde sonst dreißigmal gepollt und hielte den Lauf zehn
-  Minuten auf.
-- **Nicht rechtzeitig abgeholt:** die betroffenen Keywords stehen in `notes` als
-  **ungemessen**, nicht als "ohne Angebote". Der Unterschied entscheidet, ob
-  die Analyse einen Befund schreibt oder eine Lücke ausweist.
+| Fall | Verhalten |
+|---|---|
+| **Budgetdeckel erreicht** | Abbruch vor dem `task_post`, nichts ausgegeben. |
+| **Aufgabe abgelehnt** | Übersprungen, nicht abgefragt; sonst würde sie dreißigmal gepollt und den Lauf zehn Minuten aufhalten. |
+| **Nicht rechtzeitig abgeholt** | Betroffene Keywords stehen in `notes` als **ungemessen**, nicht als "ohne Angebote". Davon hängt ab, ob die Analyse einen Befund oder eine Lücke schreibt. |

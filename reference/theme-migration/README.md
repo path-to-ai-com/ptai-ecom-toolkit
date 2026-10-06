@@ -1,7 +1,7 @@
 # Theme-Migration: Referenzen
 
 Stand 05.10.2026. Diese Dateien halten die Checklisten, Plattform-Fakten und Regeln, nach denen die
-zehn Skills der Theme-Migration arbeiten. Die Skills lesen sie an der Stelle, an der sie gebraucht
+elf Skills der Theme-Migration arbeiten. Die Skills lesen sie an der Stelle, an der sie gebraucht
 werden; hier steht, welche Datei wofür da ist.
 
 Ziel einer Migration ist ein bestehendes Shopify-Theme auf einem aktuellen Online-Store-2.0-Theme,
@@ -29,8 +29,8 @@ Richtung, nicht der geprüfte Wortlaut: vor dem Einsatz gegen die aktuelle Doku 
 | `seo-parity.md` | die SEO-Ausgabe alt gegen neu je Seitentyp, Schutzliste, typische stille Verluste | `inventory-theme`, `verify-theme`, `theme-migration` |
 | `verify-checklist.md` | die Prüfer, ihre Regeln, Schwerestufen, Barrierefreiheit nach WCAG 2.2 und BFSG, Performance | `verify-theme` |
 | `change-freeze.md` | was zwischen den beiden Abgleichen eingefroren ist und was frei bleibt | `sync-live-theme`, `theme-migration` |
-| `launch-checklist.md` | Zeitpunkt, Go/No-Go, Rollouts, Prüfungen am Launch-Tag | `theme-migration` |
-| `rollback.md` | wann und wie zurückgeschaltet wird, und was ein Rückfall nicht zurückdreht | `theme-migration` |
+| `launch-checklist.md` | Zeitpunkt, Go/No-Go, Rollouts, Prüfungen am Launch-Tag | `theme-migration`, `launch-check` |
+| `rollback.md` | wann und wie zurückgeschaltet wird, und was ein Rückfall nicht zurückdreht | `theme-migration`, `launch-check` |
 | `post-launch.md` | Prüfplan nach dem Launch und die Rückrichtung der Editor-Änderungen ins Repo | `theme-migration`, `snapshot-theme` |
 | `platform-deadlines.md` | Fristen der Plattform mit Stand und Quelle: Skript-Tags, Shopify Scripts, Additional Scripts, Kundenkonten | `inventory-apps`, `theme-migration` |
 | `access-write.md` | Schreibzugang ins Theme: Konto mit Themes-Recht, Admin-Weg mit Scopes, die offene Frage der Ausnahme | `theme-migration`, `upload-theme` |
@@ -55,7 +55,7 @@ Dazu kommen zwei Datenablagen, die eigene Bausteine des Toolkits pflegen:
 | 6 Prüfung | Prüfer je Disziplin, Befunde zurück in 3 bis 5 | `verify-theme` | |
 | 7 Abgleich I | Live-Änderungen seit der Sicherung | `sync-live-theme` | Entscheidung je Änderung |
 | 8 Abnahme | Testrunde mit dem Team | `verify-theme`, `test-round` | **G4** Abnahme |
-| 9 Launch | Änderungsstopp, Abgleich II, Vergleichswerte, Go/No-Go, Veröffentlichen durch einen Menschen | `sync-live-theme`, `theme-migration` | **G5** Go/No-Go |
+| 9 Launch | Änderungsstopp, Abgleich II, Vergleichswerte, Go/No-Go, Veröffentlichen durch einen Menschen | `sync-live-theme`, `launch-check`, `theme-migration` | **G5** Go/No-Go |
 | 10 Nachsorge | Prüfplan, Rückrichtung ins Repo | `theme-migration` | |
 
 **Veröffentlichen ist immer ein Mensch.** Keine Skill ruft `themePublish` oder `shopify theme

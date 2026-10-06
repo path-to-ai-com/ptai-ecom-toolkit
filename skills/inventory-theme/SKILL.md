@@ -1,48 +1,58 @@
 ---
 name: inventory-theme
-description: Bestandsaufnahme eines Shopify-Themes vor einem Theme-Wechsel schreiben, aus der Sicherung und dem Shop: Typ und Basis (Vintage oder Online Store 2.0), Templates und ihre tatsächliche Nutzung über die Zuweisungen, Anpassungen gegen das Original in vier Klassen, Funktionsliste je Seitentyp, Metafelder und Metaobjekte samt Lesestellen, Übersetzungen, SEO-Ausgabe je Seitentyp, Kundenkonten und die Beispielseiten für alle Vergleiche. Nutzen bei "Bestandsaufnahme Theme", "welche Templates leben", "was ist am Theme angepasst", "Funktionsliste", "Theme-Inventar", in Phase 2 einer Theme-Migration und vor jedem größeren Umbau ohne Theme-Wechsel. Nicht verwenden für Apps und Tracking (ptai-ecom:inventory-apps), für die Messung der Gestaltung (ptai-ecom:compare-themes) und für die Sicherung selbst (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
+description: Schreibt die Bestandsaufnahme eines Shopify-Themes vor einem Theme-Wechsel, aus der Sicherung und dem Shop: Typ und Basis (Vintage oder Online Store 2.0), Templates und ihre Nutzung laut Zuweisungen, Anpassungen gegen das Original in vier Klassen, Funktionsliste je Seitentyp, Metafelder und Metaobjekte mit Lesestellen, Übersetzungen, SEO-Ausgabe je Seitentyp, Kundenkonten und die Beispielseiten für alle Vergleiche. Nutzen bei "Bestandsaufnahme Theme", "welche Templates leben", "was ist am Theme angepasst", "Funktionsliste", "Theme-Inventar", in Phase 2 einer Theme-Migration und vor jedem größeren Umbau ohne Theme-Wechsel. Nicht verwenden für Apps und Tracking (ptai-ecom:inventory-apps), für die Messung der Gestaltung (ptai-ecom:compare-themes) und für die Sicherung selbst (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # inventory-theme: Bestandsaufnahme des Quell-Themes
 
-Die Liste, gegen die der Neubau arbeitet und gegen die er später geprüft wird. Sie hält fest, was am
-Theme individuell ist und was es kann, welche Templates wirklich leben und was das Theme aus dem
-Shop liest. Eine Funktion, die das Basis-Theme mitbringt, taucht in keiner Anpassungsliste auf und
-fehlt nach dem Wechsel trotzdem; deshalb gehört die Funktionsliste dazu.
+Die Bestandsaufnahme ist die Vorgabe für den Neubau und die Grundlage seiner Prüfung. Sie erfasst:
 
-Arbeitsverzeichnis ist der Kunden-Workspace.
+- was am Theme individuell ist und welche Funktionen es hat
+- welche Templates Objekten zugewiesen sind
+- was das Theme aus dem Shop liest
 
-**Jeder Handgriff an Shopify läuft über die Shopify-Skills des Shopify AI Toolkit**
+Die Funktionsliste ist Pflicht, weil Funktionen des Basis-Themes in keiner Anpassungsliste stehen und
+nach dem Wechsel trotzdem fehlen können.
+
+Arbeitsverzeichnis: der Kunden-Workspace.
+
+**Jede Shopify-Arbeit über die Shopify-Skills des Shopify AI Toolkit**
 (`shopify-plugin:shopify-admin`, `shopify-plugin:shopify-custom-data`, `shopify-plugin:shopify-liquid`),
-nie aus dem Gedächtnis, auch für jede lesende Abfrage.
+nie aus dem Gedächtnis, auch bei lesenden Abfragen.
 
-Die Checkliste mit Gründen und Fehlerbildern steht in
-`${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/inventory-checklist.md`, die Regeln für Anpassungen in
-`customizations.md`, für Übersetzungen in `translations.md`, für die SEO-Ausgabe in `seo-parity.md`,
-alle im selben Ordner.
+Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
+
+- `inventory-checklist.md`: Checkliste mit Gründen und Fehlerbildern
+- `customizations.md`: Regeln für Anpassungen
+- `translations.md`: Übersetzungen
+- `seo-parity.md`: SEO-Ausgabe
 
 ## Voraussetzungen
 
 - `reporting/config.json` mit `shopify_store` und dem Block `theme_migration`.
-- Eine vollständige Sicherung des Live-Themes unter `migration/snapshots/<date>-<theme-id>/`
+- Vollständige Sicherung des Live-Themes unter `migration/snapshots/<date>-<theme-id>/`
   (`snapshot-theme`). Ohne sie startet die Skill nicht.
-- Für die Anpassungen das Original als zweite Sicherung (`snapshot-theme --original`). Fehlt es, läuft
-  alles andere, und die Anpassungen stehen als nicht bestimmbar.
+- Für die Anpassungen das Original als zweite Sicherung (`snapshot-theme --original`). Fehlt es, laufen
+  alle anderen Teile, und die Anpassungen sind als nicht bestimmbar markiert.
 - Lesezugang mit `read_themes`, `read_products`, `read_content`, `read_locales`, `read_markets`, für
-  Übersetzungen `read_translations`. Ein fehlender Scope macht den betroffenen Teil zu "nicht lesbar"
-  mit Grund, nie zu 0.
+  Übersetzungen `read_translations`. Fehlt ein Scope, ist der betroffene Teil "nicht lesbar" mit Grund,
+  nie 0.
 
 ## Ablauf
 
-Ergebnisse liegen unter `migration/inventory/`, je JSON-Datei eine `.md`-Ansicht für Menschen mit
-demselben Namen. Jeder Teil ist isoliert: scheitert einer, steht er mit Grund als `not_readable`, die
-anderen laufen weiter.
+- Ergebnisse unter `migration/inventory/`, zu jeder JSON-Datei eine `.md`-Ansicht mit demselben Namen.
+- Jeder Teil läuft isoliert: scheitert einer, steht er mit Grund als `not_readable`, die anderen laufen
+  weiter.
 
-1. **Typ und Basis.** Aus der Sicherung: JSON- oder Liquid-Templates, Section-Groups
-   (`sections/*-group.json`), `@app` im Schema der Main-Section, `{{ content_for_index }}` in einem
-   Vintage-`index.liquid`. Theme-Name und Version aus `theme_info` in `config/settings_schema.json`.
-   Ergebnis `os2` oder `vintage`; der Wert gehört nach `theme_migration.source_theme.architecture` in
-   der Konfiguration, und die Skill schlägt die Änderung vor, statt sie still zu schreiben.
+1. **Typ und Basis** aus der Sicherung prüfen:
+   - JSON- oder Liquid-Templates
+   - Section-Groups (`sections/*-group.json`)
+   - `@app` im Schema der Main-Section
+   - `{{ content_for_index }}` in einem Vintage-`index.liquid`
+   - Theme-Name und Version aus `theme_info` in `config/settings_schema.json`
+
+   Ergebnis `os2` oder `vintage`. Der Wert gehört nach `theme_migration.source_theme.architecture`; die
+   Skill schlägt die Änderung vor und schreibt sie nicht selbst.
 
 2. **Templates und Nutzung:**
 
@@ -52,10 +62,14 @@ anderen laufen weiter.
      --out migration/inventory/templates.json
    ```
 
-   Das Modul liest `templateSuffix` aller Produkte, Kollektionen, Seiten, Blogs und Artikel und hält
-   je Template-Datei die Zahl der Objekte, die Templates ohne Objekt (`files_without_objects`), die
-   Zuweisungen auf Suffixe ohne Datei (`assigned_without_file`) und die Markt-Varianten. **Die Zahl der
-   lebenden Templates kommt nur hierher, nie aus der Dateiliste.**
+   Das Modul liest `templateSuffix` aller Produkte, Kollektionen, Seiten, Blogs und Artikel und
+   speichert:
+   - je Template-Datei die Zahl der Objekte
+   - Templates ohne Objekt (`files_without_objects`)
+   - Zuweisungen auf Suffixe ohne Datei (`assigned_without_file`)
+   - Markt-Varianten
+
+   **Die Zahl der zugewiesenen Templates kommt nur aus dieser Datei, nie aus der Dateiliste.**
 
 3. **Anpassungen gegen das Original:**
 
@@ -66,31 +80,42 @@ anderen laufen weiter.
      --out migration/inventory/customizations-candidates.json
    ```
 
-   Nur der Code-Teil, CSS normalisiert. Vorher das Original nach Marken- und Domainspuren des Shops
-   und nach Fremd-Skripten durchsuchen und Treffer ausnehmen: Apps schreiben auch in unveröffentlichte
-   Themes. Danach jeden Kandidaten einordnen in **Funktion, Gestaltung, App-Rest oder Altlast**, mit
-   Datei und Zeilen, Wirkung im Shop, sichtbar genutzt ja oder nein. Ergebnis
-   `customizations.json`. **Eine Funktion zählt erst, wenn ihre Wirkung im Live-Shop gemessen ist**:
-   jede Anpassung mit sichtbarer Wirkung an einer lebenden Seite im Browser nachprüfen, bevor sie als
-   Funktion zählt. Gezählt wird nach der Einordnung, nie vorher.
+   1. Nur der Code-Teil, CSS normalisiert.
+   2. Vorher das Original nach Marken- und Domainspuren des Shops und nach Fremd-Skripten durchsuchen und
+      Treffer ausnehmen; Apps schreiben auch in unveröffentlichte Themes.
+   3. Jeden Kandidaten einordnen als **Funktion, Gestaltung, App-Rest oder Altlast**, mit Datei und
+      Zeilen, Wirkung im Shop, sichtbar genutzt ja oder nein. Ergebnis `customizations.json`.
+   4. **Eine Funktion zählt erst, wenn ihre Wirkung im Live-Shop gemessen ist:** jede Anpassung mit
+      sichtbarer Wirkung an einer zugewiesenen Seite im Browser nachprüfen.
+   5. Erst nach der Einordnung zählen.
 
-4. **Funktionsliste je Seitentyp.** Jede lebende Seite (aus Schritt 2) durchgehen: was kann eine
-   Besucherin dort tun (Variantenwahl, Warenkorb, Filter, Sortierung, Suche, Formulare, Karussells,
-   Sonderfunktionen), mit Quelle (`theme`, `app`, `customization`) und Fundstelle. Auch was nach dem
-   Hinzufügen zum Warenkorb passiert. Ergebnis `functions.json`, eine Zeile je Funktion und Seitentyp
-   mit `id`, `page_type`, `function`, `source`, `evidence`. Diese Liste ist später die Prüfliste von
-   `verify-theme`.
+4. **Funktionsliste je Seitentyp.** Jede zugewiesene Seite aus Schritt 2 durchgehen:
+   - was eine Besucherin dort tun kann (Variantenwahl, Warenkorb, Filter, Sortierung, Suche, Formulare,
+     Karussells, Sonderfunktionen)
+   - Quelle (`theme`, `app`, `customization`) und Fundstelle
+   - was nach dem Hinzufügen zum Warenkorb passiert
 
-5. **Metafelder und Metaobjekte.** Definitionen je Besitzertyp, Metaobjekt-Definitionen, belegte
-   Namensräume (Stichprobe; eine Fehlanzeige nur nach Vollscan), Lesestellen im Code **und in den
-   JSON-Templates** (dynamische Quellen, `raw_content`). Die Schreibweise der Schlüssel an der
-   ausgelieferten Seite prüfen: Liquid löst case-sensitiv auf, die Admin-API nicht. Verwaiste Felder in
-   beide Richtungen markieren. Ergebnis `metafields.json`.
+   Ergebnis `functions.json`, eine Zeile je Funktion und Seitentyp mit `id`, `page_type`, `function`,
+   `source`, `evidence`. `verify-theme` nutzt diese Liste später als Prüfliste.
 
-6. **Übersetzungen.** Sprachen und Märkte aus dem Shop (nicht aus `locales/`), Übersetzungs-App,
-   Umleitungen im Theme-Code, Schreiber je Sprache, die Theme-Übersetzungen des Live-Themes je
-   Theme-Ressourcentyp mit Schlüssel, Ausgangswert und Übersetzung, und die Zahl, die im neuen Theme
-   neu registriert werden muss. Ergebnis `translations.json`. Einzelheiten in `translations.md`.
+5. **Metafelder und Metaobjekte:**
+   - Definitionen je Besitzertyp, Metaobjekt-Definitionen
+   - belegte Namensräume (Stichprobe; eine Fehlanzeige nur nach Vollscan)
+   - Lesestellen im Code **und in den JSON-Templates** (dynamische Quellen, `raw_content`)
+   - Schreibweise der Schlüssel an der ausgelieferten Seite prüfen: Liquid löst case-sensitiv auf, die
+     Admin-API nicht
+   - verwaiste Felder in beide Richtungen markieren
+
+   Ergebnis `metafields.json`.
+
+6. **Übersetzungen:**
+   - Sprachen und Märkte aus dem Shop, nicht aus `locales/`
+   - Übersetzungs-App, Umleitungen im Theme-Code, Schreiber je Sprache
+   - Theme-Übersetzungen des Live-Themes je Theme-Ressourcentyp mit Schlüssel, Ausgangswert und
+     Übersetzung
+   - Zahl der Übersetzungen, die im neuen Theme neu registriert werden müssen
+
+   Ergebnis `translations.json`. Einzelheiten in `translations.md`.
 
 7. **SEO-Ausgabe je Seitentyp.** Crawl des Live-Shops über `crawl-site` in den Daten-Ordner des
    Migrationslaufs:
@@ -100,19 +125,22 @@ anderen laufen weiter.
      --domain <domain> --out "reporting/data/<date>-migration"
    ```
 
-   Dazu das gerenderte HTML der Beispielseiten im Browser. Je Seitentyp: Title, Meta-Description,
-   H1 bis H6, Canonical, Meta-Robots, strukturierte Daten (doppeltes Product-JSON-LD markieren),
-   Quelle von hreflang, Ausgabe von `/robots.txt`, Wortzahl je URL. Dazu die Schutzliste aus Sitemap,
-   Crawl und Search Console (`pull-gsc`, maximaler Zeitraum) und der Export der bestehenden Redirects.
-   Ergebnis `seo.json`.
+   Dazu das gerenderte HTML der Beispielseiten im Browser. Je Seitentyp erfassen:
+   - Title, Meta-Description, H1 bis H6, Canonical, Meta-Robots
+   - strukturierte Daten (doppeltes Product-JSON-LD markieren)
+   - Quelle von hreflang, Ausgabe von `/robots.txt`, Wortzahl je URL
 
-8. **Kundenkonten** klassisch oder neu (Admin-Einstellung, `templates/customers/*`). Klassische Konten
-   kommen mit Frist als Eintrag `customer_accounts` nach `risks.json`. Die Datei wird vor dem Schreiben
-   frisch gelesen und nur der eigene Eintrag geändert, weil `inventory-apps` dort ebenfalls schreibt.
+   Dazu die Schutzliste aus Sitemap, Crawl und Search Console (`pull-gsc`, maximaler Zeitraum) und den
+   Export der bestehenden Redirects. Ergebnis `seo.json`.
 
-9. **Beispielseiten** `pages.json` aus der Template-Nutzung. Bei `page_sample: "auto"` je lebendem
-   Template eine URL; liegt ein Search-Console-Snapshot vor, die meistbesuchte, sonst die erste mit
-   Inhalt. Dazu je Sprache die Startseite und je Markt-Pfad eine Seite.
+8. **Kundenkonten** klassisch oder neu (Admin-Einstellung, `templates/customers/*`). Klassische Konten mit
+   Frist als Eintrag `customer_accounts` nach `risks.json`. Die Datei vor dem Schreiben frisch lesen und
+   nur den eigenen Eintrag ändern, weil `inventory-apps` dort ebenfalls schreibt.
+
+9. **Beispielseiten** `pages.json` aus der Template-Nutzung:
+   - bei `page_sample: "auto"` je zugewiesenem Template eine URL
+   - mit Search-Console-Snapshot die meistbesuchte, sonst die erste mit Inhalt
+   - dazu je Sprache die Startseite und je Markt-Pfad eine Seite
 
    ```json
    {"base_url": "https://beispielshop.example", "pages": [
@@ -121,37 +149,41 @@ anderen laufen weiter.
 
    Alle Vergleiche (`compare-themes`, `inventory-apps`, `verify-theme`) nutzen diese Liste.
 
-10. **Ergebnis melden**, kurz und in Zahlen: Typ und Basis, lebende Templates gegen Template-Dateien,
+10. **Ergebnis melden**, kurz und in Zahlen: Typ und Basis, zugewiesene Templates gegen Template-Dateien,
     Anpassungen je Klasse, Funktionen je Seitentyp, verwaiste Metafelder, neu zu registrierende
     Übersetzungen, Auffälligkeiten der SEO-Ausgabe, offene Teile mit Grund.
 
 ## Vintage-Themes
 
-Bei `vintage` zusätzlich: die statischen Sections aus `config/settings_data.json` (`sections`,
-`content_for_index`) und die Inhalte, die im Liquid-Code der Templates stecken, je Seitentyp. Diese
-Inhalte gehen nicht über eine Einstellung in das neue Theme, sondern über das Mapping, und gehören
-deshalb vollständig in die Aufnahme.
+Bei `vintage` zusätzlich erfassen:
+
+- die statischen Sections aus `config/settings_data.json` (`sections`, `content_for_index`)
+- je Seitentyp die Inhalte im Liquid-Code der Templates
+
+Diese Inhalte kommen nicht über eine Einstellung ins neue Theme, sondern über das Mapping, und müssen
+deshalb vollständig erfasst sein.
 
 ## Ergebnis
 
-`migration/inventory/` mit `templates.json`, `customizations.json`, `functions.json`,
-`metafields.json`, `translations.json`, `seo.json`, `pages.json` und dem eigenen Teil von `risks.json`,
-je mit `.md`-Ansicht. Die Dateien werden im Workspace committet, namentlich gestagt. Bilder gehören nie
-in den Workspace, sondern in den Kundenordner.
+- `migration/inventory/` mit `templates.json`, `customizations.json`, `functions.json`,
+  `metafields.json`, `translations.json`, `seo.json`, `pages.json` und dem eigenen Teil von `risks.json`,
+  je mit `.md`-Ansicht.
+- Im Workspace committet, namentlich gestagt.
+- Bilder nie im Workspace, sondern im Kundenordner.
 
 ## Fehlerbilder
 
 - **Keine Sicherung:** nicht starten, `snapshot-theme` anbieten.
 - **Original fehlt:** Anpassungen als nicht bestimmbar vermerken, nicht gegen eine vermutete Version
   diffen. Ein Diff gegen die falsche Version macht jede Zeile zur Abweichung.
-- **Der Inhalts-Teil wird mitgedifft** (`templates/*.json`, `settings_data.json`, `locales/`,
-  `sections/*.json`): tausende Scheinbefunde. Nur der Code-Teil gehört in den Diff.
-- **Eine Anpassung wird aus dem Code gelesen statt gemessen:** der Neubau führt dann ein Verhalten
-  ein, das es nie gab.
-- **Gestaltungswerte aus `settings_data.json`:** die Datei enthält tote Einstellungen. Gestaltung misst
-  `compare-themes --measure` am gerenderten Shop.
-- **Ein Scope fehlt:** der Teil steht als `not_readable` mit Grund. Bei einer erneuten Anmeldung gilt
-  die Union-Regel aus `pull-shopify`.
-- **Gedrosselt:** Exit-Code prüfen, warten, erneut. Eine leere Antwort ist nie "keine Daten".
-- **Die Sicherung ist älter als einige Tage:** vor Befunden an einzelnen Dateien `sync-live-theme`
-  laufen lassen, damit kein Befund an einem überholten Stand hängt.
+- **Inhalts-Teil mitgedifft** (`templates/*.json`, `settings_data.json`, `locales/`, `sections/*.json`):
+  tausende Scheinbefunde. Nur den Code-Teil diffen.
+- **Anpassung aus dem Code gelesen statt gemessen:** der Neubau führt dann ein Verhalten ein, das es nie
+  gab.
+- **Gestaltungswerte aus `settings_data.json`:** die Datei enthält ungenutzte Einstellungen. Gestaltung
+  misst `compare-themes --measure` am gerenderten Shop.
+- **Scope fehlt:** der Teil steht als `not_readable` mit Grund. Bei erneuter Anmeldung gilt die
+  Union-Regel aus `pull-shopify`.
+- **Gedrosselt:** Exit-Code prüfen, warten, erneut. Eine leere Antwort bedeutet nie "keine Daten".
+- **Sicherung älter als einige Tage:** vor Befunden an einzelnen Dateien `sync-live-theme` ausführen,
+  damit kein Befund auf einem überholten Stand beruht.

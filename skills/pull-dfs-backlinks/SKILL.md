@@ -1,43 +1,27 @@
 ---
 name: pull-dfs-backlinks
-description: Das Backlinkprofil einer Domain über DataForSEO ziehen (Bestand, verweisende Domains, Ankertexte) plus den normalisierten Autoritäts-Score und den Toxizitäts-Score im Vergleich zu den Wettbewerbern, Ergebnis als Snapshot. Nutzen, wenn ein Audit den Baseline-Block SEO Sichtbarkeit braucht oder der Nutzer wissen will, wie stark und wie sauber das Linkprofil ist. Kostet Geld je Aufruf, Deckel aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
+description: Zieht über DataForSEO das Backlinkprofil einer Domain (Bestand, verweisende Domains, Ankertexte) samt normalisiertem Autoritäts-Score und Toxizitäts-Score im Vergleich zu den Wettbewerbern und schreibt das Ergebnis als Snapshot. Einsetzen, wenn ein Audit den Baseline-Block SEO Sichtbarkeit braucht oder der Nutzer Stärke und Sauberkeit des Linkprofils wissen will. Jeder Aufruf kostet, Obergrenze aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
 ---
 
 # pull-dfs-backlinks: Linkprofil, Autorität und Toxizität
 
-Zieht das Backlinkprofil und die beiden Kennzahlen, die im Vergleich mit
-Semrush und Ahrefs den Ausschlag geben.
+Zieht das Backlinkprofil plus Autoritäts-Score und Toxizitäts-Score.
 
-## Gegen echte Antworten geprüft, und das hat sich gelohnt
+## Kennzahlen
 
-Am 07.09.2026 alle vier Endpunkte echt aufgerufen und als Fixtures abgelegt
-(rund 0,10 USD). **Der Abgleich hat einen Fehler gefunden, der eine zu hundert
-Prozent falsche Zahl erzeugt hätte:**
+- Rohe Backlink-Zahlen haben wenig Aussagekraft. Maßgeblich sind Autorität und Toxizität (Benchmark gegen Semrush und Ahrefs, interne Endpoint-Bewertung vom 12.08.2026); DataForSEO hat für beide ein Äquivalent.
+- Beide Scores zusammen bestimmen die Maßnahme: hohe Toxizität heißt erst bereinigen, dann aufbauen. Niedrige Autorität allein heißt aufbauen.
+- Fixtures aller Endpunkte liegen vor (Aufnahme 07.09.2026, rund 0,10 USD).
 
-Ein Feld `dofollow` gibt es an den verweisenden Domains **nicht**. Die Items
-führen `referring_pages` und `referring_pages_nofollow`. Der erste Entwurf las
-`dofollow`, bekam in jeder Zeile `falsy` und schrieb eine Dofollow-Quote von
-**0,0** für ein Profil, dessen Links zu **83 Prozent** folgen. Im Report hätte
-das als "kein einziger Link folgt" gestanden, also als schwerer Befund, und
-niemandem wäre es aufgefallen.
+## Feld `dofollow` gibt es nicht
 
-## Warum Autorität und Toxizität mitmüssen
+- Verweisende Domains haben **kein** Feld `dofollow`.
+- Vorhanden sind `referring_pages` und `referring_pages_nofollow`.
+- Wer `dofollow` liest, erhält in jeder Zeile `falsy` und eine Dofollow-Quote von **0,0**, auch bei einem Profil mit **83 Prozent** folgenden Links.
 
-Der Benchmark gegen Semrush und Ahrefs (interne Endpoint-Bewertung vom
-12.08.2026) ergab: rohe
-Backlink-Zahlen sagen wenig. Den Ausschlag geben zwei andere Kennzahlen, und
-DataForSEO hat für beide ein Äquivalent.
+## Endpunkte und Kosten
 
-Der Unterschied ist nicht kosmetisch. Im Testfall lag der Autoritäts-Score der
-Brand deutlich hinter den Wettbewerbern, aber **nicht in einer anderen Liga**,
-wie es die reinen Traffic-Zahlen nahegelegt hatten: der Rückstand war real und
-aufholbar. Der Toxizitäts-Score dagegen war der **höchste im Feld**, um ein
-Vielfaches über dem stärksten Wettbewerber. Daraus folgt eine andere Maßnahme
-als aus "zu wenig Autorität": erst das Profil bereinigen, dann aufbauen. Ohne
-die zweite Kennzahl hätte der Report die falsche Empfehlung gegeben, und zwar
-mit Zahlen belegt.
-
-## Fünf Endpunkte, rund 0,12 USD
+Fünf Endpunkte, rund 0,12 USD.
 
 | Teil | Endpunkt | Kosten | Wofür |
 |---|---|---:|---|
@@ -47,15 +31,13 @@ mit Zahlen belegt.
 | Autorität | `backlinks/bulk_ranks/live` | 0,024 USD je 5 Domains | eigener Score gegen Wettbewerber |
 | Toxizität | `backlinks/bulk_spam_score/live` | 0,024 USD je 5 Domains | Disavow-Bedarf statt Linkaufbau |
 
-Kadenz quartalsweise. Nur das Summary ist fatal: die vier übrigen scheitern
-isoliert, der Snapshot ist dann ohne den jeweiligen Teil geschrieben.
+- Kadenz: quartalsweise.
+- Nur ein Fehler im Summary ist fatal. Scheitert einer der vier übrigen, wird der Snapshot ohne diesen Teil geschrieben.
 
 ## Voraussetzungen
 
-- `reporting/config.json` mit `domain`, `competitors`, `dfs_budget_usd`,
-  `sources.backlinks` nicht `false`
-- `PTAI_DFS_LOGIN` und `PTAI_DFS_PASSWORD` in der `.env` des Workspace oder
-  zentral in `~/.config/ptai-ecom/.env`
+- `reporting/config.json` mit `domain`, `competitors`, `dfs_budget_usd`, `sources.backlinks` ungleich `false`.
+- `PTAI_DFS_LOGIN` und `PTAI_DFS_PASSWORD` in der `.env` des Workspace oder zentral in `~/.config/ptai-ecom/.env`.
 
 ## Ablauf
 
@@ -69,10 +51,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-dfs-backlinks/scripts/backlinks_pull.
   --location-code <market.location_code> --language-code <market.language_code>
 ```
 
-**Ohne Wettbewerber ist der Autoritäts-Score keine Aussage.** Ein Wert von 154
-sagt nichts; gegen 391 und 423 wird daraus "der Rückstand ist real und
-aufholbar". Die eigene Domain ist im Snapshot mit `own: true` markiert, damit
-die Analyse sie findet.
+- **Wettbewerber mitgeben.** Ein Autoritäts-Score von 154 ist allein keine Aussage; erst gegen 391 und 423 zeigt er einen aufholbaren Rückstand.
+- Die eigene Domain hat im Snapshot `own: true`.
 
 ## Snapshot-Schema
 
@@ -97,45 +77,27 @@ die Analyse sie findet.
 }
 ```
 
-**Quoten gehen über die volle Menge, nie über die gekürzte Liste.**
-`dofollow_share` rechnet über alle gelieferten Domains, die Liste ist auf 200
-gekappt. Eine Quote über einen Ausschnitt wäre eine andere Zahl mit demselben
-Namen.
+### Regeln zum Schema
 
-**Eine Domain folgt, wenn mindestens eine ihrer Seiten folgt**, also wenn
-`referring_pages` größer ist als `referring_pages_nofollow`. Fehlen beide
-Felder, ist es unbekannt: die Domain zählt dann weder als folgend noch als
-nicht folgend, sondern in `domains_without_follow_data`. Weder 1 noch 0 wäre
-hier eine Messung.
+- **Quoten über die volle Menge, nie über die gekürzte Liste.** `dofollow_share` rechnet über alle gelieferten Domains; die Liste ist auf 200 gekappt.
+- **Domain folgt**, wenn `referring_pages` größer ist als `referring_pages_nofollow`, also mindestens eine Seite folgt.
+- Fehlen beide Felder, ist der Status unbekannt: weder folgend noch nicht folgend, Zählung in `domains_without_follow_data`.
+- **Ohne verweisende Domains ist die Dofollow-Quote `null`**, nicht 0; eine 0 hieße "keine einzige folgt".
+- **Toxizitäts-Score: `null` = nicht gemessen, `0` = sauber.** Davon hängt ab, ob eine Disavow-Empfehlung in den Report kommt.
+- **Leeres Ergebnis ist ein Befund**, kein Fehler: Nullen plus Vermerk.
 
-**Ohne verweisende Domains gibt es keine Dofollow-Quote**, also `null` statt 0.
-Eine 0 läse sich als "keine einzige folgt".
+## Antwortformat (an echten Antworten geprüft)
 
-**Beim Toxizitäts-Score heißt `null` nicht gemessen und `0` sauber.** Der
-Unterschied entscheidet, ob eine Disavow-Empfehlung im Report steht.
+- `referring_domains`, `anchors`, `bulk_ranks` und `bulk_spam_score` liefern unter `result[0].items`; nur `summary` ist flach.
+- `_items()` liest genau diese Form. Keine Toleranz für eine zweite Form, sonst bleibt eine dritte unbemerkt.
+- **Autoritäts-Score läuft bis 1.000** (geprüft an zwei großen Vergleichsdomains, 680 und 812). Nicht als 0 bis 100 lesen.
+- **Alle übergebenen Domains kommen zurück** (drei von drei).
+- **Toxizitäts-Score ist eine ganze Zahl von 0 bis 100.**
+- Preis: **0,024 USD je Aufruf**, fünf Aufrufe rund 0,12 USD. `ESTIMATE_USD["backlinks"]` steht auf 0,15 inklusive Zuschlag.
 
-**Ein leeres Ergebnis ist ein Befund.** Eine Domain ohne Backlinks hat keine;
-der Snapshot trägt dann Nullen und einen Vermerk, kein Fehler.
+## Prüfstand der Zahlen
 
-## Was die Aufnahme bestätigt hat
-
-- **Die Verschachtelung ist festgeschrieben:** `referring_domains`, `anchors`,
-  `bulk_ranks` und `bulk_spam_score` liefern unter `result[0].items`, nur
-  `summary` ist flach. `_items()` liest jetzt genau diese Form; die frühere
-  Toleranz für zwei Formen ist raus, weil eine Funktion, die zwischen zweien
-  rät, später eine dritte verdeckt.
-- **Der Autoritäts-Score läuft bis 1.000**, bestätigt an zwei großen
-  Vergleichsdomains (680 und 812). Auf einer 0-bis-100-Skala gelesen würde die
-  Verwechslung aus einem schwachen Profil ein starkes machen.
-- **Alle übergebenen Domains kommen zurück**, drei von drei.
-- **Der Toxizitäts-Score kommt als ganze Zahl von 0 bis 100.**
-- Preis: **0,024 USD je Aufruf**, fünf Aufrufe also rund 0,12 USD.
-  `ESTIMATE_USD["backlinks"]` steht auf 0,15 mit Zuschlag.
-
-## Wogegen geprüft, und was offen bleibt
-
-Die **Struktur** ist an echten Antworten geprüft (siehe oben). Die **Zahlen**
-sind es nur teilweise:
+Struktur geprüft, Zahlen teilweise:
 
 | Frage | Stand |
 |---|---|
@@ -144,22 +106,19 @@ sind es nur teilweise:
 | Dofollow-Quote | jetzt korrekt gerechnet, aber gegen keine zweite Quelle gehalten |
 | Zahl der verweisenden Domains | **offen** |
 
-**Der Abgleich der Domain-Zahl geht nicht über die API.** Die
-Search-Console-API kennt keinen Endpunkt für den Links-Bericht; er steht nur in
-der Oberfläche. Der Vergleich ist deshalb ein manueller Schritt: in der Search
-Console unter Links die Zahl der verweisenden Domains ablesen und gegen
-`summary.referring_domains` halten.
+### Domain-Zahl manuell abgleichen
 
-DataForSEO findet in der Regel **mehr** als die Search Console, weil es einen
-eigenen Index hat. Findet es **weniger**, stimmt etwas nicht: entweder ist
-`target` falsch geschrieben (mit `www.`, mit Protokoll) oder
-`backlinks_status_type` filtert mehr weg als gedacht.
+Die Search-Console-API hat keinen Endpunkt für den Links-Bericht.
+
+1. In der Search Console unter Links die Zahl der verweisenden Domains ablesen.
+2. Mit `summary.referring_domains` vergleichen.
+3. DataForSEO findet in der Regel **mehr** (eigener Index).
+4. Findet es **weniger**, prüfen: `target` falsch geschrieben (mit `www.`, mit Protokoll) oder `backlinks_status_type` filtert zu viel.
 
 ## Fehlerbilder
 
-- **Budgetdeckel erreicht:** Abbruch vor dem Aufruf, Quelle "nicht verfügbar".
-- **Ein Teil scheitert:** nur das Summary ist fatal, die übrigen vier hinterlassen
-  eine Warnung und einen Snapshot ohne diesen Teil.
-- **Keine Wettbewerber in der Config:** Autorität und Toxizität kommen nur für
-  die eigene Domain zurück. Das ist ein Wert ohne Maßstab; die Analyse muss ihn
-  als solchen behandeln.
+| Fall | Verhalten |
+|---|---|
+| **Budgetdeckel erreicht** | Abbruch vor dem Aufruf, Quelle "nicht verfügbar". |
+| **Ein Teil scheitert** | Nur das Summary ist fatal; die übrigen vier hinterlassen eine Warnung und einen Snapshot ohne diesen Teil. |
+| **Keine Wettbewerber in der Config** | Autorität und Toxizität nur für die eigene Domain; die Analyse behandelt sie als Wert ohne Maßstab. |

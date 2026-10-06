@@ -1,34 +1,33 @@
 ---
 name: map-theme
-description: Die Zuordnung eines Shopify-Quell-Themes auf ein Online-Store-2.0-Ziel-Theme erzeugen, aus der build-theme baut, und jede Entscheidung mit Person und Datum festhalten: je lebendes Template ein Ziel, je Section- und Block-Typ ein Ausgang (configure, build, drop) mit Transformation je Einstellung, je Funktion rebuild, native, app oder drop, die gemessene Gestaltung auf die Einstellungen des Ziel-Themes (Horizon ab 4 mit color_palette statt Farbschemata), je behaltene App der Weg im neuen Theme. Nutzt fertige Zuordnungen aus der Mapping-Bibliothek, wo es sie gibt. Nutzen bei "Mapping alt auf neu", "Zuordnung der Sections", "welche Section wird was", "was bauen wir nach", in Phase 3 einer Theme-Migration und nach jedem Befund, dessen Ursache in der Zuordnung liegt. Nicht verwenden für das Erzeugen der Dateien (ptai-ecom:build-theme) und nicht für die Bestandsaufnahme (ptai-ecom:inventory-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
+description: Erzeugt die Zuordnung eines Shopify-Quell-Themes auf ein Online-Store-2.0-Ziel-Theme als Eingabe für build-theme und speichert jede Entscheidung mit Person und Datum: je zugewiesenes Template ein Ziel, je Section- und Block-Typ ein Ausgang (configure, build, drop) mit Transformation je Einstellung, je Funktion rebuild, native, app oder drop, die gemessene Gestaltung auf die Einstellungen des Ziel-Themes (Horizon ab 4 mit color_palette statt Farbschemata), je behaltene App der Weg im neuen Theme. Nutzt fertige Zuordnungen aus der Mapping-Bibliothek, wo vorhanden. Nutzen bei "Mapping alt auf neu", "Zuordnung der Sections", "welche Section wird was", "was bauen wir nach", in Phase 3 einer Theme-Migration und nach jedem Befund mit Ursache in der Zuordnung. Nicht verwenden für das Erzeugen der Dateien (ptai-ecom:build-theme) und nicht für die Bestandsaufnahme (ptai-ecom:inventory-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # map-theme: Zuordnung alt zu neu
 
-Das Mapping ist die einzige Stelle, an der festgelegt wird, was aus dem alten Theme im neuen wird.
-Der Generator baut nur daraus. Eine Korrektur, die nicht hier oder in einer Generator-Regel steht,
-dreht der nächste Lauf zurück.
+Das Mapping legt als einzige Stelle fest, was aus dem alten Theme im neuen wird. Der Generator baut nur
+daraus. Korrekturen außerhalb von Mapping oder Generator-Regel macht der nächste Lauf rückgängig.
 
-Arbeitsverzeichnis ist der Kunden-Workspace.
+Arbeitsverzeichnis: der Kunden-Workspace.
 
-**Jeder Handgriff an Shopify läuft über die Shopify-Skills des Shopify AI Toolkit.** Schemas,
-Section- und Block-Typen, Einstellungstypen (etwa `color_palette`) und ihr Verhalten werden über
-`shopify-plugin:shopify-liquid` und die Doku geprüft, nie aus dem Gedächtnis.
+**Jede Shopify-Arbeit über die Shopify-Skills des Shopify AI Toolkit.** Schemas, Section- und
+Block-Typen, Einstellungstypen (etwa `color_palette`) und ihr Verhalten über
+`shopify-plugin:shopify-liquid` und die Doku prüfen, nie aus dem Gedächtnis.
 
-Regeln zu Funktionen und stillen Abweichungen stehen in
-`${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/customizations.md`, die Wege je App in
-`apps-and-tracking.md`, beide im selben Ordner.
+Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
+
+- `customizations.md`: Regeln zu Funktionen und stillen Abweichungen
+- `apps-and-tracking.md`: Wege je App
 
 ## Voraussetzungen
 
-- Die Bestandsaufnahme unter `migration/inventory/` (`templates.json`, `customizations.json`,
+- Bestandsaufnahme unter `migration/inventory/` (`templates.json`, `customizations.json`,
   `functions.json`, `apps.json`, `design.json`, `translations.json`).
 - **Gate G1 entschieden**: je App, Funktion und Template übernehmen, ersetzen oder streichen, in
-  `migration/mapping/decisions.json`. Ohne G1 baut diese Skill keine Zuordnung, sie würde Entscheidungen
-  vorwegnehmen.
-- Das Ziel-Theme lokal, mit Schemas: das Ziel-Repo aus `theme_migration.target_repo` mit dem Upstream
-  in der Version `target_theme.ref`. Fehlt es, zuerst `build-theme`, Schritt "Ziel-Repo aufsetzen";
-  der Schritt schreibt nichts in den Shop.
+  `migration/mapping/decisions.json`. Ohne G1 keine Zuordnung, weil sie sonst Entscheidungen vorwegnimmt.
+- Ziel-Theme lokal mit Schemas: das Ziel-Repo aus `theme_migration.target_repo` mit dem Upstream in der
+  Version `target_theme.ref`. Fehlt es, zuerst `build-theme`, Schritt "Ziel-Repo aufsetzen"; der Schritt
+  schreibt nichts in den Shop.
 
 ## Ablauf
 
@@ -46,19 +45,21 @@ Regeln zu Funktionen und stillen Abweichungen stehen in
 
    Je Section und Block: Einstellungen mit `id`, `type`, `default`, erlaubte Blöcke, `presets`.
 
-2. **Mapping-Bibliothek prüfen.** Gibt es für Quell-Theme und Ziel-Theme in passender Hauptversion
-   eine fertige Zuordnung unter
-   `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/mappings/<source>__<target>.json`, ist sie die
-   Grundlage. Sie enthält nur Section- und Einstellungsnamen der öffentlichen Themes. Was in diesem Shop
-   abweicht, kommt nach `migration/mapping/overrides.json`, nie in die Bibliothek. Gibt es keine,
-   entsteht ein Entwurf aus beiden Schemas, den ein Mensch prüft.
+2. **Mapping-Bibliothek prüfen.**
+   - Gibt es für Quell- und Ziel-Theme in passender Hauptversion eine Zuordnung unter
+     `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/mappings/<source>__<target>.json`, ist sie die
+     Grundlage.
+   - Die Bibliothek enthält nur Section- und Einstellungsnamen der öffentlichen Themes.
+   - Shop-spezifische Abweichungen nach `migration/mapping/overrides.json`, nie in die Bibliothek.
+   - Keine Bibliothek vorhanden: Entwurf aus beiden Schemas, von einem Menschen geprüft.
 
-3. **Templates.** Je lebendes Template (`templates.json`) ein Ziel: eine Datei im Ziel-Theme mit
-   demselben Suffix. Templates ohne Objekt entfallen, außer das Team hat bei G1 anders entschieden.
-   Zuweisungen auf Suffixe ohne Datei bekommen entweder eine Datei oder werden dem Team als
-   Datenpflege gemeldet. Markt-Varianten werden mitgeführt.
+3. **Templates.**
+   - Je zugewiesenes Template (`templates.json`) ein Ziel: eine Datei im Ziel-Theme mit demselben Suffix.
+   - Templates ohne Objekt entfallen, außer das Team hat bei G1 anders entschieden.
+   - Zuweisungen auf Suffixe ohne Datei: entweder eine Datei anlegen oder dem Team als Datenpflege melden.
+   - Markt-Varianten mitführen.
 
-4. **Sections und Blöcke.** Je Section-Typ, der in einem lebenden Template vorkommt, ein Ausgang:
+4. **Sections und Blöcke.** Je Section-Typ, der in einem zugewiesenen Template vorkommt, ein Ausgang:
 
    | Ausgang | Wann |
    |---|---|
@@ -68,31 +69,34 @@ Regeln zu Funktionen und stillen Abweichungen stehen in
 
    Je Einstellung eine Transformation aus der festen Liste: `identity`, `map_values`, `px_to_number`,
    `bool_invert`, `font_handle`, `color_to_palette`, `drop`. **Was keine Transformation abbildet, wird
-   `build` mit Begründung, nie stilles Raten.** Vorher:
+   `build` mit Begründung; nie raten.** Vorher:
 
-   - die tatsächlich benutzten Schlüssel je Section-Typ in den lebenden Templates zählen; Quell-Themes
-     speichern dieselbe Einstellung unter verschiedenen Namen
+   - die benutzten Schlüssel je Section-Typ in den zugewiesenen Templates zählen; Quell-Themes speichern
+     dieselbe Einstellung unter verschiedenen Namen
    - im alten Code nachlesen, worauf eine Einstellung wirkt (nur Handy, nur Desktop, Textcontainer oder
      Seitenbreite)
    - für jede sichtbare Einstellung den Schalter suchen, der sie sichtbar macht; übertragen wird, was
-     live zu sehen ist
-   - ein fehlender Schlüssel im alten Template heißt Schema-Standard der alten Section, nie "aus"
+     live sichtbar ist
+   - ein fehlender Schlüssel im alten Template bedeutet Schema-Standard der alten Section, nie "aus"
 
-5. **Funktionen.** Je Eintrag in `functions.json` und je Anpassung der Klasse Funktion:
-   `native`, `app`, `rebuild` oder `drop`, mit Begründung. **Nativ ersetzen schlägt nachbauen.** Was
-   das Ziel-Theme anders macht (Verhalten nach dem Hinzufügen zum Warenkorb, Kachel-Links und
-   Brotkrumen, Filter-Layout, Menü-Ebenen am Handy), wird dem Team als Entscheidung vorgelegt, nicht
-   still festgelegt.
+5. **Funktionen.** Je Eintrag in `functions.json` und je Anpassung der Klasse Funktion: `native`, `app`,
+   `rebuild` oder `drop`, mit Begründung.
+   - **Nativ ersetzen hat Vorrang vor Nachbauen.**
+   - Abweichendes Verhalten des Ziel-Themes (nach dem Hinzufügen zum Warenkorb, Kachel-Links und
+     Brotkrumen, Filter-Layout, Menü-Ebenen am Handy) dem Team zur Entscheidung vorlegen, nicht selbst
+     festlegen.
 
-6. **Gestaltung.** `design.json` auf die Einstellungen des Ziel-Themes: Farben, Typografie, Buttons,
-   Radien, Abstände. **Ab Horizon 4.0.0 gibt es keine Farbschemata mehr, sondern eine `color_palette`**
-   mit 2 bis 20 Farben; ein Mapping auf `color_scheme` ist für aktuelles Horizon falsch. Die Version
-   steht in `target_theme.version`. Was das Ziel-Theme nicht abbilden kann, wird `build` oder eine
-   bewusste Abweichung, die das Team bei G2 entscheidet.
+6. **Gestaltung.** `design.json` auf die Einstellungen des Ziel-Themes übertragen: Farben, Typografie,
+   Buttons, Radien, Abstände.
+   - **Ab Horizon 4.0.0 gibt es keine Farbschemata mehr, sondern eine `color_palette`** mit 2 bis 20
+     Farben. Ein Mapping auf `color_scheme` ist für aktuelles Horizon falsch.
+   - Die Version steht in `target_theme.version`.
+   - Was das Ziel-Theme nicht abbilden kann, wird `build` oder eine bewusste Abweichung, über die das Team
+     bei G2 entscheidet.
 
-7. **Apps.** Je Zeile mit `decision: keep` in `apps.json` der Weg im Ziel-Theme
-   (`target_integration`): Embed aktivieren, Block auf welchem Template platzieren, Code als eigene
-   Datei portieren. Was ein entfernter Tag Manager geladen hat, braucht einen eigenen Weg.
+7. **Apps.** Je Zeile mit `decision: keep` in `apps.json` der Weg im Ziel-Theme (`target_integration`):
+   Embed aktivieren, Block auf einem bestimmten Template platzieren oder Code als eigene Datei portieren.
+   Was ein entfernter Tag Manager geladen hat, braucht einen eigenen Weg.
 
 8. **Schreiben**, im Format, das `build-theme` liest:
 
@@ -115,15 +119,15 @@ Regeln zu Funktionen und stillen Abweichungen stehen in
    ```
 
    - `migration/mapping/mapping.json`: Bibliothek plus Shop-Teil, maschinenlesbar.
-   - `migration/mapping/overrides.json`: was dieser Shop von der Bibliothek abweicht.
+   - `migration/mapping/overrides.json`: Abweichungen dieses Shops von der Bibliothek.
    - `migration/mapping/decisions.json`: je Entscheidung `id`, `subject`, `kind` (`app`, `function`,
      `template`, `section`, `design`, `sync`), `decision`, `reason`, `decided_by`, `decided_at`,
-     `source` (`G1`, `G2`, `test-round`, `sync`). Neue Einträge werden angehängt, nie überschrieben.
-   - `migration/mapping/mapping.md`: für das Team, je Seitentyp was bleibt, was nachgebaut wird, was
-     entfällt, und offen die Punkte, die eine Entscheidung brauchen.
+     `source` (`G1`, `G2`, `test-round`, `sync`). Neue Einträge anhängen, nie überschreiben.
+   - `migration/mapping/mapping.md`: für das Team, je Seitentyp was bleibt, nachgebaut wird oder entfällt,
+     dazu die offenen Punkte, die eine Entscheidung brauchen.
 
 9. **Probelauf**, ohne etwas zu ersetzen. Der Generator schreibt in ein Testverzeichnis; sein
-   `report.json` zeigt verworfene Einstellungen, Standardwerte, `build`-Fälle und Limit-Verstöße vor G2:
+   `report.json` zeigt vor G2 verworfene Einstellungen, Standardwerte, `build`-Fälle und Limit-Verstöße:
 
    ```bash
    PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.generate \
@@ -137,29 +141,30 @@ Regeln zu Funktionen und stillen Abweichungen stehen in
 
    Jede verworfene Einstellung bekommt eine Zeile im Mapping oder eine Begründung.
 
-10. **Für Gate G2 vorlegen:** `mapping.md`, jede `build`-Entscheidung, jedes `drop` einer Funktion,
-    jede bewusste Gestaltungsabweichung, jedes geänderte Verhalten. Die Entscheidung trifft ein Mensch;
-    festgehalten wird sie von `theme-migration`.
+10. **Für Gate G2 vorlegen:** `mapping.md`, jede `build`-Entscheidung, jedes `drop` einer Funktion, jede
+    bewusste Gestaltungsabweichung, jedes geänderte Verhalten. Ein Mensch entscheidet; `theme-migration`
+    speichert die Entscheidung.
 
 ## Nach einem Befund
 
-Liegt die Ursache eines Befunds aus `verify-theme` oder der Testrunde in der Zuordnung, wird hier
-korrigiert, nie in der erzeugten Datei. Ändert die Korrektur eine Entscheidung, die bei G1 oder G2
-gefallen ist, entscheidet ein Mensch neu, und der neue Eintrag in `decisions.json` nennt den alten.
+- Liegt die Ursache eines Befunds aus `verify-theme` oder der Testrunde in der Zuordnung, hier
+  korrigieren, nie in der erzeugten Datei.
+- Ändert die Korrektur eine Entscheidung aus G1 oder G2, entscheidet ein Mensch neu; der neue Eintrag in
+  `decisions.json` nennt den alten.
 
 ## Ergebnis
 
 `migration/mapping/` mit `mapping.json`, `overrides.json`, `decisions.json`, `mapping.md` und
-`schemas.json`, committet im Workspace, namentlich gestagt.
+`schemas.json`, im Workspace committet, namentlich gestagt.
 
 ## Fehlerbilder
 
 - **G1 nicht entschieden:** nicht starten. Die Zuordnung würde Entscheidungen vorwegnehmen.
-- **Keine Bibliothek für dieses Quell-Theme:** Entwurf aus beiden Schemas, jede Zeile von einem
-  Menschen geprüft. Eine erfundene Zuordnung ist schlimmer als ein offener Punkt.
+- **Keine Bibliothek für dieses Quell-Theme:** Entwurf aus beiden Schemas, jede Zeile von einem Menschen
+  geprüft. Eine offene Zeile ist besser als eine erfundene Zuordnung.
 - **Mapping auf `color_scheme` für Horizon ab 4:** falsch, es gibt nur noch `color_palette`.
-- **Shop-Eigenes in die Bibliothek geschrieben:** gehört nach `overrides.json`. Die Bibliothek enthält
-  nichts aus einem Shop.
-- **Eine Einstellung mit falscher Reichweite übertragen:** im alten Code nachlesen, auf welche Breite
-  sie wirkt, und die Section einmal am Desktop und am Handy gegen live vergleichen.
-- **Gestaltung aus `settings_data.json` gemappt:** maßgeblich ist `design.json`, die Messung.
+- **Shop-Eigenes in der Bibliothek:** gehört nach `overrides.json`. Die Bibliothek enthält nichts aus
+  einem Shop.
+- **Einstellung mit falscher Reichweite übertragen:** im alten Code nachlesen, auf welche Breite sie
+  wirkt, und die Section am Desktop und am Handy mit live vergleichen.
+- **Gestaltung aus `settings_data.json` gemappt:** maßgeblich ist die Messung in `design.json`.

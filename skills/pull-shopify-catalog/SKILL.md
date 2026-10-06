@@ -1,48 +1,41 @@
 ---
 name: pull-shopify-catalog
-description: Den Produktkatalog eines Shopify-Shops ziehen (Produkte, Varianten, SEO-Felder, Bilder samt Alt-Text, Preise, Einkaufspreise, Collections) und als aggregierten Snapshot ablegen. Nutzen, wenn ein Audit den Baseline-Block Katalog braucht oder der Nutzer wissen will, wie vollständig Produktdaten und SEO-Felder gepflegt sind. Werkzeug ist die Shopify CLI, kein eigener Auth-Weg; liest reporting/config.json im Kunden-Workspace.
+description: Zieht den Produktkatalog eines Shopify-Shops (Produkte, Varianten, SEO-Felder, Bilder mit Alt-Text, Preise, Einkaufspreise, Collections) und legt ihn als aggregierten Snapshot ab. Einsetzen, wenn ein Audit den Baseline-Block Katalog braucht oder der Nutzer wissen will, wie vollständig Produktdaten und SEO-Felder gepflegt sind. Werkzeug ist die Shopify CLI, kein eigener Auth-Weg. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # pull-shopify-catalog: Katalog-Snapshot ziehen
 
-Holt den Produktkatalog über die Shopify CLI und rechnet daraus einen
-aggregierten Snapshot: wie vollständig sind SEO-Felder, Alt-Texte, SKUs und
-Einkaufspreise gepflegt, wie sind Beschreibungslängen und Preise verteilt.
+Holt den Produktkatalog über die Shopify CLI und berechnet einen aggregierten Snapshot:
+
+- Pflegegrad von SEO-Feldern, Alt-Texten, SKUs, Einkaufspreisen
+- Verteilung von Beschreibungslängen und Preisen
 
 ## Arbeitsteilung
 
-Die Skill holt die Rohseiten (nur die CLI hat den Auth-Kontext), das Script
-`catalog_build.py` rechnet daraus den Snapshot. Der Rechenteil ist der, der
-falsche Zahlen erzeugen kann, und genau der ist getestet.
+| Teil | Wer | Warum |
+|---|---|---|
+| Rohseiten holen | diese Skill über die CLI | nur die CLI hat den Auth-Kontext |
+| Snapshot rechnen | Script `catalog_build.py` | getesteter Rechenteil, dort entstehen sonst falsche Zahlen |
 
 ## Voraussetzungen
 
-- `reporting/config.json` mit `shopify_store` und `sources.catalogue` nicht `false`
-- Shopify CLI installiert, Store authentifiziert
-- Scopes `read_products` und `read_inventory` (letzterer für `unitCost`)
+- `reporting/config.json` mit `shopify_store` und `sources.catalogue` ungleich `false`.
+- Shopify CLI installiert, Store authentifiziert.
+- Scopes `read_products` und `read_inventory` (letzterer für `unitCost`).
+- **Scope- und Union-Regel: `pull-shopify/SKILL.md`**, hier nicht wiederholt. Bei Re-Auth immer die Vereinigung senden, nie nur die neuen Scopes.
 
-**Die Scope- und Union-Regel steht in `pull-shopify/SKILL.md` und wird hier
-nicht wiederholt.** Bei einer Re-Auth immer die Vereinigung senden, nie nur die
-neuen Scopes.
+## Drosselung
 
-## Drosselung: dieselbe Regel wie bei pull-shopify
-
-Beide Pulls teilen sich das Punktebudget der Admin-API. Am ersten echten Lauf
-war rund die Hälfte der Calls beim ersten Versuch gedrosselt. **Exit-Code
-prüfen, nicht nur stdout lesen**, dann warten und erneut versuchen; der genaue
-Ablauf steht in `pull-shopify/SKILL.md`, Abschnitt Ablauf, Schritt 4.
-
-**Die Seitenschleife ist hier der teuerste Teil.** Ein Shop mit 2.000 Produkten
-sind acht Seiten zu 250, und jede davon kann gedrosselt werden. Die Schleife
-wartet nach einem gedrosselten Versuch und bricht **nicht** ab: sonst entsteht
-ein halber Katalog, der wie ein vollständiger aussieht, und die Zahlen darunter
-sind alle falsch, ohne dass etwas fehlschlägt.
+- Gleiche Regel wie in `pull-shopify`; beide Pulls teilen das Punktebudget der Admin-API.
+- Rund die Hälfte der Calls wird beim ersten Versuch gedrosselt.
+- **Exit-Code prüfen, nicht nur stdout lesen**, dann warten und wiederholen. Ablauf: `pull-shopify/SKILL.md`, Abschnitt Ablauf, Schritt 4.
+- Teuerster Teil ist die Seitenschleife (2.000 Produkte = acht Seiten zu 250, jede kann gedrosselt werden).
+- Die Schleife wartet nach einem gedrosselten Versuch und bricht **nicht** ab. Ein Abbruch ergäbe einen halben Katalog, der vollständig aussieht, mit durchweg falschen Zahlen.
 
 ## Ablauf
 
 1. `reporting/config.json` lesen, Auth nach der Regel aus `pull-shopify` sichern.
-2. Produkte seitenweise holen. `description`, **nicht** `descriptionHtml`: in
-   den Snapshot geht nur die Länge, und der Rohtext ist kürzer als das Markup.
+2. Produkte seitenweise holen. `description` verwenden, **nicht** `descriptionHtml`: der Snapshot braucht nur die Länge, und Rohtext ist kürzer als Markup.
 
    ```graphql
    query($cursor: String) {
@@ -60,11 +53,8 @@ sind alle falsch, ohne dass etwas fehlschlägt.
    }
    ```
 
-3. Jede Antwortseite **unverändert** in eine Liste sammeln und als JSON-Array
-   nach `/tmp` schreiben, nicht nach `reporting/`. Der Rohtext gehört nicht ins
-   Kunden-Repo; dort landet nur `catalog.json`.
-4. Collections analog über `collections(first: 250, after: $cursor)` mit
-   `handle`, `title`, `description`, `seo`.
+3. Jede Antwortseite **unverändert** in eine Liste sammeln, als JSON-Array nach `/tmp` schreiben, nicht nach `reporting/`. Rohtext gehört nicht ins Kunden-Repo, dorthin kommt nur `catalog.json`.
+4. Collections analog über `collections(first: 250, after: $cursor)` mit `handle`, `title`, `description`, `seo`.
 5. Aggregieren:
 
    ```bash
@@ -73,23 +63,16 @@ sind alle falsch, ohne dass etwas fehlschlägt.
      --out "reporting/data/<run-id>"
    ```
 
-6. Kernzahlen melden: Produkte, Varianten, Anteil mit vollständigen SEO-Feldern,
-   Anteil Bilder mit Alt-Text, und jeden Hinweis aus `notes` wörtlich.
+6. Melden: Produkte, Varianten, Anteil mit vollständigen SEO-Feldern, Anteil Bilder mit Alt-Text, jeden Hinweis aus `notes` wörtlich.
 
-## Feldnamen vor dem ersten Lauf verifizieren
+## Feldnamen vor dem ersten Lauf prüfen
 
-Die Namen der Admin-GraphQL hängen an der API-Version, und eine falsch benannte
-Verschachtelung liefert `null` statt eines Fehlers. Vor dem ersten Lauf gegen
-die Referenz der eingesetzten Version prüfen, insbesondere `seo` am Produkt und
-`inventoryItem.unitCost.amount` an der Variante. Werkzeug dafür ist der
-Shopify-Dev-MCP, nicht das Gedächtnis.
-
-**Das Script fängt den Fehler ab, wenn die Prüfung ausfällt.** `check_shape()`
-meldet jedes Feld, das in **keinem** Produkt vorkommt, als unvollständige
-Abfrage. Einzelne Produkte ohne SEO-Felder sind ein Befund über den Shop; ein
-Feld, das nirgends vorkommt, ist ein Fehler in der Query. Ohne diese
-Unterscheidung meldet der Snapshot "kein Produkt hat SEO-Felder" für einen
-Shop, der sie pflegt.
+- Admin-GraphQL-Namen hängen an der API-Version. Eine falsch benannte Verschachtelung liefert `null` statt eines Fehlers.
+- Vor dem ersten Lauf gegen die Referenz der eingesetzten Version prüfen, vor allem `seo` am Produkt und `inventoryItem.unitCost.amount` an der Variante.
+- Werkzeug: Shopify-Dev-MCP, nicht das Gedächtnis.
+- Absicherung im Script: `check_shape()` meldet jedes Feld, das in **keinem** Produkt vorkommt, als unvollständige Abfrage.
+  - Einzelne Produkte ohne SEO-Felder = Befund über den Shop.
+  - Feld in keinem Produkt = Fehler in der Query; sonst stünde "kein Produkt hat SEO-Felder" im Snapshot.
 
 ## Snapshot-Schema
 
@@ -123,45 +106,30 @@ Shop, der sie pflegt.
 }
 ```
 
-**Kein Fließtext.** Aus der Beschreibung wird `description_length`, nie der
-Inhalt. Bei 2.000 Produkten ist das der Unterschied zwischen einem Snapshot,
-den ein Analyse-Agent lesen kann, und einem, der ihn sprengt.
+### Regeln zum Schema
 
-**Doppelte Beschreibungen über einen Fingerabdruck.** Je Produkt ein SHA-1 der
-Beschreibung, klein geschrieben und mit vereinheitlichtem Leerraum; gezählt
-wird unter aktiven Produkten, der Text selbst geht nicht in den Snapshot. Je
-Gruppe stehen höchstens fünf Handles da, die Liste ist auf 50 Gruppen gekappt.
-Gleicher Text bei mehreren Produkten ist meist ein übernommener Herstellertext
-(Kriterium `con.duplicate-product-copy`).
-
-**Ausverkauft heißt: keine Variante verkäuflich** (`availableForSale`), nur
-unter aktiven Produkten. Fehlt das Feld in den Rohdaten, steht
-`products_sold_out` auf `null`, nicht auf 0. Ausverkauft ist ein
-Betriebszustand, kein Befund; die Analyse prüft nur, wie der Shop technisch
-damit umgeht (Kriterium `tec.sold-out-handling`).
-
-**Kein Urteil über "dünn".** Der Pull liefert die Längenverteilung (p10, p50,
-p90) und die Zahl der Produkte **ohne** Beschreibung. Ab wann eine Beschreibung
-zu kurz ist, steht im Kennzahlen-Katalog und gehört der Analyse.
-
-**Einkaufspreis: `null` und `0.00` sind zwei verschiedene Dinge.** `null` heißt
-"cost per item nicht gepflegt", `0.00` ist ein gepflegter Wert (Zugabe,
-Werbeartikel). Wer beides zusammenwirft, meldet eine zu hohe Lücke. Hat
-**keine** Variante einen Einkaufspreis, steht das als Hinweis in `notes`:
-Marge und Deckungsbeitrag sind dann für diesen Shop nicht berechenbar (Spec
-Abschnitt 19).
-
-**Anteile sind `null`, wenn der Nenner fehlt.** Ein Katalog ohne Bilder hat
-keinen Alt-Text-Anteil; eine 0 läse sich als "kein Bild hat einen Alt-Text".
-
-**Listen sind auf 200 gekappt**, der Zähler im `summary` nennt immer die volle
-Menge, und `_truncated` sagt, ob gekürzt wurde. Für mehr fragt die Analyse die
-Rohseiten gezielt ab, statt sie zu lesen.
+- **Kein Fließtext.** Aus der Beschreibung wird `description_length`, nie der Inhalt; bei 2.000 Produkten würde Fließtext den Kontext eines Analyse-Agenten sprengen.
+- **Doppelte Beschreibungen über Fingerabdruck:**
+  - SHA-1 der Beschreibung je Produkt, klein geschrieben, Leerraum vereinheitlicht.
+  - Gezählt nur unter aktiven Produkten; der Text kommt nicht in den Snapshot.
+  - Höchstens fünf Handles je Gruppe, Liste auf 50 Gruppen gekappt.
+  - Meist übernommener Herstellertext (Kriterium `con.duplicate-product-copy`).
+- **Ausverkauft = keine Variante verkäuflich** (`availableForSale`), nur unter aktiven Produkten.
+  - Fehlt das Feld in den Rohdaten: `products_sold_out` = `null`, nicht 0.
+  - Ausverkauft ist ein Betriebszustand, kein Befund. Die Analyse prüft nur die technische Behandlung (Kriterium `tec.sold-out-handling`).
+- **Kein Urteil über "dünn".** Der Pull liefert die Längenverteilung (p10, p50, p90) und die Zahl der Produkte **ohne** Beschreibung. Die Schwelle steht im Kennzahlen-Katalog, das Urteil fällt die Analyse.
+- **Einkaufspreis: `null` ≠ `0.00`.**
+  - `null` = "cost per item nicht gepflegt".
+  - `0.00` = gepflegter Wert (Zugabe, Werbeartikel).
+  - Zusammengezählt wäre die Lücke zu hoch.
+  - Hat **keine** Variante einen Einkaufspreis: Hinweis in `notes`, Marge und Deckungsbeitrag nicht berechenbar (Spec Abschnitt 19).
+- **Anteile ohne Nenner sind `null`.** Ein Katalog ohne Bilder hat keinen Alt-Text-Anteil; 0 hieße "kein Bild hat Alt-Text".
+- **Listen auf 200 gekappt.** Der Zähler im `summary` nennt die volle Menge, `_truncated` zeigt die Kürzung. Für mehr fragt die Analyse die Rohseiten gezielt ab.
 
 ## Fehlerbilder
 
-- **Gedrosselt:** warten und erneut versuchen, nie als "keine Daten" werten.
-- **`check_shape`-Hinweis in `notes`:** die Abfrage ist unvollständig, nicht
-  der Katalog leer. Feldnamen prüfen und erneut ziehen, bevor der Snapshot in
-  eine Analyse geht.
-- **Kein Einkaufspreis:** kein Fehler, sondern ein Vermerk. Die Marge entfällt.
+| Fall | Verhalten |
+|---|---|
+| **Gedrosselt** | Warten, wiederholen; nie als "keine Daten" werten. |
+| **`check_shape`-Hinweis in `notes`** | Abfrage unvollständig, Katalog nicht leer. Feldnamen prüfen und neu ziehen, bevor der Snapshot in eine Analyse geht. |
+| **Kein Einkaufspreis** | Kein Fehler, Vermerk; die Marge entfällt. |

@@ -117,6 +117,39 @@ Diese Skills brauchen keine Zugänge.
 | `ptai-ecom:upload-theme` | Lädt das Theme in ein unveröffentlichtes Theme hoch und prüft jede Datei nach dem Upload. |
 | `ptai-ecom:verify-theme` | Prüft den Entwurf gegen das Live-Theme: Struktur, Inhalt, SEO, Gestaltung, Funktionen, Apps und Tracking, Ladezeit, Barrierefreiheit, Sprachen. Erstellt danach die Testrunde. |
 | `ptai-ecom:sync-live-theme` | Zeigt Änderungen im Live-Shop seit der Sicherung und welche davon ins neue Theme übernommen werden müssen. |
+| `ptai-ecom:launch-check` | Geht vor dem Livegang die Launch-Checkliste durch und zeigt, was noch fehlt, mit Go/No-Go-Empfehlung; mit `--after` die Prüfungen direkt nach dem Veröffentlichen. Auch ohne Migration nutzbar. |
+
+### So läuft ein Launch
+
+Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änderung. Die Einzelheiten stehen in `reference/theme-migration/launch-checklist.md`, der Rückfall in `rollback.md`, die Zeit danach in `post-launch.md`. `theme-migration` führt den Ablauf als Phase 9, `launch-check` prüft ihn als Lauf, der beliebig oft wiederholt werden kann.
+
+**Tage vorher**
+
+1. **Abnahme.** Das Team hat den Entwurf in der Testrunde (`test-round`) abgenommen, kein Befund der Schwere `blocker` oder `before_launch` ist offen. In einer Migration ist das Gate G4, mit Namen festgehalten.
+2. **Abgleich mit dem Live-Theme.** `sync-live-theme` zeigt alles, was das Team seit der Sicherung im alten Theme geändert hat. Jede Änderung wird übernommen oder bewusst gestrichen.
+3. **Änderungsstopp.** Ab dem Abgleich ändert niemand mehr am alten Theme. Shopdaten wie Produkte, Kollektionen, Menüs und Seiten dürfen weiter gepflegt werden, sie gelten für beide Themes.
+4. **Rückfall planen.** Schriftlich steht, wann zurückgeschaltet wird und wer das entscheidet, dazu die Liste dessen, was ein Rückfall nicht zurückdreht.
+
+**Am Launch-Tag, vor dem Klick**
+
+5. **Zeitpunkt.** Montag bis Donnerstag, kein Feiertag am Tag und am Folgetag, nicht ab vier Wochen vor Black Friday. Keine große Kampagne, kein laufender Preis- oder A/B-Test, Ansprechpartner auf beiden Seiten erreichbar.
+6. **Vergleichswerte ziehen.** `pull-gsc`, `pull-ga4`, `pull-cwv` und `crawl-site`, von heute oder gestern. Nach dem Launch wird gegen genau diese Werte verglichen.
+7. **`launch-check`.** Schneidet beide Themes im Browser mit und vergleicht sie: Tracking je Seite, App-Embeds, Übersetzungen, `robots.txt`, Statuscodes, Canonicals. Was fehlt, wird behoben, dann läuft er erneut. Ein Punkt, der bewusst anders ist, etwa eine gestrichene App, wird mit Grund festgehalten, nicht übergangen.
+8. **Go/No-Go.** Ein Mensch entscheidet und wird mit Namen festgehalten, in einer Migration als Gate G5.
+9. **Schlussprüfung.** Unmittelbar vor dem Klick: `updatedAt` des Live-Themes und die Template-Zuweisungen sind seit dem Abgleich unverändert. Jede Änderung hält den Launch an.
+
+**Veröffentlichen**
+
+10. Ein Mensch veröffentlicht im Admin unter Onlineshop, Themes, am Entwurf „Veröffentlichen“, oder über Rollouts (zeitgesteuert, gestuft oder als Experiment). Das alte Theme rutscht als Entwurf in die Bibliothek und ist das Rückfall-Theme. Keine Skill veröffentlicht.
+
+**Direkt danach**
+
+11. **`launch-check --after`.** Das erwartete Theme ist live, `robots.txt` wie vorher, Statuscodes, `noindex` und Canonicals der Top-Seiten stimmen, Tracking je Seite wie vorher, jede Sprache läuft.
+12. **Testbestellung,** nur nach Freigabe des Teams und mit Ankündigung ans Lager: Pixel, Kasse, Dankeseite, Ereignisse in Analyse und Werbekonten. Danach stornieren und erstatten.
+13. **Sitemap** in der Search Console neu einreichen.
+14. **Nachsorge** nach `post-launch.md`: die ersten 48 Stunden Umsatz, Conversion Rate, Fehlerseiten und Kaufabbrüche eng, Woche 1 täglich 404 und Crawl, Woche 2 Conversion je Seitentyp und Gerät, Woche 4 der erste Vergleich gegen die Werte aus Schritt 6, Tag 28 Core Web Vitals im Feld. Das alte Theme wird erst nach der Stabilisierung und mit Freigabe gelöscht.
+
+Ab dem Launch arbeitet das Team im Editor des neuen Themes. Vor jedem Upload aus dem Repo sichert `snapshot-theme` den live laufenden Stand, und die Änderungen des Teams werden zuerst übernommen.
 
 ### Hilfs-Skills
 

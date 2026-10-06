@@ -1,44 +1,33 @@
 ---
 name: pull-shopify-tech
-description: Die technische Ausstattung eines Shopify-Shops erfassen (Theme und Version, Skript-Tags, Sprach- und Marktkonfiguration, Zahlungsarten) und dazu die Fremdtechnik aus dem Crawl desselben Laufs, Ergebnis als Snapshot. Nutzen, wenn ein Audit wissen muss, welche Werkzeuge im Shop eingebunden sind, ob doppelt gemessen wird oder welches Theme läuft. Werkzeug ist die Shopify CLI plus die vorhandene crawl.json; liest reporting/config.json im Kunden-Workspace.
+description: Erfasst die technische Ausstattung eines Shopify-Shops (Theme und Version, Skript-Tags, Sprach- und Marktkonfiguration, Zahlungsarten) plus die Fremdtechnik aus dem Crawl desselben Laufs und schreibt das Ergebnis als Snapshot. Einsetzen, wenn ein Audit wissen muss, welche Werkzeuge im Shop eingebunden sind, ob doppelt gemessen wird oder welches Theme läuft. Werkzeug ist die Shopify CLI plus die vorhandene crawl.json. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # pull-shopify-tech: Shop-Technik erfassen
 
-Zwei Quellen, ein Snapshot: was die Admin-API über die Konfiguration weiß, und
-was der Crawl über die tatsächlich eingebundene Fremdtechnik gesehen hat.
+Ein Snapshot aus zwei Quellen:
 
-## Der Crawl wird wiederverwendet, nicht wiederholt
+- Admin-API: Konfiguration des Shops
+- Crawl: eingebundene Fremdtechnik
 
-`crawl-site` besucht den Shop in derselben Phase und hält je Seite die
-Skript-Quellen (`script_sources`) und die inline eingebauten Container- und
-Mess-IDs (`inline_tag_ids`) fest, aggregiert im `findings_index`. Diese Skill
-liest daraus.
+## Crawl wiederverwenden
 
-Ein zweiter Abruf derselben Seiten wäre doppelte Arbeit und könnte einen
-**anderen Zustand** sehen als der Crawl, gegen den die technische Analyse
-rechnet. Zwei Zustände in einem Lauf sind schlimmer als einer.
-
-Deshalb läuft dieser Pull **nach** `crawl-site`. Fällt der Crawl aus, entsteht
-der Snapshot trotzdem, nur ohne den Storefront-Teil, und
-`crawl_pages_scanned` steht auf `null`.
+- `crawl-site` erfasst in derselben Phase je Seite die Skript-Quellen (`script_sources`) und die inline eingebauten Container- und Mess-IDs (`inline_tag_ids`), aggregiert im `findings_index`. Diese Skill liest daraus.
+- Kein zweiter Abruf der Seiten: doppelte Arbeit, und er könnte einen anderen Zustand sehen als der Crawl, gegen den die technische Analyse rechnet.
+- Darum läuft dieser Pull **nach** `crawl-site`.
+- Fällt der Crawl aus: Snapshot ohne Storefront-Teil, `crawl_pages_scanned` = `null`.
 
 ## Voraussetzungen
 
-- `reporting/config.json` mit `shopify_store` und `sources.shop_tech` nicht `false`
-- Shopify CLI installiert, Store authentifiziert
-- Scopes `read_themes`, `read_script_tags`, `read_locales`, `read_markets`
-
-Die Scope- und Union-Regel steht in `pull-shopify/SKILL.md`, ebenso der Umgang
-mit der Drosselung: **Exit-Code prüfen, warten, erneut versuchen**, nie eine
-leere Antwort als "keine Daten" werten. Beide Shopify-Pulls teilen sich
-dasselbe Punktebudget.
-
-Kadenz quartalsweise, die Abfrage ist billig und der Shop ändert sich selten.
+- `reporting/config.json` mit `shopify_store` und `sources.shop_tech` ungleich `false`.
+- Shopify CLI installiert, Store authentifiziert.
+- Scopes `read_themes`, `read_script_tags`, `read_locales`, `read_markets`.
+- Scope- und Union-Regel sowie Drosselung: `pull-shopify/SKILL.md`. **Exit-Code prüfen, warten, wiederholen**, nie eine leere Antwort als "keine Daten" werten. Beide Shopify-Pulls teilen dasselbe Punktebudget.
+- Kadenz: quartalsweise (billige Abfrage, Shop ändert sich selten).
 
 ## Ablauf
 
-1. Eine Abfrage holt alle Blöcke in einem Zug:
+1. Alle Blöcke in einer Abfrage holen:
 
    ```graphql
    query {
@@ -59,32 +48,24 @@ Kadenz quartalsweise, die Abfrage ist billig und der Shop ändert sich selten.
      --out "reporting/data/<run-id>"
    ```
 
-3. Kernzahlen melden: Theme, Zahl der Skript-Tags, Fremd-Hosts, Mess-IDs, und
-   jeden Hinweis aus `notes` wörtlich.
+3. Melden: Theme, Zahl der Skript-Tags, Fremd-Hosts, Mess-IDs, jeden Hinweis aus `notes` wörtlich.
 
-**`paymentSettings` gibt es auf `QueryRoot` nicht.** Am 07.09.2026 gegen einen
-echten Store geprueft: die Admin-API antwortet mit `undefinedField`, und weil
-GraphQL die Abfrage als Ganzes ablehnt, scheitert damit **jeder** Block, nicht
-nur dieser eine. Das Feld steht deshalb nicht mehr in der Abfrage oben.
+### Zahlarten nicht erhoben
 
-Die Zahlarten sind damit im Audit nicht erhoben, und die Fachsektion Shop im
-Kunden-PDF traegt fuer sie "nicht erhoben" statt einer Liste. Wer sie braucht,
-prueft zuerst in der aktuellen Schema-Referenz, unter welchem Namen sie heute
-erreichbar sind (Kandidaten: `shop.paymentSettings`, oder gar nicht ueber die
-Admin-API), und ergaenzt die Abfrage erst danach.
+- **`paymentSettings` existiert nicht auf `QueryRoot`** (geprüft 07.09.2026 an einem Store). Die Admin-API antwortet mit `undefinedField`, und GraphQL lehnt dann die ganze Abfrage ab, also **jeden** Block.
+- Das Feld ist darum nicht in der Abfrage.
+- Folge: Zahlarten sind im Audit nicht erhoben; die Fachsektion Shop im Kunden-PDF zeigt "nicht erhoben".
+- Wer sie braucht: zuerst in der aktuellen Schema-Referenz den heutigen Namen prüfen (Kandidaten: `shop.paymentSettings`, oder gar nicht über die Admin-API), erst dann die Abfrage ergänzen.
 
-## Feldnamen vor dem ersten Lauf verifizieren
+## Feldnamen vor dem ersten Lauf prüfen
 
-`themes` ist in der Admin-GraphQL erst ab einer bestimmten API-Version
-verfügbar, und ob aktive Apps ohne zusätzlichen Scope lesbar sind, ist offen.
-Was nicht lesbar ist, kommt **nicht** in die Abfrage, sondern als offener Punkt
-in diese Skill. Werkzeug für die Prüfung ist der Shopify-Dev-MCP.
-
-Das Script fängt den Fall ab: ein Block, den die Antwort gar nicht enthält oder
-der auf `null` steht, wird zu einem Vermerk in `notes` und **nicht** zu einer
-Null. "Keine Skript-Tags installiert" und "nicht lesbar" sind zwei verschiedene
-Aussagen, und nur eine davon ist ein Befund. Ein Block, der leer
-zurückkommt, ist dagegen eine Messung und bekommt keinen Vermerk.
+- `themes` gibt es in der Admin-GraphQL erst ab einer bestimmten API-Version.
+- Offen: ob aktive Apps ohne zusätzlichen Scope lesbar sind.
+- Nicht Lesbares kommt **nicht** in die Abfrage, sondern als offener Punkt in diese Skill.
+- Prüfwerkzeug: Shopify-Dev-MCP.
+- Absicherung im Script:
+  - Block fehlt in der Antwort oder ist `null`: Vermerk in `notes`, **keine** Null. "Keine Skript-Tags installiert" ist ein Befund, "nicht lesbar" nicht.
+  - Block kommt leer zurück: das ist eine Messung, kein Vermerk.
 
 ## Snapshot-Schema
 
@@ -109,30 +90,19 @@ zurückkommt, ist dagegen eine Messung und bekommt keinen Vermerk.
 }
 ```
 
-**Die Mess-IDs sind der interessantere Teil.** Ein Host sagt, dass ein Anbieter
-eingebunden ist; eine ID sagt, **welches Konto**. Zwei GA4-IDs auf denselben
-300 Seiten heißen doppelte Messung, und das ist genau die Sorte Befund, nach der
-die Analyse Datenqualität sucht. Deshalb steht je ID die Zahl der Seiten dabei:
-eine ID auf drei von 300 Seiten ist ein Rest, eine auf allen ist ein aktiver
-zweiter Zähler.
+### Regeln zum Schema
 
-**`crawl_pages_scanned: null` heißt "nicht gemessen".** Eine 0 hieße "gecrawlt
-und nichts gefunden". Der Unterschied entscheidet, ob die Analyse einen Befund
-schreibt oder eine Lücke ausweist.
-
-**Die Host-Liste ist auf 100 gekappt**, `third_party_script_hosts` im
-`summary` nennt aber immer die volle Menge, und `_truncated` sagt, ob gekürzt
-wurde. Eine gekappte Liste ohne Merker erzeugt eine falsche Zahl: der Leser
-hält 100 für alles.
-
-**Skript-Hosts zählen Seiten, nicht Einbindungen.** Zwei Snippets desselben
-Anbieters auf einer Seite sind eine Seite. Die Frage lautet, wie weit ein
-Anbieter im Shop verbreitet ist.
+- **Mess-IDs zeigen das Konto**, Hosts nur den Anbieter.
+  - Zwei GA4-IDs auf denselben 300 Seiten = doppelte Messung, ein Befund für die Analyse Datenqualität.
+  - Je ID steht die Seitenzahl: drei von 300 Seiten = Rest, alle Seiten = aktiver zweiter Zähler.
+- **`crawl_pages_scanned: null` = nicht gemessen**, 0 = gecrawlt ohne Fund. Davon hängt ab, ob die Analyse einen Befund oder eine Lücke schreibt.
+- **Host-Liste auf 100 gekappt.** `third_party_script_hosts` im `summary` nennt die volle Menge, `_truncated` zeigt die Kürzung. Ohne Merker hielte der Leser 100 für alle.
+- **Skript-Hosts zählen Seiten, nicht Einbindungen.** Zwei Snippets desselben Anbieters auf einer Seite = eine Seite. Gemessen wird die Verbreitung im Shop.
 
 ## Fehlerbilder
 
-- **Gedrosselt:** wie bei `pull-shopify`, warten und erneut versuchen.
-- **Block fehlt in der Antwort:** Vermerk in `notes`, kein Nullwert. Meist
-  fehlt ein Scope oder der Feldname stimmt für diese API-Version nicht.
-- **Kein Crawl im Lauf:** der Storefront-Teil bleibt leer,
-  `crawl_pages_scanned` ist `null`, der Rest des Snapshots ist gültig.
+| Fall | Verhalten |
+|---|---|
+| **Gedrosselt** | Wie bei `pull-shopify`: warten, wiederholen. |
+| **Block fehlt in der Antwort** | Vermerk in `notes`, kein Nullwert. Meist fehlt ein Scope oder der Feldname passt nicht zur API-Version. |
+| **Kein Crawl im Lauf** | Storefront-Teil leer, `crawl_pages_scanned` = `null`, der Rest ist gültig. |

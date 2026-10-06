@@ -1,87 +1,89 @@
 ---
 name: pull-klaviyo
-description: Klaviyo-CRM-Daten für den Kunden-Report oder den CRM-Automation-Case ziehen (Flows, Kampagnen samt Betreff/Preview/Absender/Volltext, Report-Metriken, Listen, Segmente, Formulare) und als Snapshot ablegen. Nutzen, wenn ein Report oder Audit Klaviyo-Zahlen braucht, wenn ein CRM-/Voice-Profil aus echten Kampagnen- und Flow-Texten entstehen soll, oder wenn der Nutzer explizit einen Klaviyo-Pull für einen Zeitraum will. Liest reporting/config.json und .env im Kunden-Workspace. Pilot, am 11.09.2026 gegen einen echten Account validiert.
+description: Zieht Klaviyo-CRM-Daten für den Kunden-Report oder den CRM-Automation-Case (Flows, Kampagnen mit Betreff, Preview, Absender und Volltext, Report-Metriken, Listen, Segmente, Formulare) und legt sie als Snapshot ab. Einsetzen, wenn ein Report oder Audit Klaviyo-Zahlen braucht, ein CRM-/Voice-Profil aus echten Kampagnen- und Flow-Texten entstehen soll oder der Nutzer ausdrücklich einen Klaviyo-Pull für einen Zeitraum will. Liest reporting/config.json und .env im Kunden-Workspace. Pilot, am 11.09.2026 an einem echten Account validiert.
 ---
 
 # pull-klaviyo: Klaviyo-Snapshot ziehen
 
-Zieht per Klaviyo-REST-API (JSON:API, `https://a.klaviyo.com/api/`) Flows, Kampagnen,
-Report-Metriken je Flow und Kampagne, Metrik-Aggregate für Placed Order, Listen,
-Segmente und Formulare für einen Zeitraum und legt alles als Snapshot im
-Kunden-Workspace ab. Wird vom Report- und Audit-Lauf aufgerufen, funktioniert aber
-auch solo.
+Zieht per Klaviyo-REST-API (JSON:API, `https://a.klaviyo.com/api/`) für einen Zeitraum:
 
-**Kampagnen und Flow-Nachrichten (SEND_MESSAGE-Actions) tragen zusätzlich den
-tatsächlichen Content:** Betreffzeile, Preview-Text, Absender (`from_email`,
-`from_label`) direkt aus der Nachricht, dazu `body_text` aus dem verknüpften
-Template-HTML zu Klartext gestrippt (stdlib `html.parser`, kein Layout-Anspruch).
-Das ist Marken-Content für ein CRM-Voice-Profil (wie schreibt die Brand Betreff,
-Anrede, CTA, Ton), keine Kunden-PII, und fällt nicht unter die Profil-Export-Sperre
-unten. Mit `--skip-content` läuft nur der schnelle Metadaten-Pull ohne Text.
+- Flows und Kampagnen
+- Report-Metriken je Flow und Kampagne
+- Metrik-Aggregate für Placed Order
+- Listen, Segmente, Formulare
 
-**Pilot-Status:** Erster Validierungslauf am 11.09.2026 gegen einen echten Account
-abgeschlossen, Kampagnen- und Flow-Nachrichten mit Volltext. Alle Endpunkte
-inklusive der Report-Endpunkte (`campaign-values-reports`, `flow-values-reports`,
-`metric-aggregates`) liefern bestätigt, Antwortform ist in `Fehlerbilder`
-dokumentiert. Offen: `account` bleibt `null` ohne `accounts:read`-Scope,
-`profile_count` bei Listen/Segmenten ist auf dieser API-Revision nicht
-abrufbar, und Benchmarks für Flow-Kennzahlen sind gegen diesen Lauf noch nicht
-geprüft.
+Ablage als Snapshot im Kunden-Workspace. Aufruf durch Report- und Audit-Lauf oder einzeln.
+
+## Content der Nachrichten
+
+- Kampagnen und Flow-Nachrichten (SEND_MESSAGE-Actions) enthalten zusätzlich den Content:
+  - Betreffzeile, Preview-Text, Absender (`from_email`, `from_label`) aus der Nachricht
+  - `body_text`: verknüpftes Template-HTML als Klartext (stdlib `html.parser`, ohne Layout)
+- Zweck: Marken-Content für ein CRM-Voice-Profil (Betreff, Anrede, CTA, Ton).
+- Das ist keine Kunden-PII und fällt nicht unter die Sperre für Profil-Export (unten).
+- `--skip-content`: nur Metadaten, ohne Text.
+
+## Pilot-Status
+
+- Validierungslauf am 11.09.2026 an einem echten Account abgeschlossen, mit Volltext aus Kampagnen- und Flow-Nachrichten.
+- Alle Endpunkte liefern, auch die Report-Endpunkte (`campaign-values-reports`, `flow-values-reports`, `metric-aggregates`). Antwortform siehe Fehlerbilder.
+- Offen:
+  - `account` bleibt `null` ohne `accounts:read`-Scope.
+  - `profile_count` bei Listen und Segmenten ist auf dieser API-Revision nicht abrufbar.
+  - Benchmarks für Flow-Kennzahlen sind gegen diesen Lauf nicht geprüft.
 
 ## Voraussetzungen
 
 Im Kunden-Workspace (aktuelles Arbeitsverzeichnis):
 
-- `reporting/config.json` mit `sources.klaviyo: true`
-- `.env` im Workspace-Root mit `PTAI_KLAVIYO_KEY` (Private API Key, Read-only-Scopes:
-  Accounts, Campaigns, Flows, Lists, Segments, Metrics, Profiles, Events, Forms,
-  Templates, Tags, Coupons; beim Anlegen in Klaviyo unter Settings > API Keys >
-  Create Private API Key so wählen, danach nicht mehr änderbar)
+- `reporting/config.json` mit `sources.klaviyo: true`.
+- `.env` im Workspace-Root mit `PTAI_KLAVIYO_KEY`:
+  - Private API Key mit Read-only-Scopes: Accounts, Campaigns, Flows, Lists, Segments, Metrics, Profiles, Events, Forms, Templates, Tags, Coupons.
+  - Anlegen in Klaviyo unter Settings > API Keys > Create Private API Key. Scopes danach nicht mehr änderbar.
 
-Fehlt eins davon oder steht `sources.klaviyo` auf `false`: Klaviyo als "nicht
-verfügbar (Grund)" melden und aufhören. Nie den Gesamtlauf (Report/Audit) daran
-scheitern lassen.
+Fehlt etwas oder steht `sources.klaviyo` auf `false`: Klaviyo als "nicht verfügbar (Grund)" melden und stoppen. Der Gesamtlauf (Report/Audit) scheitert nie daran.
 
-**Kein Profil-Export.** Die Klaviyo-Profiles-API liefert Namen, Mailadressen und
-Telefonnummern. `reporting/` wird ins Git-Repository des Kunden committet, ein
-Profil-Export wäre dort ein Datenleck, keine Kennzahl (dieselbe Regel wie bei
-`pull-shopify`, Abschnitt Kohorten). Das Script zieht deshalb nie einzelne
-Profile, nur aggregierte Zähler (Listen-/Segmentgrößen, Suppression-Zähler über
-den System-Segment-Filter).
+### Kein Profil-Export
+
+- Die Profiles-API liefert Namen, Mailadressen und Telefonnummern.
+- `reporting/` wird ins Git-Repository des Kunden committet; ein Profil-Export wäre dort ein Datenleck (gleiche Regel wie `pull-shopify`, Abschnitt Kohorten).
+- Das Script zieht nie einzelne Profile, nur aggregierte Zähler: Listen- und Segmentgrößen, Suppression-Zähler über den System-Segment-Filter.
 
 ## Ablauf
 
-1. `reporting/config.json` lesen (`sources.klaviyo`), `.env` sourcen
-   (`PTAI_KLAVIYO_KEY`). Zeitraum bestimmen: Default sind die letzten 365 Tage für
-   Flows/Kampagnen-Bestand, die Report-Endpunkte laufen zusätzlich über ein
-   90-Tage-Fenster.
-2. Script aufrufen. **Zielordner ist der Daten-Ordner des laufenden Audits oder
-   Reports**, `reporting/data/<run-id>`; ohne Lauf-ID der heutige Ordner:
+1. `reporting/config.json` lesen (`sources.klaviyo`), `.env` sourcen (`PTAI_KLAVIYO_KEY`). Zeitraum:
+   - Bestand Flows/Kampagnen: Standard letzte 365 Tage.
+   - Report-Endpunkte: zusätzlich ein 90-Tage-Fenster.
+2. Script aufrufen. **Zielordner ist der Daten-Ordner des laufenden Audits oder Reports** (`reporting/data/<run-id>`); ohne Lauf-ID der heutige Ordner:
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-klaviyo/scripts/klaviyo_pull.py" \
      --out "reporting/data/$(date +%F)"
    ```
 
-   `PTAI_KLAVIYO_KEY` kommt aus der bereits gesourcten `.env`, nie als
-   `--api-key`-Argument: das stünde sonst im Klartext in der Prozessliste
-   (`ps`), für jeden Nutzer der Maschine sichtbar. `--api-key` bleibt nur als
-   Rückfallweg, mit Warnung auf stderr.
+   - `PTAI_KLAVIYO_KEY` aus der gesourcten `.env` nehmen, nie als `--api-key`-Argument; sonst steht er im Klartext in der Prozessliste (`ps`), sichtbar für alle Nutzer der Maschine.
+   - `--api-key` nur als Rückfallweg, mit Warnung auf stderr.
 
-   Optional: `--days 365` (Bestandsfenster für Flows/Kampagnen, Default 365),
-   `--report-days 90` (Fenster für die Report-Endpunkte, Default 90), `--check`
-   (nur Auth-Test, siehe unten), `--skip-content` (kein Betreff/Text/Template-Pull,
-   nur Metadaten: deutlich weniger API-Calls, aber kein Voice-Profil daraus baubar).
-3. Kernzahlen an den Nutzer melden: Zahl aktiver Flows, Zahl Kampagnen im Fenster,
-   Flow-Anteil am E-Mail-Umsatz falls die Reports geliefert haben, größte Liste
-   und größtes Segment, Zahl der gezogenen Kampagnen-/Flow-Nachrichten samt Text,
-   Auffälligkeiten (leere Reports, fehlende Scopes, Templates ohne HTML).
+   Optionen:
+
+   | Option | Wirkung |
+   |---|---|
+   | `--days 365` | Bestandsfenster für Flows/Kampagnen, Standard 365 |
+   | `--report-days 90` | Fenster der Report-Endpunkte, Standard 90 |
+   | `--check` | nur Auth-Test, siehe unten |
+   | `--skip-content` | kein Betreff/Text/Template-Pull, nur Metadaten; deutlich weniger API-Calls, aber kein Voice-Profil möglich |
+
+3. Dem Nutzer melden:
+   - Zahl aktiver Flows
+   - Zahl Kampagnen im Fenster
+   - Flow-Anteil am E-Mail-Umsatz, falls Reports geliefert haben
+   - größte Liste und größtes Segment
+   - Zahl gezogener Kampagnen- und Flow-Nachrichten mit Text
+   - Auffälligkeiten: leere Reports, fehlende Scopes, Templates ohne HTML
 
 ## Snapshot-Schema
 
-`reporting/data/<run-id>/klaviyo.json`. Jeder Teil scheitert isoliert: ein
-Fehler macht das jeweilige Feld `null` plus Begründung in `notes`, bricht nie den
-Lauf ab (Muster wie `pull-shopify`).
+`reporting/data/<run-id>/klaviyo.json`. Jeder Teil scheitert isoliert: das Feld wird `null`, Begründung in `notes`, der Lauf bricht nie ab (Muster wie `pull-shopify`).
 
 ```json
 {
@@ -144,17 +146,12 @@ Lauf ab (Muster wie `pull-shopify`).
 }
 ```
 
-- `raw_response_shape_confirmed: false` steht in jedem Report-Block, bis ein
-  echter Lauf die Feldnamen bestätigt hat. Nach dem ersten erfolgreichen Lauf auf
-  `true` setzen (SKILL.md und Snapshot-Kommentar hier nachziehen) und diesen
-  Hinweis aus dem Schema streichen.
-- `notes` hält wie bei `pull-shopify` jede methodische Abweichung, nicht nur
-  Totalausfälle: gekürzte Zeiträume, fehlende Scopes, Endpunkte, die 404 oder
-  403 liefern.
+- `raw_response_shape_confirmed: false` steht in jedem Report-Block, bis ein echter Lauf die Feldnamen bestätigt. Danach auf `true` setzen (SKILL.md und Snapshot-Kommentar nachziehen) und diesen Hinweis aus dem Schema entfernen.
+- `notes` enthält jede methodische Abweichung, nicht nur Totalausfälle (wie `pull-shopify`): gekürzte Zeiträume, fehlende Scopes, Endpunkte mit 404 oder 403.
 
 ## Setup-Check
 
-`--check` testet nur Auth plus einen Mini-Call gegen `/api/accounts` (Exit 0/1):
+`--check` testet Auth plus einen Mini-Call gegen `/api/accounts` (Exit 0/1):
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-klaviyo/scripts/klaviyo_pull.py" --check
@@ -162,78 +159,49 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-klaviyo/scripts/klaviyo_pull.py" --ch
 
 ## Fehlerbilder
 
-**Das teuerste zuerst: `flow-values-reports` liefert nicht alle Flows.** Am
-12.09.2026 fehlten im Report mehrere Flows, die senden und Umsatz tragen, darunter
-Welcome-Flows. Ein Report, der nur auf `flow_reports` rechnet, weist den
-Flow-Anteil am E-Mail-Umsatz dadurch viel zu niedrig aus. **Flow-Versände und
-Flow-Umsatz deshalb immer über `metric-aggregates` gegenrechnen:** `Received Email` nach
-`$flow` (count) und `Placed Order` nach `$attributed_flow` (sum_value). Die
-Report-Endpunkte bleiben die Quelle für die Nachrichten-Ebene, nie für Summen je
-Flow oder den Flow-Anteil.
+### Flow-Summen nie aus `flow-values-reports`
 
-Weitere Punkte aus dem Tiefen-Pull am 12.09.2026:
+- `flow-values-reports` liefert nicht alle Flows. Am 12.09.2026 fehlten sendende Flows mit Umsatz, darunter Welcome-Flows.
+- Folge: der Flow-Anteil am E-Mail-Umsatz erscheint viel zu niedrig.
+- **Flow-Versände und Flow-Umsatz immer über `metric-aggregates` gegenrechnen:**
+  - `Received Email` nach `$flow` (count)
+  - `Placed Order` nach `$attributed_flow` (sum_value)
+- Report-Endpunkte nur für die Nachrichten-Ebene nutzen, nie für Summen je Flow oder den Flow-Anteil.
 
-- Revision `2026-07-15` wird akzeptiert. Flow-Graphen (Trigger, Profilfilter,
-  Splits, Wartezeiten) über `GET /api/flows/{id}/?additional-fields[flow]=definition`.
-- Report-Zeilen gruppieren nach `flow_id`, `send_channel` und `flow_message_id`
-  (Kampagnen: `campaign_id`, `campaign_message_id`). Die Nachrichten-ID nie
-  verwerfen, sonst ist keine Diagnose innerhalb eines Flows möglich.
-- `profile_count` gibt es nur auf der Einzelressource
-  `GET /api/segments/{id}/?additional-fields[segment]=profile_count`, gedrosselt
-  auf etwa 15 je Minute.
-- `metric-aggregates`: `interval` kennt `year` nicht, `month` nehmen und summieren.
-  Die Monats-Buckets tragen den Monatsbeginn in UTC (`2025-08-31T22:00:00+00:00`
-  ist September in Berlin); wer das Datum auf sieben Zeichen kürzt, beschriftet
-  jeden Monat um einen Monat zu früh. `by` akzeptiert nur Klaviyos feste
-  Dimensionen (`$flow`, `$message`, `$attributed_flow`, `Inbox Provider`,
-  `Bounce Type`, `Method` und wenige mehr), keine Shopify-Eigenschaften wie
-  `Source Name`. `Method` war beim Subscribe-Event leer.
-- Kampagnen-Liste liefert `audiences.included/excluded`, `send_strategy` und
-  `send_options` mit; `messages.channel` kennt `whatsapp` nicht als Filterwert.
-- Metriken können doppelt existieren (`Added to Cart` aus Shopify und aus der API,
-  `Active on Site` zweimal). Für Abdeckungs-Rechnungen die Metrik-ID nehmen, die
-  der Flow im Graphen als Trigger nutzt, nie den ersten Namens-Treffer.
+### API-Verhalten (Tiefen-Pull 12.09.2026)
 
-Alle folgenden Punkte sind am Pilot-Lauf gegen einen echten Account (11.09.2026)
-bestätigt, nicht mehr Trainings-Wissen:
+- Revision `2026-07-15` wird akzeptiert.
+- Flow-Graphen (Trigger, Profilfilter, Splits, Wartezeiten): `GET /api/flows/{id}/?additional-fields[flow]=definition`.
+- Report-Zeilen gruppieren nach `flow_id`, `send_channel`, `flow_message_id` (Kampagnen: `campaign_id`, `campaign_message_id`). Die Nachrichten-ID nie verwerfen, sonst ist keine Diagnose innerhalb eines Flows möglich.
+- `profile_count` nur auf der Einzelressource `GET /api/segments/{id}/?additional-fields[segment]=profile_count`, gedrosselt auf etwa 15 je Minute.
+- `metric-aggregates`:
+  - `interval` kennt `year` nicht; `month` nehmen und summieren.
+  - Monats-Buckets tragen den Monatsbeginn in UTC (`2025-08-31T22:00:00+00:00` ist September in Berlin). Das Datum nicht auf sieben Zeichen kürzen, sonst ist jeder Monat um einen zu früh beschriftet.
+  - `by` akzeptiert nur Klaviyos feste Dimensionen (`$flow`, `$message`, `$attributed_flow`, `Inbox Provider`, `Bounce Type`, `Method` und wenige mehr), keine Shopify-Eigenschaften wie `Source Name`.
+  - `Method` war beim Subscribe-Event leer.
+- Kampagnen-Liste enthält `audiences.included/excluded`, `send_strategy`, `send_options`. `messages.channel` kennt `whatsapp` nicht als Filterwert.
+- Metriken können doppelt existieren (`Added to Cart` aus Shopify und aus der API, `Active on Site` zweimal). Für Abdeckungs-Rechnungen die Metrik-ID nehmen, die der Flow im Graphen als Trigger nutzt, nie den ersten Namens-Treffer.
 
-- `401 Unauthorized`: Key falsch oder abgelaufen. Neuen Private API Key beim
-  Kunden anfragen, nie den Key im Chat austauschen (nur direkt in `.env`).
-- `403 Forbidden` bei einzelnem Endpunkt: dem Key fehlt der Read-Scope für diese
-  Ressource. Feld wird `null` plus Note, Rest des Laufs geht weiter. Am
-  Pilot-Key fehlte `accounts:read`, `account` blieb `null`, alles andere lief.
-- `429 Too Many Requests`: Klaviyo rate-limited nach Burst- und Steady-Limit je
-  Endpunkt-Kategorie. Script wartet die `Retry-After`-Sekunden und versucht es
-  einmal erneut; scheitert der zweite Versuch auch, Feld `null` plus Note.
-- `campaign-values-reports`/`flow-values-reports` verlangen `conversion_metric_id`
-  im Body (400 ohne, sonst funktioniert die volle `REPORT_STATISTICS`-Liste
-  unverändert). Das Script löst die ID über die Metrik "Placed Order" auf und
-  überspringt den Report ganz, wenn sie fehlt (`account`-Scope-Fehler kaskadiert
-  hierhin).
-- `/api/metrics/` akzeptiert kein `page[size]` überhaupt (400 "'page_size' is
-  not a valid field"); ohne den Parameter kommt die volle Liste in einer Seite.
-- `/api/lists/` und `/api/segments/` erlauben maximal `page[size]=10` und lehnen
-  `additional-fields=profile_count` komplett ab ("additional-fields must be in
-  []"). `profile_count` bleibt deshalb `null` plus Note; eine andere Quelle für
-  Listengrößen ist noch offen. Bei `page[size]=10` reichen 20 Seiten nicht für
-  große Accounts; `max_pages=60` im Script.
-- `metric-aggregates` liefert **Zeitreihen**, keine flachen Werte: eine Antwort
-  trägt `dates` (Monatsliste) plus `data[].measurements.count`/`.sum_value` als
-  parallele Arrays zu `dates`. Das Script zippt das zu einer flachen Liste
-  `{dimension, month, count, sum_value}`.
-- Flow-Actions heißen `SEND_EMAIL`/`SEND_SMS`/`SEND_PUSH`, nie `SEND_MESSAGE`
-  (kanal-neutraler Typ existiert nicht). `SEND_MESSAGE` bleibt als Fallback im
-  Code, ist aber am echten Account nie aufgetreten.
-- **Content sitzt unterschiedlich tief verschachtelt:** `campaign-message`
-  trägt `attributes.definition.content.{subject,preview_text,from_email,
-  from_label,...}`, `flow-message` dagegen `attributes.content.{...}` direkt,
-  ohne `definition`-Wrapper. Wer das verwechselt, bekommt `subject: null` trotz
-  funktionierendem `body_text`, genau der Fehler im ersten Pilot-Lauf.
-- `/api/flow-actions/{id}/flow-messages/` lehnt `?include=template` ab ("'template'
-  include is not currently supported for the requested operation on this
-  resource"), `/api/campaign-messages/{id}/?include=template` dagegen nicht.
-  Flow-Nachrichten lösen das Template deshalb immer über einen eigenen
-  `/api/templates/{id}`-Call auf (`resolve_template_text`, Cache je Template-ID,
-  weil viele Flows sich ein Template teilen).
-- A/B-Test-Flow-Actions oder -Kampagnen können mehrere Nachrichten je Action haben;
-  das Snapshot-Feld heißt deshalb `messages` (Liste), nie `message` (Singular).
+### Bestätigt im Pilot-Lauf (11.09.2026)
+
+| Fall | Verhalten |
+|---|---|
+| `401 Unauthorized` | Key falsch oder abgelaufen. Neuen Private API Key beim Kunden anfragen; den Key nie im Chat austauschen, nur direkt in `.env`. |
+| `403 Forbidden` bei einem Endpunkt | Read-Scope für die Ressource fehlt. Feld `null` plus Note, der Lauf läuft weiter. Am Pilot-Key fehlte `accounts:read`, nur `account` blieb `null`. |
+| `429 Too Many Requests` | Rate-Limit (Burst und Steady je Endpunkt-Kategorie). Script wartet `Retry-After` Sekunden, ein zweiter Versuch; scheitert der, Feld `null` plus Note. |
+
+- `campaign-values-reports`/`flow-values-reports` verlangen `conversion_metric_id` im Body (ohne: 400; mit: volle `REPORT_STATISTICS`-Liste). Das Script löst die ID über die Metrik "Placed Order" auf und überspringt den Report, wenn sie fehlt (ein `account`-Scope-Fehler wirkt bis hierhin).
+- `/api/metrics/` akzeptiert kein `page[size]` (400 "'page_size' is not a valid field"); ohne Parameter kommt die volle Liste in einer Seite.
+- `/api/lists/` und `/api/segments/`:
+  - höchstens `page[size]=10`
+  - `additional-fields=profile_count` wird abgelehnt ("additional-fields must be in []"), daher `profile_count` = `null` plus Note; andere Quelle für Listengrößen offen
+  - 20 Seiten reichen für große Accounts nicht; im Script `max_pages=60`
+- `metric-aggregates` liefert **Zeitreihen**: `dates` (Monatsliste) plus `data[].measurements.count`/`.sum_value` als parallele Arrays. Das Script zippt sie zu `{dimension, month, count, sum_value}`.
+- Flow-Actions heißen `SEND_EMAIL`/`SEND_SMS`/`SEND_PUSH`, nie `SEND_MESSAGE` (kein kanal-neutraler Typ). `SEND_MESSAGE` bleibt als Fallback im Code, kam am echten Account nie vor.
+- **Content liegt unterschiedlich tief:**
+  - `campaign-message`: `attributes.definition.content.{subject,preview_text,from_email,from_label,...}`
+  - `flow-message`: `attributes.content.{...}` ohne `definition`-Wrapper
+  - Verwechselt ergibt das `subject: null` bei funktionierendem `body_text`.
+- `/api/flow-actions/{id}/flow-messages/` lehnt `?include=template` ab ("'template' include is not currently supported for the requested operation on this resource"); `/api/campaign-messages/{id}/?include=template` funktioniert.
+- Flow-Nachrichten lösen das Template daher über einen eigenen `/api/templates/{id}`-Call auf (`resolve_template_text`, Cache je Template-ID, da viele Flows ein Template teilen).
+- A/B-Test-Actions oder -Kampagnen haben mehrere Nachrichten je Action. Das Feld heißt darum `messages` (Liste), nie `message`.

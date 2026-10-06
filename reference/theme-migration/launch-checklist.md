@@ -3,6 +3,11 @@
 Stand 05.10.2026. Gilt für Phase 9. Der Launch ist der Schritt, in dem ein Mensch das neue Theme
 veröffentlicht. Die Skills bereiten vor, prüfen und beobachten; sie veröffentlichen nie.
 
+Ausführbar ist diese Liste als Skill `launch-check` (seit 06.10.2026): je Punkt ein Status mit Beleg,
+eine Go/No-Go-Empfehlung, mit `--after` die Prüfungen am Launch-Tag. Sie läuft mit und ohne
+Migrationslauf, auch für einen Launch ohne Theme-Wechsel. Eine Änderung an dieser Liste zieht dort
+eine Änderung nach sich (`scripts/theme/launch_check.py`).
+
 ## Zeitpunkt
 
 | Regel | Warum |

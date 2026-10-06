@@ -1,30 +1,27 @@
 ---
 name: ecom-language
-description: Die Fachsprache für jedes E-Commerce-Dokument mit Zahlen darin, und der Aufbau eines Befunds. Hält die fünf Elemente eines Befunds (Zustand, Einordnung, Ursache, Folge, Empfehlung), die Regel "Fachbegriff verwenden und beim ersten Auftreten erklären", das Vokabular selbst mit seinen Erklärsätzen und die Liste der Laienwörter, die nie in einem Kundendokument stehen. Wird von ptai-ecom:audit, ptai-ecom:report und den Analyse-Agents des Audits vor dem ersten Befund geladen, ebenso von workos:report, falls installiert, und gilt genauso für Angebote und Analysen, die E-Commerce-Zahlen tragen. Nutze sie, wenn ein Befund, eine Kennzahl oder eine Maßnahme formuliert wird. Nicht verwenden für Mails und Nachrichten und nicht für den Aufbau eines Reports insgesamt.
+description: Fachsprache für jedes E-Commerce-Dokument mit Zahlen und Aufbau eines Befunds. Enthält die fünf Elemente eines Befunds (Zustand, Einordnung, Ursache, Folge, Empfehlung), die Regel "Fachbegriff verwenden und beim ersten Auftreten erklären", das Vokabular mit Erklärsätzen und die Liste der Laienwörter, die in keinem Kundendokument stehen dürfen. ptai-ecom:audit, ptai-ecom:report und die Analyse-Agents des Audits laden sie vor dem ersten Befund; sie gilt ebenso für Angebote und Analysen mit E-Commerce-Zahlen. Verwenden, sobald ein Befund, eine Kennzahl oder eine Maßnahme formuliert wird. Nicht verwenden für Mails und Nachrichten und nicht für den Aufbau eines Reports insgesamt.
 ---
 
-# ecom-language: die Fachsprache und der Aufbau eines Befunds
+# ecom-language: Fachsprache und Aufbau eines Befunds
 
-Ein Report, der Fachbegriffe umschreibt, ist nicht verständlicher, er ist unbrauchbar. Der
-Leser ist Geschäftsführer oder E-Commerce-Verantwortlicher: er kennt sein Geschäft, er kennt
-seine Tools, und er merkt sofort, wenn jemand um einen Begriff herumredet.
+Leser sind Geschäftsführer oder E-Commerce-Verantwortliche. Sie kennen Geschäft und Tools; umschriebene Fachbegriffe machen einen Report für sie unbrauchbar.
 
-## Die eine Regel
+## Grundregel
 
-**Nimm den Fachbegriff und erklär ihn beim ersten Auftreten in einem Halbsatz.** Nie ein
-Laienwort erfinden, nie umschreiben, nie weglassen.
+1. Den Fachbegriff verwenden.
+2. Beim ersten Auftreten im Dokument in einem Halbsatz erklären, danach nicht mehr.
+3. Kein Laienwort erfinden, nicht umschreiben, nicht weglassen.
+
+Beispiel für die Bauform:
 
 > Im Produkt-Schema, den strukturierten Daten, aus denen Google den Preis für
 > Shopping-Einträge liest, ist das Feld `priceValidUntil` bei jedem geprüften Produkt exakt auf
 > das Abrufdatum gesetzt.
 
-Der Begriff steht da, die Erklärung ist ein Nebensatz, und wer den Begriff kennt, liest über
-sie hinweg. Das ist die Bauform, in jedem Befund, bei jedem Begriff, einmal pro Dokument.
-
 ## Die fünf Elemente eines Befunds
 
-Aus dem IIA Audit Report Writing Toolkit, der Standardform für Prüfberichte. Ein Befund, dem
-eines fehlt, lässt den Leser mit einer Zahl allein.
+Quelle: IIA Audit Report Writing Toolkit, Standardform für Prüfberichte. Jeder Befund enthält alle fünf.
 
 | Element | Was es beantwortet | Woran man merkt, dass es fehlt |
 |---|---|---|
@@ -34,21 +31,16 @@ eines fehlt, lässt den Leser mit einer Zahl allein.
 | **Folge** | Was heisst das geschäftlich | Der Leser fragt "und?" |
 | **Empfehlung** | Was ist konkret zu tun, wo | Es bleibt bei "sollte optimiert werden" |
 
-**Die Einordnung ist die, die am häufigsten fehlt, und sie ist die wertvollste.** Drei Formen,
-in dieser Reihenfolge:
+Die Einordnung fehlt am häufigsten und ist am wichtigsten. Drei Formen, in dieser Rangfolge:
 
-1. **Gegen eine Benchmark**, mit Quelle und Abrufdatum. Die belegten Bänder stehen in
-   `${CLAUDE_PLUGIN_ROOT}/reference/metrics.md`, sie sind Fremdquellen und ordnen ein, sie bewerten nicht.
-2. **Gegen den eigenen Datensatz**, wenn es keine Benchmark gibt: die Nachbarstufe im Funnel,
-   der Vorjahresmonat, der Rest des Sortiments.
-3. **Mit dem Satz, dass es keine gibt.** *"Für die Add-to-Cart-Rate gibt es keine belastbare
-   Branchen-Benchmark, deshalb der interne Vergleich."* Das ist eine vollwertige Einordnung
-   und allemal besser als eine erfundene Schwelle.
+1. **Gegen eine Benchmark**, mit Quelle und Abrufdatum. Belegte Bänder: `${CLAUDE_PLUGIN_ROOT}/reference/metrics.md`. Es sind Fremdquellen; sie ordnen ein, sie bewerten nicht.
+2. **Gegen den eigenen Datensatz**, wenn keine Benchmark existiert: Nachbarstufe im Funnel, Vorjahresmonat, übriges Sortiment.
+3. **Mit der Angabe, dass keine existiert**, zum Beispiel: "Für die Add-to-Cart-Rate gibt es keine belastbare Branchen-Benchmark, deshalb der interne Vergleich." Das gilt als vollständige Einordnung; nie eine Schwelle erfinden.
 
-## Der Titel ist die Aussage, nicht ihr Anfang
+## Befundtitel
 
-Ein Befundtitel trägt die Zahl und sagt, was der Fall ist. Er ist kein Thema und kein
-Halbsatz.
+- Der Titel ist die vollständige Aussage mit Zahl.
+- Kein Thema, kein Halbsatz.
 
 | Nicht | Sondern |
 |---|---|
@@ -57,9 +49,9 @@ Halbsatz.
 | Auf allen geprüften Seiten läuft ein Werkzeug für Bewertungen | Trustpilot blendet auf allen geprüften Produktseiten Bewertungen ein |
 | Alle fünf Schritte des Kaufwegs werden gemessen, keiner steht auf null | Alle fünf Funnel-Stufen senden Events, die Messkette ist vollständig |
 
-## Laienwörter, die nie in einem Kundendokument stehen
+## Verbotene Laienwörter in Kundendokumenten
 
-Jedes davon ist ein Fehler, kein Stilproblem. Links steht, was tatsächlich vorkam.
+Jedes Vorkommen ist ein Fehler. Die linke Spalte enthält Formulierungen aus früheren Dokumenten.
 
 | Laienwort | Was stattdessen dasteht |
 |---|---|
@@ -74,15 +66,14 @@ Jedes davon ist ein Fehler, kein Stilproblem. Links steht, was tatsächlich vork
 | KI-Suche allgemein | die Plattform: ChatGPT, Perplexity, Google AI Overviews |
 | Besuche, die bis zur Kasse kamen | Sessions mit `begin_checkout`, oder Checkout-Einstiege |
 
-**Umgekehrt gilt genauso:** unsere Pipeline hat im Kundendokument nichts verloren. Nie
-`crawl.json`, `jq`, DataForSEO, run-id, Snapshot, Pull. Der Beleg nennt die Quelle in
-Kundensprache: *"Quelltext der Startseite"*, *"GA4-Funnel, Sessions je Ereignis"*, *"Crawl vom
-08.09.2026"*.
+Ebenso verboten sind Begriffe der Pipeline:
 
-## Das Vokabular
+- Nie `crawl.json`, `jq`, DataForSEO, run-id, Snapshot, Pull.
+- Der Beleg nennt die Quelle in Kundensprache, zum Beispiel "Quelltext der Startseite", "GA4-Funnel, Sessions je Ereignis", "Crawl vom 08.09.2026".
 
-Die Begriffe, die in E-Commerce-Dokumenten vorkommen, mit dem Halbsatz, der sie erklärt. Nicht
-auswendig lernen, nachschlagen, wenn einer gebraucht wird.
+## Vokabular
+
+Bei Bedarf nachschlagen. Spalte 2 ist der Erklärsatz für das erste Auftreten.
 
 ### Traffic und Messung
 
@@ -133,9 +124,9 @@ auswendig lernen, nachschlagen, wenn einer gebraucht wird.
 | CLS | wie stark der Inhalt beim Laden verspringt |
 | Third-Party-Script | ein Skript, das der Shop von einem fremden Server nachlädt |
 
-## Die Maßnahme braucht ihre Kennzahl
+## Maßnahme mit Kennzahl
 
-Eine Maßnahme ohne Kennzahl ist eine Absichtserklärung. Vier Angaben, immer:
+Jede Maßnahme hat immer diese vier Angaben:
 
 | Angabe | Beispiel |
 |---|---|
@@ -144,22 +135,18 @@ Eine Maßnahme ohne Kennzahl ist eine Absichtserklärung. Vier Angaben, immer:
 | Prüfregel | Button ohne Scrollen sichtbar bei 390 x 844 px, Consent-Layer offen |
 | Messbar ab | vier Wochen nach Livegang, gegen denselben Vorjahreszeitraum |
 
-Ohne "messbar ab" wird nach zwei Wochen gegen Rauschen gemessen und die Maßnahme für
-wirkungslos erklärt.
+"Messbar ab" ist Pflicht, weil sonst nach zwei Wochen gegen Rauschen gemessen und die Maßnahme fälschlich als wirkungslos bewertet wird.
 
 ## Prüfen
 
 Vor der Freigabe, in dieser Reihenfolge:
 
-1. **Jeder Fachbegriff einmal erklärt?** Beim ersten Auftreten, nicht beim dritten.
-2. **Kein Laienwort aus der Tabelle oben?** Maschinell über `python3 -m audit.qa`
-   aus `${CLAUDE_PLUGIN_ROOT}/scripts`, sonst per Suche.
-3. **Trägt jeder Befund alle fünf Elemente?** Besonders die Einordnung.
-4. **Nennt jeder Titel seine Zahl?**
-5. **Steht in jedem Beleg die Quelle in Kundensprache**, nicht der Dateiname aus der Pipeline?
+1. Jeder Fachbegriff beim ersten Auftreten erklärt, nicht später?
+2. Kein Laienwort aus der Tabelle? Automatisch mit `python3 -m audit.qa` aus `${CLAUDE_PLUGIN_ROOT}/scripts`, sonst per Suche.
+3. Jeder Befund mit allen fünf Elementen, vor allem der Einordnung?
+4. Jeder Titel mit seiner Zahl?
+5. Jeder Beleg mit Quelle in Kundensprache statt Dateiname aus der Pipeline?
 
 ## Grenzen
 
-Diese Skill regelt das Vokabular und den Aufbau eines Befunds. Sie regelt **nicht** den Aufbau
-eines Reports (`workos:report`, falls installiert), nicht die Stimme in Mails und Posts
-und nicht Titel und Einstieg (`workos:report`, falls installiert).
+Regelt Vokabular und Aufbau eines Befunds. Nicht geregelt: Aufbau eines Reports insgesamt, Ton in Mails und Posts, Titel und Einstieg eines Reports.

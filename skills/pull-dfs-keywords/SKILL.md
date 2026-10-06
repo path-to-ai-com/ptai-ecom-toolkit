@@ -1,40 +1,29 @@
 ---
 name: pull-dfs-keywords
-description: Suchvolumen, Wettbewerb und Klickpreis für eine Begriffsliste über DataForSEO ziehen, gespeist aus den Keyword-Seeds der Config und den Top-Queries der Search Console, Ergebnis als Snapshot. Nutzen, wenn ein Audit Volumen zu Katalog- und Kategoriebegriffen braucht oder der Nutzer wissen will, wie oft nach etwas gesucht wird. Kostet Geld je Anfrage, nicht je Keyword; Deckel aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
+description: Zieht über DataForSEO Suchvolumen, Wettbewerb und Klickpreis für eine Begriffsliste aus den Keyword-Seeds der Config und den Top-Queries der Search Console und schreibt das Ergebnis als Snapshot. Einsetzen, wenn ein Audit Volumen zu Katalog- und Kategoriebegriffen braucht oder der Nutzer wissen will, wie oft ein Begriff gesucht wird. Kosten fallen je Anfrage an, nicht je Keyword; Obergrenze aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
 ---
 
 # pull-dfs-keywords: Suchvolumen zu einer Begriffsliste
 
-Holt Suchvolumen, Wettbewerbsgrad und Klickpreis zu allen Begriffen, die der
-Lauf kennt: den Keyword-Seeds aus der Config und den Top-Queries aus
-`gsc.json` desselben Laufs.
+Holt Suchvolumen, Wettbewerbsgrad und Klickpreis für alle Begriffe des Laufs:
 
-## Gegen eine echte Antwort geprüft
+- Keyword-Seeds aus der Config
+- Top-Queries aus `gsc.json` desselben Laufs
 
-Am 07.09.2026 einmal echt aufgerufen und als Fixture abgelegt
-(`scripts/tests/fixtures/dfs/search_volume.json`, 0,09 USD). Bestätigt: die
-Zeilen kommen **flach in `result`**, nicht verschachtelt, und `tag` wird
-gespiegelt.
+Referenz-Fixture: `scripts/tests/fixtures/dfs/search_volume.json` (Aufnahme 07.09.2026, 0,09 USD).
 
-## Der Preis hängt an der Anfrage, nicht am Keyword
+## Kosten je Anfrage
 
-**Der Endpunkt kostet je Anfrage dasselbe, egal ob ein Keyword drin steht oder
-tausend.** Deshalb sammelt dieser Pull erst, entdoppelt, und sendet dann in
-Blöcken zu 1.000. Ein Aufruf je Keyword wäre technisch gleichwertig und
-tausendmal so teuer.
-
-Entdoppelt wird ohne Rücksicht auf Groß- und Kleinschreibung: für den Endpunkt
-sind "Regenjacke" und "regenjacke" dasselbe Keyword, in zwei Blöcken wären sie
-zweimal bezahlt. Begriffe über 80 Zeichen fliegen vorher raus, weil ein Fehler
-in der API die ganze bezahlte Anfrage kostet.
+- Eine Anfrage kostet gleich viel, ob mit einem oder tausend Keywords.
+- Darum: erst sammeln, dann entdoppeln, dann in Blöcken zu 1.000 senden. Ein Aufruf je Keyword wäre tausendmal so teuer.
+- Entdoppeln ohne Rücksicht auf Groß- und Kleinschreibung: "Regenjacke" und "regenjacke" sind für den Endpunkt ein Keyword und würden in zwei Blöcken doppelt bezahlt.
+- Begriffe über 80 Zeichen vorher entfernen; ein API-Fehler kostet die ganze bezahlte Anfrage.
 
 ## Voraussetzungen
 
-- `reporting/config.json` mit `keyword_seeds`, `market`, `dfs_budget_usd`,
-  `sources.dfs_keywords` nicht `false`
-- `PTAI_DFS_LOGIN` und `PTAI_DFS_PASSWORD` in der `.env` des Workspace oder
-  zentral in `~/.config/ptai-ecom/.env`
-- **läuft nach `pull-gsc`**, weil er dessen Top-Queries mitnimmt
+- `reporting/config.json` mit `keyword_seeds`, `market`, `dfs_budget_usd`, `sources.dfs_keywords` ungleich `false`.
+- `PTAI_DFS_LOGIN` und `PTAI_DFS_PASSWORD` in der `.env` des Workspace oder zentral in `~/.config/ptai-ecom/.env`.
+- **Erst nach `pull-gsc` starten**, der Pull nutzt dessen Top-Queries.
 
 ## Ablauf
 
@@ -63,44 +52,30 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-dfs-keywords/scripts/keywords_pull.py
 }
 ```
 
-**`search_volume: null` und `search_volume: 0` sind zwei verschiedene
-Aussagen.** `null` heißt "Google liefert dafür keine Zahl", `0` heißt "kein
-Suchvolumen". Sie werden getrennt gezählt, weil im Report daraus "ungemessen"
-oder "toter Begriff" wird, und das ist nicht dasselbe. `keywords_without_data`
-ist die erste, `keywords_with_volume` die zweite Sorte.
+### Regeln zum Schema
 
-**Die Zeilen kommen flach in `result`**, nicht verschachtelt unter
-`result[0].items` wie bei den DataForSEO-Labs-Endpunkten. Wer hier
-`dfs_pull.unwrap()` benutzt, findet nichts und schreibt null Keywords in den
-Snapshot.
+| Wert | Bedeutung | Zähler |
+|---|---|---|
+| `search_volume: null` | Google liefert keine Zahl, im Report "ungemessen" | `keywords_without_data` |
+| `search_volume: 0` | kein Suchvolumen, im Report "toter Begriff" | `keywords_with_volume` |
 
-**Sortiert nach Volumen, absteigend**, ungemessene Begriffe ans Ende. Die
-Liste ist auf 1.000 gekappt, `keywords_returned` nennt die volle Menge.
+- Sortierung: Volumen absteigend, ungemessene Begriffe am Ende.
+- Liste auf 1.000 gekappt; `keywords_returned` nennt die Gesamtmenge.
+- **Abgebrochener Block = Lücke, keine Null.** Stoppt der Budgetdeckel mitten in der Blockfolge, vermerkt `notes`, dass die Begriffe der restlichen Blöcke **ungemessen** sind. Bereits gezogene Begriffe bleiben im Snapshot.
 
-**Ein abgebrochener Block ist eine Lücke, keine Null.** Reißt der Budgetdeckel
-mitten in der Blockfolge, steht das in `notes`: die Begriffe der übrigen Blöcke
-sind **ungemessen**, nicht ohne Suchvolumen. Was schon gezogen wurde, bleibt im
-Snapshot.
+## Antwortformat des Endpunkts
 
-## Was die Aufnahme bestätigt hat
-
-- Feldnamen: `keyword`, `search_volume`, `competition`, `competition_index`,
-  `cpc`, `monthly_searches` mit `year`, `month`, `search_volume`. Die
-  Monatsreihe kam mit zwölf Einträgen zurück.
-- Die Zeilen liegen **flach in `result`**. Wer hier `dfs_pull.unwrap()`
-  benutzt, findet nichts.
+- Zeilen liegen **flach in `result`**, nicht unter `result[0].items` wie bei den DataForSEO-Labs-Endpunkten. `dfs_pull.unwrap()` findet hier nichts und ergibt null Keywords im Snapshot.
+- Feldnamen: `keyword`, `search_volume`, `competition`, `competition_index`, `cpc`, `monthly_searches` mit `year`, `month`, `search_volume`.
+- Die Monatsreihe hat zwölf Einträge.
 - `tag` wird gespiegelt.
-- Preis: **0,09 USD** für vier Keywords, also je Anfrage und nicht je Keyword.
-  `ESTIMATE_USD["dfs_keywords"]` steht auf 0,15 mit Zuschlag.
-
-Offen bleibt nur, ob der Preis bei tausend Keywords in einer Anfrage derselbe
-ist. Die Doku sagt ja; belegt ist er für vier.
+- Preis: **0,09 USD** für vier Keywords, also je Anfrage. `ESTIMATE_USD["dfs_keywords"]` steht auf 0,15 inklusive Zuschlag.
+- Offen: ob der Preis bei tausend Keywords je Anfrage gleich bleibt. Laut Doku ja, gemessen nur für vier.
 
 ## Fehlerbilder
 
-- **Keine Begriffe:** Abbruch mit Meldung. Eine leere Anfrage kostet dasselbe
-  wie eine volle.
-- **Budgetdeckel erreicht:** vor dem ersten Block Abbruch, mitten in der
-  Blockfolge ein Vermerk plus die schon gezogenen Begriffe.
-- **Zugangsdaten fehlen:** Meldung nennt `PTAI_DFS_LOGIN` und
-  `PTAI_DFS_PASSWORD`.
+| Fall | Verhalten |
+|---|---|
+| **Keine Begriffe** | Abbruch mit Meldung; eine leere Anfrage kostet so viel wie eine volle. |
+| **Budgetdeckel erreicht** | Vor dem ersten Block: Abbruch. Mitten in der Blockfolge: Vermerk plus die bereits gezogenen Begriffe. |
+| **Zugangsdaten fehlen** | Meldung nennt `PTAI_DFS_LOGIN` und `PTAI_DFS_PASSWORD`. |

@@ -1,66 +1,49 @@
 ---
 name: pull-shopify
-description: Shopify-Shop-Daten für den Kunden-Report oder den Wochen-Puls ziehen (Umsatz, Bestellungen, AOV, Top-Produkte, Sessions, Bestand, Kundentyp) und als Snapshot ablegen. Nutzen, wenn ein Monats-Report oder Puls Shop-KPIs braucht, oder wenn der Nutzer explizit Shopify-Zahlen für einen Zeitraum abrufen will. Werkzeug ist die Shopify CLI (store execute), kein Script; liest reporting/config.json im Kunden-Workspace.
+description: Zieht Shopify-Shop-Daten für den Kunden-Report oder den Wochen-Puls (Umsatz, Bestellungen, AOV, Top-Produkte, Sessions, Bestand, Kundentyp) und legt sie als Snapshot ab. Einsetzen, wenn ein Monats-Report oder Puls Shop-KPIs braucht oder der Nutzer ausdrücklich Shopify-Zahlen für einen Zeitraum abrufen will. Werkzeug ist die Shopify CLI (store execute), kein Script. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # pull-shopify: Shopify-Snapshot ziehen
 
-Zieht per Shopify CLI Umsatz, Bestellungen, AOV, Top-Produkte, Sessions und
-Bestand für einen Zeitraum und legt alles als Snapshot im Kunden-Workspace ab.
-Kein Script: ShopifyQL läuft über das Admin-GraphQL-Feld `shopifyqlQuery`
-(so dokumentiert es Shopify, rohes ShopifyQL direkt in `--query` ist nicht
-dokumentiert), der Bestand über eine normale Admin-GraphQL-Query. Diese Session
-baut aus den CLI-Antworten selbst die Snapshot-Datei nach dem Schema unten.
-Wird vom Report- und Puls-Lauf aufgerufen, funktioniert aber auch solo.
+Zieht per Shopify CLI für einen Zeitraum Umsatz, Bestellungen, AOV, Top-Produkte, Sessions und Bestand und legt alles als Snapshot im Kunden-Workspace ab.
+
+- Kein Script. Diese Session baut die Snapshot-Datei selbst aus den CLI-Antworten nach dem Schema unten.
+- ShopifyQL läuft über das Admin-GraphQL-Feld `shopifyqlQuery` (dokumentierter Weg; rohes ShopifyQL direkt in `--query` ist nicht dokumentiert).
+- Bestand über eine normale Admin-GraphQL-Query.
+- Aufruf durch Report- und Puls-Lauf oder einzeln.
 
 ## Voraussetzungen
 
 Im Kunden-Workspace (aktuelles Arbeitsverzeichnis):
 
-- `reporting/config.json` mit `shopify_store` (die echte myshopify.com-Domain,
-  nie ein Alias) und `sources.shopify` nicht `false`
-- Shopify CLI installiert (`shopify version`); fehlt sie:
-  `npm install -g @shopify/cli@latest`
-- Store-Auth für die Domain vorhanden (Scope-Regel unten)
+- `reporting/config.json` mit `shopify_store` (echte myshopify.com-Domain, nie ein Alias) und `sources.shopify` ungleich `false`.
+- Shopify CLI installiert (`shopify version`). Sonst: `npm install -g @shopify/cli@latest`.
+- Store-Auth für die Domain vorhanden (Scope-Regel unten).
 
-Fehlt eins davon oder steht `sources.shopify` auf `false`: Shopify als "nicht
-verfügbar (Grund)" melden und aufhören. Nie den Gesamtlauf (Report/Puls) daran
-scheitern lassen.
+Fehlt etwas oder steht `sources.shopify` auf `false`: Shopify als "nicht verfügbar (Grund)" melden und stoppen. Der Gesamtlauf (Report/Puls) scheitert nie daran.
 
 ## Shop aus dem Cockpit
 
-Steht in `reporting/config.json` ein Block `portal` (geschrieben von
-`/ptai-ecom:setup --from-portal`), hat der Kunde Shopify im Cockpit verbunden.
-Dann gilt für diese Skill:
+Gilt, wenn `reporting/config.json` einen Block `portal` hat (geschrieben von `/ptai-ecom:setup --from-portal`); dann hat der Kunde Shopify im Cockpit verbunden.
 
-- **Keine Store-Auth.** Die Scope-Regel unten entfällt, `shopify store auth`
-  wird nie aufgerufen. Die App im Cockpit hat ihre Scopes bei der Installation
-  bekommen.
-- **Jeder Aufruf geht über das Cockpit.** Überall, wo unten
-  `shopify store execute --store <shopify_store> --json` steht, steht stattdessen
+- **Keine Store-Auth.** Die Scope-Regel entfällt, `shopify store auth` wird nie aufgerufen. Die Cockpit-App hat ihre Scopes bei der Installation erhalten.
+- **Jeder Aufruf läuft über das Cockpit.** Statt `shopify store execute --store <shopify_store> --json` überall:
 
   ```bash
   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal shopify-execute
   ```
 
-  mit denselben `--query` oder `--query-file`. Ausgabe und Exit-Code verhalten
-  sich wie bei der CLI: Daten ohne `data`-Hülle auf stdout, bei Drosselung oder
-  Fehler Exit 1 und die Meldung auf stderr. Die Regeln zu Exit-Code,
-  Wiederholung und `parseErrors` in Schritt 4 gelten unverändert.
-- Der Historie-Check in Schritt 2 liest den Grant genauso, über
-  `currentAppInstallation { accessScopes { handle } }`.
-- Antwortet das Cockpit mit "nicht verbunden", ist Shopify für diesen Lauf
-  nicht verfügbar. Nie auf die CLI ausweichen: der Store gehört dann einem
-  Kunden, für den es keine CLI-Anmeldung gibt.
+  mit denselben `--query` oder `--query-file`.
+- Ausgabe und Exit-Code wie bei der CLI: Daten ohne `data`-Hülle auf stdout; bei Drosselung oder Fehler Exit 1, Meldung auf stderr.
+- Regeln zu Exit-Code, Wiederholung und `parseErrors` (Schritt 4) gelten unverändert.
+- Historie-Check (Schritt 2) liest den Grant ebenso über `currentAppInstallation { accessScopes { handle } }`.
+- Cockpit meldet "nicht verbunden": Shopify ist für diesen Lauf nicht verfügbar. Nie auf die CLI ausweichen; für diesen Kunden-Store gibt es keine CLI-Anmeldung.
 
 ## Scope-Regel (hart): vor jeder Re-Auth die Union senden
 
-Die CLI mergt Scopes nicht verlässlich. Eine Auth mit nur den Report-Scopes
-(`--scopes read_reports,read_products`) schrumpft den Grant des Stores auf genau
-diese zwei zusammen; alles andere (Themes, Content, Files, Inventory) ist danach
-weg. Der Zustimmungsdialog zeigt dabei nur Zugewinne an, nie Verluste; der
-Schwund fällt erst auf, wenn ein anderer Workflow scheitert. Deshalb immer in
-dieser Reihenfolge:
+- Die CLI vereinigt Scopes nicht verlässlich.
+- Eine Auth mit nur `--scopes read_reports,read_products` reduziert den Grant auf genau diese zwei; Themes, Content, Files, Inventory sind danach weg.
+- Der Zustimmungsdialog zeigt nur Zugewinne, nie Verluste. Der Verlust zeigt sich erst, wenn ein anderer Workflow scheitert.
 
 **Benötigte Scopes für den vollen Audit-Umfang:**
 
@@ -76,32 +59,21 @@ dieser Reihenfolge:
 | `read_discounts`, `read_price_rules` | Rabattstruktur |
 | `read_locales`, `read_markets` | Sprach- und Marktkonfiguration |
 
-Die Liste wächst mit dem Audit-Scope, die Union-Regel unten bleibt davon
-unberührt: bei einer Re-Auth immer alle bestehenden plus alle hier gelisteten
-Scopes senden, nie nur die neu benötigten.
+Die Liste wächst mit dem Audit-Scope. Die Union-Regel bleibt: bei Re-Auth immer alle bestehenden plus alle gelisteten Scopes senden, nie nur die neuen.
 
-1. **Auth-Status prüfen:** `shopify store auth list --json` (dokumentierte
-   Form; `auth:list` mit Doppelpunkt zeigt dasselbe Kommando). Steht die
-   Store-Domain aus der Config nicht drin, ist es eine Erst-Auth: direkt mit
-   der vollständigen Scope-Liste oben authentifizieren. Hat das
-   Kundenprojekt eine dokumentierte Scope-Liste (CLAUDE.md des Kunden-Repos,
-   Notizen im Kundenordner), die verwenden.
-2. **Bestehenden Grant lesen** (Store ist authentifiziert):
+1. **Auth-Status prüfen:** `shopify store auth list --json` (dokumentierte Form; `auth:list` mit Doppelpunkt ist dasselbe Kommando).
+   - Store-Domain aus der Config fehlt: Erst-Auth, direkt mit der vollständigen Scope-Liste.
+   - Hat das Kundenprojekt eine dokumentierte Scope-Liste (CLAUDE.md des Kunden-Repos, Notizen im Kundenordner), diese verwenden.
+2. **Bestehenden Grant lesen** (Store authentifiziert):
 
    ```bash
    shopify store execute --store <shopify_store> --json \
      --query 'query { currentAppInstallation { accessScopes { handle } } }' 2>/dev/null
    ```
 
-   Deckt die zurückgegebene Liste alle Scopes aus der Tabelle oben schon ab:
-   nichts tun, keine Re-Auth. Scheitert der Call, weil der Online-Token (etwa
-   24h Laufzeit) abgelaufen ist, den bisherigen Scope-Satz aus der
-   CLI-Konfiguration lesen (macOS:
-   `~/Library/Preferences/shopify-cli-store-nodejs/config.json`, pro
-   Store-Domain inklusive Scopes) statt ihn zu raten.
-3. **Re-Auth nur mit Union:** die Vereinigungsmenge aus allen bestehenden plus
-   den benötigten Scopes in einer einzigen `--scopes`-Liste senden, nie nur die
-   neu benötigten:
+   - Deckt die Liste alle Scopes der Tabelle ab: keine Re-Auth.
+   - Scheitert der Call wegen abgelaufenem Online-Token (etwa 24h Laufzeit): bisherigen Scope-Satz aus der CLI-Konfiguration lesen, nicht raten. macOS: `~/Library/Preferences/shopify-cli-store-nodejs/config.json`, je Store-Domain mit Scopes.
+3. **Re-Auth nur mit Union:** Vereinigung aus bestehenden und benötigten Scopes in einer einzigen `--scopes`-Liste:
 
    ```bash
    shopify store auth --store <shopify_store> \
@@ -110,29 +82,40 @@ Scopes senden, nie nur die neu benötigten.
 
 ## Ablauf
 
-1. `reporting/config.json` lesen (`shopify_store`). Zeitraum bestimmen: Default
-   ist der letzte volle Monat (Erster bis Letzter des Vormonats), Puls-Modus die
-   letzte volle Woche, Montag bis Sonntag. `SINCE`/`UNTIL` nehmen explizite
-   Datumsgrenzen, beide inklusiv.
-2. Auth nach der Scope-Regel oben sicherstellen. **Historie-Check direkt
-   danach:** im gerade gelesenen Grant (`currentAppInstallation { accessScopes
-   { handle } }`, Scope-Regel Schritt 2) prüfen, ob `read_all_orders`
-   tatsächlich dabeisteht. Der Zustimmungsdialog kann den Scope trotz Anfrage
-   in der Union stillschweigend verweigern, etwa weil die App für „Protected
-   Customer Data" nicht freigegeben ist; das fällt sonst erst auf, wenn die
-   Kohorten- und Repeat-Rate-Zahlen weiter unten leer bleiben. Fehlt
-   `read_all_orders`, ist die Bestellhistorie hart auf 60 Tage begrenzt: das
-   ist ein Befund und kein Ergebnis, nicht still eine Kurz-Baseline. Melden
-   als „Historie auf 60 Tage begrenzt, `read_all_orders` fehlt" und als
-   `notes.order_history` in den Snapshot schreiben (Schritt 5).
+1. `reporting/config.json` lesen (`shopify_store`). Zeitraum:
+   - Standard: letzter voller Monat (Erster bis Letzter des Vormonats).
+   - Puls-Modus: letzte volle Woche, Montag bis Sonntag.
+   - `SINCE`/`UNTIL` mit expliziten Datumsgrenzen, beide inklusiv.
+2. Auth nach der Scope-Regel sicherstellen, dann zwei Historie-Prüfungen (siehe "Historie prüfen").
+3. Vergleichszeitraum nur im Erstlauf:
+   - Vormonats-Snapshot vorhanden (jüngster `reporting/data/`-Ordner mit `shopify.json`, deren `period` granularity `month` über den vollen Vormonat hat; `-pulse`-Dateien ignorieren): keinen Vergleich ziehen, der Report vergleicht gegen den Snapshot.
+   - Kein Snapshot: dieselben Teil-Pulls (ohne Bestand) zusätzlich für den Monat davor ausführen, als `comparison` ablegen.
+4. Teil-Pulls ausführen (siehe "Teil-Pulls").
+5. Snapshot schreiben: `reporting/data/<heute>/shopify.json`, im Puls-Modus `shopify-pulse.json` (granularity `week`). Diese Session schreibt das JSON selbst aus den CLI-Antworten, exakt nach dem Schema unten. Zielordner siehe "Zielordner".
+6. Dem Nutzer melden:
+   - Umsatz, Bestellungen, AOV
+   - Sessions und Conversion Rate, sofern vorhanden
+   - Top-Produkt
+   - Repeat-Rate, sofern `customer_type` vorhanden
+   - Add-to-Cart-Sessions, Abandoned Carts, Verfügbarkeits-Quote
+   - bei Vergleich die Richtung (mehr/weniger)
+   - Widerspricht die zugeordnete Conversion der Bestellzahl: ausdrücklich melden, nicht nur im Snapshot ablegen.
 
-   **Der Scope allein beweist die Historie nicht, deshalb kommt danach die
-   empirische Probe.** Ein Shop, der auf Shopify migriert ist, hat den Scope und
-   trotzdem keine Vorgeschichte in der Admin-API: die importierten Bestellungen
-   tragen das Importdatum als `createdAt`, nicht das Kaufdatum. Am ersten echten
-   Lauf lag die älteste Bestellung dort Jahre nach dem ersten Monat mit Umsatz,
-   und die beiden Monate rund um den Import zeigten ein Vielfaches der realen
-   Bestellzahl. Zwei Werte holen und vergleichen:
+## Historie prüfen (Ablauf Schritt 2)
+
+### Scope-Prüfung
+
+1. Im gelesenen Grant (`currentAppInstallation { accessScopes { handle } }`, Scope-Regel Schritt 2) prüfen, ob `read_all_orders` enthalten ist.
+2. Der Zustimmungsdialog kann den Scope trotz Anfrage stillschweigend verweigern, etwa wenn die App für „Protected Customer Data" nicht freigegeben ist. Sonst fällt das erst an leeren Kohorten- und Repeat-Rate-Zahlen auf.
+3. Fehlt `read_all_orders`: Bestellhistorie auf 60 Tage begrenzt. Das ist ein Befund, keine stille Kurz-Baseline.
+4. Melden als „Historie auf 60 Tage begrenzt, `read_all_orders` fehlt" und als `notes.order_history` in den Snapshot schreiben (Schritt 5).
+
+### Empirische Probe
+
+- Der Scope allein belegt die Historie nicht.
+- Bei einem auf Shopify migrierten Shop tragen importierte Bestellungen das Importdatum als `createdAt`, nicht das Kaufdatum. Die älteste Bestellung kann Jahre nach dem ersten Umsatzmonat liegen, und die Monate um den Import zeigen ein Vielfaches der realen Bestellzahl.
+
+1. Älteste Bestellung laut Admin-API holen:
 
    ```bash
    # aelteste Bestellung laut Admin-API
@@ -143,369 +126,256 @@ Scopes senden, nie nur die neu benötigten.
    }' 2>/dev/null
    ```
 
-   Dagegen der erste Monat mit Umsatz aus der Zeitreihe (Schritt 4). Liegen die
-   beiden weit auseinander, ist der Shop migriert. Dann gilt: **Historie
-   ausschließlich über ShopifyQL, nie über einen Admin-API-Datumsfilter**, und
-   `notes.order_history` hält beide Daten samt dem Satz, dass Admin-seitige
-   Datumsfilter vor dem Importdatum falsche Zahlen liefern.
-3. Vergleichszeitraum nur beim Erstlauf: existiert bereits ein
-   Vormonats-Snapshot (jüngster `reporting/data/`-Ordner, dessen `shopify.json`
-   einen `period` mit granularity `month` über den vollen Vormonat trägt;
-   `-pulse`-Dateien ignorieren), dann keinen Vergleich mitziehen, der Report
-   vergleicht gegen den Snapshot. Existiert keiner, dieselben Teil-Pulls (ohne
-   Bestand) zusätzlich für den Monat davor laufen lassen und als `comparison`
-   ablegen.
-4. Teil-Pulls ausführen. Jeder Teil scheitert isoliert: ein Fehler macht das
-   jeweilige Feld im Snapshot `null` plus Begründung in `notes`, bricht aber
-   nie den Lauf ab. stdout von `store execute --json` ist reines JSON,
-   Fortschritt landet auf stderr, deshalb überall `2>/dev/null`.
+2. Mit dem ersten Monat mit Umsatz aus der Zeitreihe (Teil-Pulls) vergleichen.
+3. Liegen beide weit auseinander, ist der Shop migriert. Dann:
+   - **Historie nur über ShopifyQL, nie über einen Admin-API-Datumsfilter.**
+   - `notes.order_history` enthält beide Daten und den Hinweis, dass Admin-seitige Datumsfilter vor dem Importdatum falsche Zahlen liefern.
 
-   **Genau deshalb muss der Exit-Code geprüft werden, und zwar bei jedem Call.**
-   Die Admin-API arbeitet mit einem Punktebudget, und die ShopifyQL-Abfragen
-   eines Audits über die volle Historie sind teuer: am ersten echten Lauf war
-   rund die Hälfte der Calls beim ersten Versuch gedrosselt. Die CLI meldet das
-   auf stderr, beendet sich mit Exit 1 und schreibt nichts nach stdout. Mit
-   `2>/dev/null` sieht der Aufrufer eine leere Antwort und hält sie für "keine
-   Daten", während in Wahrheit nichts abgefragt wurde. Deshalb:
+## Teil-Pulls (Ablauf Schritt 4)
 
-   ```bash
-   if ! antwort="$(shopify store execute ... 2>/dev/null)"; then
-     # gedrosselt oder Netzwerkfehler: warten und erneut versuchen
-     sleep 20 && antwort="$(shopify store execute ... 2>/dev/null)" || true
-   fi
-   ```
+### Grundregeln
 
-   Zwei Wiederholungen mit wachsender Pause (20, dann 40 Sekunden) reichten am
-   ersten Lauf für jeden gedrosselten Call. Scheitert ein Teil-Pull danach
-   weiterhin, wird sein Feld `null` plus Begründung in `notes`, wie jeder andere
-   Fehlschlag auch. **Eine leere Antwort ohne Exit-Code-Prüfung darf nie als
-   "keine Daten" in den Snapshot gehen.**
+- Jeder Teil scheitert isoliert: Feld `null` plus Begründung in `notes`, nie Abbruch des Laufs.
+- stdout von `store execute --json` ist reines JSON, Fortschritt geht auf stderr, daher überall `2>/dev/null`.
+- **Darum bei jedem Call den Exit-Code prüfen.**
+  - Die Admin-API arbeitet mit Punktebudget; ShopifyQL-Abfragen über die volle Historie sind teuer. Rund die Hälfte der Calls wird beim ersten Versuch gedrosselt.
+  - Bei Drosselung: Meldung auf stderr, Exit 1, nichts auf stdout. Mit `2>/dev/null` sieht das aus wie "keine Daten".
 
-   Nach jedem
-   ShopifyQL-Call `parseErrors` prüfen: nicht leer heißt Query kaputt, gegen
-   die ShopifyQL-Referenz korrigieren und erneut ausführen.
+  ```bash
+  if ! antwort="$(shopify store execute ... 2>/dev/null)"; then
+    # gedrosselt oder Netzwerkfehler: warten und erneut versuchen
+    sleep 20 && antwort="$(shopify store execute ... 2>/dev/null)" || true
+  fi
+  ```
 
-   **Umsatz-Totals** (Zahlen kommen aus `tableData.rows`, Spaltennamen aus
-   `tableData.columns`, beides 1:1 übernehmen, nie selbst rechnen):
+- Zwei Wiederholungen mit wachsender Pause (20, dann 40 Sekunden) genügen erfahrungsgemäß.
+- Scheitert ein Teil-Pull danach weiter: Feld `null` plus Begründung in `notes`.
+- **Eine leere Antwort ohne Exit-Code-Prüfung geht nie als "keine Daten" in den Snapshot.**
+- Nach jedem ShopifyQL-Call `parseErrors` prüfen. Nicht leer = Query kaputt: gegen die ShopifyQL-Referenz korrigieren, erneut ausführen.
 
-   ```bash
-   shopify store execute --store <shopify_store> --json --query 'query {
-     shopifyqlQuery(query: """
-       FROM sales
-       SHOW total_sales, net_sales, orders, average_order_value
-       SINCE 2026-07-01 UNTIL 2026-07-31
-     """) { tableData { columns { name dataType } rows } parseErrors }
-   }' 2>/dev/null
-   ```
+### Umsatz-Totals
 
-   **Zeitreihe** (gleiche Query plus `TIMESERIES month`; Puls: `TIMESERIES day`
-   über die Woche; den AOV nie aus der Zeitreihe mitteln, der kommt aus der
-   Totals-Query):
+Zahlen aus `tableData.rows`, Spaltennamen aus `tableData.columns`, beides 1:1 übernehmen, nie selbst rechnen:
 
-   ```bash
-   shopify store execute --store <shopify_store> --json --query 'query {
-     shopifyqlQuery(query: """
-       FROM sales
-       SHOW total_sales, net_sales, orders
-       TIMESERIES month
-       SINCE 2026-07-01 UNTIL 2026-07-31
-     """) { tableData { columns { name dataType } rows } parseErrors }
-   }' 2>/dev/null
-   ```
+```bash
+shopify store execute --store <shopify_store> --json --query 'query {
+  shopifyqlQuery(query: """
+    FROM sales
+    SHOW total_sales, net_sales, orders, average_order_value
+    SINCE 2026-07-01 UNTIL 2026-07-31
+  """) { tableData { columns { name dataType } rows } parseErrors }
+}' 2>/dev/null
+```
 
-   **Top-Produkte nach Umsatz** (ShopifyQL, nicht GraphQL: der Admin-Enum
-   `ProductSortKeys` kennt kein `BEST_SELLING`):
+### Zeitreihe
 
-   ```bash
-   shopify store execute --store <shopify_store> --json --query 'query {
-     shopifyqlQuery(query: """
-       FROM sales
-       SHOW net_sales, orders
-       GROUP BY product_title
-       SINCE 2026-07-01 UNTIL 2026-07-31
-       ORDER BY net_sales DESC
-       LIMIT 50
-     """) { tableData { columns { name dataType } rows } parseErrors }
-   }' 2>/dev/null
-   ```
+- Gleiche Query plus `TIMESERIES month`; im Puls `TIMESERIES day` über die Woche.
+- AOV nie aus der Zeitreihe mitteln, er kommt aus der Totals-Query.
 
-   **Eine Zeile ohne `product_title` ist kein Produkt.** Ein migrierter Shop
-   bringt Bestellungen ohne Artikelbezug mit, und ShopifyQL fasst sie in einer
-   einzigen Zeile mit `product_title: null` zusammen. Am 07.09.2026 trug diese
-   Zeile 67,6 Prozent des gesamten Nettoumsatzes und stand damit an der Spitze
-   der Top-Produkte. Wer sie als Produkt zählt, bekommt "das stärkste Produkt
-   trägt zwei Drittel des Umsatzes" und friert diese Aussage in der Baseline
-   ein.
+```bash
+shopify store execute --store <shopify_store> --json --query 'query {
+  shopifyqlQuery(query: """
+    FROM sales
+    SHOW total_sales, net_sales, orders
+    TIMESERIES month
+    SINCE 2026-07-01 UNTIL 2026-07-31
+  """) { tableData { columns { name dataType } rows } parseErrors }
+}' 2>/dev/null
+```
 
-   Die Zeile bleibt unverändert im Snapshot, sie ist eine echte Messung. Aber
-   sie gehört in `notes.top_products` mit Betrag und Anteil, und **jede
-   Sortimentsrechnung läuft ausschließlich über die benannten Zeilen**, mit
-   dem benannten Umsatz als Nenner. Der unbenannte Anteil wird daneben
-   ausgewiesen, nie stillschweigend mitgerechnet und nie weggelassen.
+### Top-Produkte nach Umsatz
 
-   **`LIMIT` wird so lange erhöht, bis die Liste nachweislich vollständig ist.**
-   Kommen genau so viele Zeilen zurück, wie das Limit erlaubt, ist sie
-   abgeschnitten, und die Sortiments-Diagnose zählt Produkte fälschlich als
-   umsatzlos. Am ersten echten Lauf brauchte es drei Erhöhungen (50, 1.000,
-   5.000), bis die Liste unter dem Limit blieb. Der Snapshot hält immer die
-   vollständige Liste, der Report zeigt daraus die Top 10. Die erreichte
-   Zeilenzahl und das benutzte Limit gehören nach `notes.top_products`.
+ShopifyQL, nicht GraphQL: der Admin-Enum `ProductSortKeys` kennt kein `BEST_SELLING`.
 
-   `LIMIT 50` als Startwert statt 10, weil die Sortiments-Diagnose "Ware ohne Umsatz"
-   (Kennzahlen-Katalog) den vollen Produktbestand gegen die Umsatzzeilen hält:
-   bei `LIMIT 10` zählte ein Produkt auf Rang 11 fälschlich als umsatzlos. Der
-   Report zeigt weiterhin nur die Top 10, der Snapshot hält bis zu 50 Zeilen.
-   Kommen genau 50 Zeilen zurück, ist die Liste womöglich abgeschnitten: dann
-   das Limit erhöhen, sonst ist die Diagnose falsch.
+```bash
+shopify store execute --store <shopify_store> --json --query 'query {
+  shopifyqlQuery(query: """
+    FROM sales
+    SHOW net_sales, orders
+    GROUP BY product_title
+    SINCE 2026-07-01 UNTIL 2026-07-31
+    ORDER BY net_sales DESC
+    LIMIT 50
+  """) { tableData { columns { name dataType } rows } parseErrors }
+}' 2>/dev/null
+```
 
-   **Sessions, Conversion Rate und Kaufweg:** das `sessions`-Schema liefert
-   neben `sessions` und `conversion_rate` auch die beiden Kaufweg-Stufen
-   `sessions_with_cart_additions` und `sessions_that_reached_checkout` (am
-   Pilot-Shop bestätigt). Die Query enthält einfache Anführungszeichen, deshalb
-   in eine Datei schreiben und mit `--query-file` ausführen:
+**Zeile ohne `product_title` ist kein Produkt.**
 
-   ```graphql
-   query {
-     shopifyqlQuery(query: """
-       FROM sessions
-       SHOW sessions, sessions_with_cart_additions,
-            sessions_that_reached_checkout, conversion_rate
-       WHERE human_or_bot_session = 'human'
-       SINCE 2026-07-01 UNTIL 2026-07-31
-     """) { tableData { columns { name dataType } rows } parseErrors }
-   }
-   ```
+- Ein migrierter Shop hat Bestellungen ohne Artikelbezug; ShopifyQL fasst sie in einer Zeile mit `product_title: null` zusammen.
+- Diese Zeile kann den Großteil des Umsatzes tragen (gemessen: 67,6 Prozent des Nettoumsatzes) und stünde dann an der Spitze der Top-Produkte.
+- Die Zeile bleibt unverändert im Snapshot, sie ist eine echte Messung.
+- Betrag und Anteil gehören in `notes.top_products`.
+- **Jede Sortimentsrechnung läuft nur über die benannten Zeilen**, mit dem benannten Umsatz als Nenner.
+- Den unbenannten Anteil daneben ausweisen, nie stillschweigend mitrechnen, nie weglassen.
 
-   ```bash
-   shopify store execute --store <shopify_store> --json \
-     --query-file <pfad>/sessions.graphql 2>/dev/null
-   ```
+**`LIMIT` erhöhen, bis die Liste nachweislich vollständig ist.**
 
-   Den `WHERE`-Filter nie weglassen: ohne ihn zählen Bots mit, am Pilot-Shop
-   waren das im Juni rund 40 Prozent der Sessions. Ergebnis nach `sessions` schreiben
-   (`sessions`, `conversion_rate`) und nach `session_funnel` (alle vier Felder).
-   Kommt ein Fehler oder keine Daten: beide Felder `null` plus Note, der Report
-   nimmt Traffic und Kaufweg dann aus GA4. Nicht fatal.
+- Startwert `LIMIT 50` statt 10: die Sortiments-Diagnose "Ware ohne Umsatz" (Kennzahlen-Katalog) hält den vollen Produktbestand gegen die Umsatzzeilen; bei `LIMIT 10` zählte ein Produkt auf Rang 11 fälschlich als umsatzlos.
+- Kommen genau so viele Zeilen wie das Limit, ist die Liste abgeschnitten: Limit erhöhen (Beispiel aus einem Lauf: 50, 1.000, 5.000), bis die Zeilenzahl unter dem Limit bleibt.
+- Der Snapshot enthält die vollständige Liste, der Report zeigt die Top 10.
+- Erreichte Zeilenzahl und benutztes Limit in `notes.top_products`.
 
-   **Die beiden unteren Kaufweg-Stufen sind bei kleinen Shops unzuverlässig**
-   und werden deshalb nur roh abgelegt, nie zu einer Quote verrechnet. Am
-   Pilot-Shop meldete in einem Monat weniger erreichte Checkouts als echte
-   Bestellungen und in einem anderen weniger Warenkorb-Sessions als erreichte
-   Checkouts, beides rechnerisch unmöglich. Widerspricht
-   `sessions_that_reached_checkout` der Bestellzahl,
-   gehört das als Note in den Snapshot.
+### Sessions, Conversion Rate und Kaufweg
 
-   **Abandoned Carts** (Admin GraphQL, Scope `read_orders`). Die
-   Query enthält Anführungszeichen im Filter, deshalb ebenfalls per
-   `--query-file`:
+- Das `sessions`-Schema liefert `sessions`, `conversion_rate` und die Kaufweg-Stufen `sessions_with_cart_additions` und `sessions_that_reached_checkout` (am Pilot-Shop bestätigt).
+- Die Query enthält einfache Anführungszeichen: in eine Datei schreiben, mit `--query-file` ausführen.
 
-   ```graphql
-   query {
-     abandonedCheckouts(first: 50, query: "created_at:>=2026-07-01 created_at:<=2026-07-31") {
-       nodes {
-         createdAt
-         completedAt
-         totalPriceSet { shopMoney { amount currencyCode } }
-         lineItems(first: 5) { nodes { title quantity } }
-       }
-     }
-   }
-   ```
+```graphql
+query {
+  shopifyqlQuery(query: """
+    FROM sessions
+    SHOW sessions, sessions_with_cart_additions,
+         sessions_that_reached_checkout, conversion_rate
+    WHERE human_or_bot_session = 'human'
+    SINCE 2026-07-01 UNTIL 2026-07-31
+  """) { tableData { columns { name dataType } rows } parseErrors }
+}
+```
 
-   Das Feld heißt im Snapshot `abandoned_checkouts` wie das Admin-Objekt, im
-   Report heißt die Kennzahl **Abandoned Cart**. Feldnamen folgen der API,
-   Anzeigenamen dem Sprachgebrauch.
+```bash
+shopify store execute --store <shopify_store> --json \
+  --query-file <pfad>/sessions.graphql 2>/dev/null
+```
 
-   **Shopify hält abgebrochene Warenkörbe nur begrenzt vor.** Ein Filter über
-   den vollen Audit-Zeitraum liefert trotzdem nur die letzten Monate, und
-   `count` und `total_value` sehen danach aus wie Zahlen über den ganzen
-   Zeitraum. Den tatsächlich abgedeckten Zeitraum aus dem ältesten `createdAt`
-   der Antwort bestimmen und nach `notes.abandoned_checkouts` schreiben, jedes
-   Mal, auch wenn der Call sauber durchläuft.
+- `WHERE`-Filter nie weglassen; ohne ihn zählen Bots mit (am Pilot-Shop im Juni rund 40 Prozent der Sessions).
+- Ergebnis nach `sessions` (`sessions`, `conversion_rate`) und nach `session_funnel` (alle vier Felder).
+- Fehler oder keine Daten: beide Felder `null` plus Note, der Report nimmt Traffic und Kaufweg aus GA4. Nicht fatal.
+- **Die beiden unteren Kaufweg-Stufen sind bei kleinen Shops unzuverlässig:** nur roh ablegen, nie zu einer Quote verrechnen. Am Pilot-Shop gab es Monate mit weniger erreichten Checkouts als Bestellungen und mit weniger Warenkorb-Sessions als Checkouts.
+- Widerspricht `sessions_that_reached_checkout` der Bestellzahl: Note in den Snapshot.
 
-   Nach `abandoned_checkouts` schreiben: `count`, `total_value` (Summe über die
-   Zeilen mit `completedAt` gleich `null`), `currency` und die Einzelzeilen.
-   Nur nicht abgeschlossene zählen, ein Checkout mit `completedAt` ist eine
-   Bestellung geworden. Scheitert der Call, Feld `null` plus Note.
+### Abandoned Carts
 
-   **Bestand und Verfügbarkeit** (Admin GraphQL, Scope `read_products`). Ein
-   Call über **alle aktiven Produkte**, nicht über eine Stichprobe:
+Admin GraphQL, Scope `read_orders`. Anführungszeichen im Filter, daher `--query-file`:
 
-   ```bash
-   shopify store execute --store <shopify_store> --json --query 'query {
-     products(first: 250, query: "status:active") {
-       pageInfo { hasNextPage endCursor }
-       nodes {
-         title handle status totalInventory tracksInventory
-         variants(first: 100) {
-           pageInfo { hasNextPage }
-           nodes { title inventoryQuantity inventoryPolicy availableForSale }
-         }
-       }
-     }
-   }' 2>/dev/null
-   ```
+```graphql
+query {
+  abandonedCheckouts(first: 50, query: "created_at:>=2026-07-01 created_at:<=2026-07-31") {
+    nodes {
+      createdAt
+      completedAt
+      totalPriceSet { shopMoney { amount currencyCode } }
+      lineItems(first: 5) { nodes { title quantity } }
+    }
+  }
+}
+```
 
-   **Nie `products(first: 50, sortKey: TITLE)` verwenden.** Das ist keine
-   Stichprobe, sondern der Anfang des Alphabets, und es erwischt systematisch
-   nicht die Umsatzträger: am Pilot-Shop reichten die 50 Zeilen nur bis
-   „Beispielartikel Drei“ und enthielten keines der Eigenprodukte, die den
-   Großteil des Umsatzes trugen. Der Bestand der Top-Produkte stand deshalb
-   einen ganzen Report lang auf `null`.
+- Snapshot-Feld `abandoned_checkouts` wie das Admin-Objekt; im Report heißt die Kennzahl **Abandoned Cart**. Feldnamen folgen der API, Anzeigenamen dem Sprachgebrauch.
+- **Shopify hält abgebrochene Warenkörbe nur begrenzt vor.** Ein Filter über den vollen Audit-Zeitraum liefert nur die letzten Monate, `count` und `total_value` wirken trotzdem wie Werte über den ganzen Zeitraum.
+- Abgedeckten Zeitraum aus dem ältesten `createdAt` der Antwort bestimmen und nach `notes.abandoned_checkouts` schreiben, jedes Mal, auch bei sauberem Call.
+- In `abandoned_checkouts`: `count`, `total_value` (Summe über Zeilen mit `completedAt` = `null`), `currency`, Einzelzeilen.
+- Nur nicht abgeschlossene zählen; ein Checkout mit `completedAt` ist eine Bestellung.
+- Scheitert der Call: Feld `null` plus Note.
 
-   Aus dieser einen Antwort entstehen drei Snapshot-Felder:
+### Bestand und Verfügbarkeit
 
-   - `products`: je Produkt `product_title`, `handle`, `status`,
-     `total_inventory`, `tracks_inventory`. Grundgesamtheit der
-     Sortiments-Diagnosen im Kennzahlen-Katalog.
-   - `top_products[].total_inventory` und `.status` per Titel-Match. Bleibt ein
-     Top-Produkt ohne Match (Titel im Umsatzbericht weicht ab, Produkt
-     archiviert), den Bestand für genau diese Titel gezielt nachfragen
-     (`query: "title:*<Titel>*"`) statt `null` stehen zu lassen.
-   - `availability`: die Aggregate über alle aktiven Produkte, nämlich
-     `active_products`, `variants_total`, `variants_available`,
-     `products_fully_unavailable`, `products_partially_available`,
-     `zero_stock_active`, `zero_stock_still_buyable`, dazu die Listen
-     `fully_unavailable_titles` und `partially_available` (Titel plus
-     `available_variants` und `total_variants`).
+Admin GraphQL, Scope `read_products`. Ein Call über **alle aktiven Produkte**, keine Stichprobe:
 
-   **`total_inventory: 0` heißt nicht „nicht kaufbar“.** Entscheidend ist
-   `availableForSale` je Variante, und die hängt an `inventoryPolicy`: bei
-   `CONTINUE` ist das Produkt trotz Bestand 0 bestellbar (Fertigung auf
-   Bestellung), bei `DENY` nicht. Am Pilot-Shop waren fast alle Produkte mit
-   Bestand 0 normal bestellbar. Ein Report, der Bestand 0 als Kaufhindernis
-   liest, behauptet damit das Gegenteil der Wahrheit.
+```bash
+shopify store execute --store <shopify_store> --json --query 'query {
+  products(first: 250, query: "status:active") {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      title handle status totalInventory tracksInventory
+      variants(first: 100) {
+        pageInfo { hasNextPage }
+        nodes { title inventoryQuantity inventoryPolicy availableForSale }
+      }
+    }
+  }
+}' 2>/dev/null
+```
 
-   Mehr als 250 aktive Produkte: über `pageInfo.hasNextPage` und `endCursor`
-   blättern, bis alle da sind. Die Aggregate müssen über den vollen Bestand
-   laufen, sonst sind sie wertlos. **`pageInfo` steht deshalb in jeder
-   Beispiel-Query oben**; ohne das Feld lässt sich gar nicht feststellen, ob
-   noch etwas fehlt, und der Aufrufer bekommt die erste Seite und merkt nichts.
-   Dasselbe gilt für `variants(first: 100)`: meldet dort `hasNextPage` wahr, ist
-   die Variantenliste dieses Produkts unvollständig und die
-   Verfügbarkeits-Aggregate stimmen nicht. Die Zahl der geblätterten Seiten
-   gehört nach `notes.availability`.
+- **Nie `products(first: 50, sortKey: TITLE)`.** Das ist der Anfang des Alphabets, keine Stichprobe, und verfehlt systematisch die Umsatzträger; deren Bestand stünde dann auf `null`.
 
-   **Bestellungen nach Quelle** (Admin GraphQL, Scope `read_orders`), damit die
-   Abweichung zwischen Bestellzahl und zugeordneter Conversion einzuordnen ist:
+Drei Snapshot-Felder aus dieser Antwort:
 
-   **Gezählt wird, nicht exportiert.** Ein Zeilen-Export über einen
-   Audit-Zeitraum sind hunderte Seiten zu je 250 Bestellungen, und er ist genau
-   der Bestell-Export auf Zeilenebene, den der Abschnitt "Was nie in den
-   Snapshot geht" weiter unten verbietet. `ordersCount` liefert die Zahl je
-   Quelle in einem Call ohne eine einzige Bestellzeile:
+| Feld | Inhalt |
+|---|---|
+| `products` | je Produkt `product_title`, `handle`, `status`, `total_inventory`, `tracks_inventory`; Grundgesamtheit der Sortiments-Diagnosen im Kennzahlen-Katalog |
+| `top_products[].total_inventory` und `.status` | per Titel-Match; ohne Match (abweichender Titel im Umsatzbericht, archiviertes Produkt) gezielt per `query: "title:*<Titel>*"` nachfragen statt `null` |
+| `availability` | Aggregate über alle aktiven Produkte: `active_products`, `variants_total`, `variants_available`, `products_fully_unavailable`, `products_partially_available`, `zero_stock_active`, `zero_stock_still_buyable`, plus Listen `fully_unavailable_titles` und `partially_available` (Titel, `available_variants`, `total_variants`) |
 
-   ```bash
-   shopify store execute --store <shopify_store> --json --query 'query {
-     web: ordersCount(query: "source_name:web") { count precision }
-     draft: ordersCount(query: "source_name:shopify_draft_order") { count precision }
-     all: ordersCount(query: "") { count precision }
-   }' 2>/dev/null
-   ```
+- **`total_inventory: 0` heißt nicht „nicht kaufbar“.** Maßgeblich ist `availableForSale` je Variante, abhängig von `inventoryPolicy`:
+  - `CONTINUE`: trotz Bestand 0 bestellbar (Fertigung auf Bestellung).
+  - `DENY`: nicht bestellbar.
+- Am Pilot-Shop waren fast alle Produkte mit Bestand 0 normal bestellbar; Bestand 0 als Kaufhindernis zu lesen wäre falsch.
+- Mehr als 250 aktive Produkte: über `pageInfo.hasNextPage` und `endCursor` blättern, bis alle da sind. Aggregate nur über den vollen Bestand.
+- **`pageInfo` steht in jeder Beispiel-Query**; ohne das Feld ist nicht feststellbar, ob Seiten fehlen.
+- Meldet `variants(first: 100)` `hasNextPage` wahr, ist die Variantenliste des Produkts unvollständig und die Verfügbarkeits-Aggregate stimmen nicht.
+- Zahl der geblätterten Seiten in `notes.availability`.
 
-   **`precision` ist Pflicht, nicht Zierde.** Shopify kappt die Zählung und
-   meldet dann `precision: AT_LEAST` statt `EXACT`. Ohne das Feld sieht der
-   Aufrufer eine runde Zahl und hält sie für eine Messung. Am 07.09.2026 kam
-   für `web` und für `alle` jeweils `10000` zurück, während ShopifyQL für
-   denselben Shop ein Vielfaches davon führte: die 10.000 waren die
-   Kappungsgrenze, keine Bestellzahl.
+### Bestellungen nach Quelle
 
-   **Meldet auch nur eine Zeile `AT_LEAST`, geht `orders_by_source` als `null`
-   in den Snapshot**, zusammen mit einer Note, die die Kappung benennt. Eine
-   gekappte Zahl ist schlimmer als keine: die Deutung im nächsten Absatz
-   ("tragen praktisch alle Bestellungen `web`") beruht dann auf einem Anteil,
-   den niemand gemessen hat.
+Admin GraphQL, Scope `read_orders`. Zweck: Abweichung zwischen Bestellzahl und zugeordneter Conversion einordnen.
 
-   Nach `orders_by_source` schreiben (`source_name`, `orders`). **Ein
-   numerischer Quellname lässt sich nicht filtern**: eine App-Quelle wie
-   `12345678901` liefert über `source_name:` null Treffer, auch in
-   Anführungszeichen. Ihre Zahl entsteht als Differenz zwischen `alle` und der
-   Summe der benannten Quellen, und dass sie so entstanden ist, gehört in die
-   Note.
+- **Zählen, nicht exportieren.** Ein Zeilen-Export wären hunderte Seiten zu je 250 Bestellungen und ist laut "Was nie in den Snapshot geht" verboten. `ordersCount` liefert die Zahl je Quelle in einem Call ohne Bestellzeile:
 
-   Tragen praktisch alle Bestellungen `web`, ist eine niedrige zugeordnete
-   Conversion ein Zuordnungsverlust und kein anderer Bestellweg; genau das
-   gehört in die Note. **Trägt die Mehrheit eine andere Quelle, gilt der Schluss
-   nicht.** Bei einem migrierten Shop ist das der Normalfall, und der Snapshot
-   trennt Tracking-Verlust und anderen Bestellweg dann nicht. Dann steht in der
-   Note, dass die Ursache offen ist, nie eine der beiden Deutungen.
+```bash
+shopify store execute --store <shopify_store> --json --query 'query {
+  web: ordersCount(query: "source_name:web") { count precision }
+  draft: ordersCount(query: "source_name:shopify_draft_order") { count precision }
+  all: ordersCount(query: "") { count precision }
+}' 2>/dev/null
+```
 
-   `ordersCount` kennt keine Zeitdimension. Die Zahlen decken damit den vollen
-   Zeitraum ab und lassen sich nicht auf das Sessions-Fenster schneiden; auch
-   das gehört in die Note, sonst werden sie später gegen eine Monatsreihe
-   gehalten.
+- **`precision` ist Pflicht.** Shopify kappt die Zählung und meldet dann `precision: AT_LEAST` statt `EXACT`. Ein Rückgabewert `10000` kann die Kappungsgrenze sein, keine Bestellzahl.
+- **Meldet eine Zeile `AT_LEAST`: `orders_by_source` = `null`** plus Note mit der Kappung. Eine gekappte Zahl ist schlechter als keine.
+- Sonst nach `orders_by_source` schreiben (`source_name`, `orders`).
+- **Numerische Quellnamen lassen sich nicht filtern:** eine App-Quelle wie `12345678901` liefert über `source_name:` null Treffer, auch in Anführungszeichen. Ihre Zahl = `alle` minus Summe der benannten Quellen; die Herleitung in die Note.
+- Deutung:
+  - Fast alle Bestellungen `web`: niedrige zugeordnete Conversion = Zuordnungsverlust, kein anderer Bestellweg. In die Note.
+  - **Mehrheit mit anderer Quelle:** der Schluss gilt nicht. Bei migrierten Shops der Normalfall; der Snapshot trennt dann Tracking-Verlust und anderen Bestellweg nicht. Note: Ursache offen, keine der beiden Deutungen.
+- `ordersCount` hat keine Zeitdimension. Die Zahlen decken den vollen Zeitraum ab und lassen sich nicht auf das Sessions-Fenster schneiden; auch das in die Note, damit niemand sie gegen eine Monatsreihe hält.
 
-   **Kundentyp** (ShopifyQL, für die Repeat-Rate):
+### Kundentyp (für die Repeat-Rate)
 
-   ```bash
-   shopify store execute --store <shopify_store> --json --query 'query {
-     shopifyqlQuery(query: """
-       FROM sales
-       SHOW orders, total_sales
-       GROUP BY customer_type
-       SINCE 2026-07-01 UNTIL 2026-07-31
-     """) { tableData { columns { name dataType } rows } parseErrors }
-   }' 2>/dev/null
-   ```
+```bash
+shopify store execute --store <shopify_store> --json --query 'query {
+  shopifyqlQuery(query: """
+    FROM sales
+    SHOW orders, total_sales
+    GROUP BY customer_type
+    SINCE 2026-07-01 UNTIL 2026-07-31
+  """) { tableData { columns { name dataType } rows } parseErrors }
+}' 2>/dev/null
+```
 
-   `customer_type` ist laut ShopifyQL-Referenz eine Dimension des
-   `sales`-Schemas mit Werten wie `first-time` und `returning`. Die Zeilen 1:1
-   übernehmen, nie Werte zusammenfassen oder umbenennen: die Repeat-Rate rechnet
-   der Report daraus nach dem Kennzahlen-Katalog.
+- `customer_type` ist laut ShopifyQL-Referenz eine Dimension des `sales`-Schemas mit Werten wie `first-time` und `returning`.
+- Zeilen 1:1 übernehmen, nie zusammenfassen oder umbenennen. Die Repeat-Rate rechnet der Report nach dem Kennzahlen-Katalog.
+- **Nicht jeder Shop hat die Dimension.** Am Pilot-Shop: `Column Not Found: Column 'customer_type' not found`, ebenso für `returning_customer_type`, `customer_segment` und `billing_customer_type`; das `orders`-Dataset war nicht ansprechbar (`Invalid dataset in FROM clause - orders`).
+- Bei diesem Fehler höchstens diese Alternativen probieren, dann stoppen: `"customer_type": null` plus Note, die Repeat-Rate entfällt im Report.
+- Nie aus einem anderen Schema zusammenrechnen; das wäre eine andere Kennzahl unter demselben Namen.
 
-   **Nicht jeder Shop hat die Dimension.** Am Pilot-Shop meldet ShopifyQL
-   `Column Not Found: Column 'customer_type' not found`, ebenso für
-   `returning_customer_type`, `customer_segment` und `billing_customer_type`;
-   das `orders`-Dataset ist dort gar nicht ansprechbar
-   (`Invalid dataset in FROM clause - orders`). Bei diesem Fehler höchstens
-   diese Alternativen durchprobieren, dann aufhören: `"customer_type": null`
-   plus Note, die Repeat-Rate entfällt im Report. Nie aus einem anderen Schema
-   zusammenrechnen, das wäre eine andere Kennzahl unter demselben Namen.
+**Kohorten und Repeat-Rate nur aus aggregierten Abfragen wie dieser.**
 
-   **Kohorten und Repeat-Rate ausschließlich aus aggregierten Abfragen wie
-   dieser.** Verboten: kein Bestell-Export auf Zeilenebene, keine Namen, keine
-   Adressen, keine Mailadressen im Snapshot (Spec Abschnitt 13). `reporting/`
-   wird ins Git-Repository des Kunden committet; eine Bestellzeile mit
-   Klardaten wäre dort ein Datenleck, kein Zwischenstand. Die ShopifyQL-
-   Aggregation oben liefert nur `customer_type`, `orders` und `total_sales` je
-   Zeile, nie ein personenbezogenes Feld, und das bleibt auch dann so, wenn
-   `read_all_orders` künftig eine Kohorten-Zeitreihe über die volle Historie
-   liefert.
+- Verboten im Snapshot: Bestell-Export auf Zeilenebene, Namen, Adressen, Mailadressen (Spec Abschnitt 13).
+- `reporting/` wird ins Git-Repository des Kunden committet; eine Bestellzeile mit Klardaten wäre dort ein Datenleck.
+- Die ShopifyQL-Aggregation liefert je Zeile nur `customer_type`, `orders` und `total_sales`, nie ein personenbezogenes Feld. Das gilt auch, wenn `read_all_orders` künftig eine Kohorten-Zeitreihe über die volle Historie liefert.
 
-   **Top-Collections:** in der ShopifyQL-Doku-Recherche wurde keine
-   Collection-Dimension im `sales`-Schema gefunden (Dimensionen dort:
-   `product_title`, `product_type`, `sales_channel`, Länder, Kundentyp). Vor
-   dem Aufgeben die aktuelle Schema-Referenz prüfen
-   (shopify.dev/docs/api/shopifyql, Abschnitt Schemas); gibt es keine
-   Dimension, `"top_collections": null` plus Note. Machbarkeit wird im Pilot
-   validiert.
+### Top-Collections
 
-**Der Zielordner kommt vom Aufrufer.** Solo ist `reporting/data/<heute>` der
-sinnvolle Vorgabewert. **Innerhalb eines Audit- oder Report-Laufs ist es
-`reporting/data/<run-id>`**, also Datum plus Kadenz (`2026-10-01-audit`,
-`2026-11-01-month`). Der Orchestrator gibt den Ordner vor; wer den Pull
-während eines Laufs von Hand startet, muss dieselbe Lauf-ID verwenden. Ein
-Snapshot im falschen Ordner ist für die Analyse nicht vorhanden, und sie meldet
-keinen Fehler, sondern rechnet ohne ihn weiter.
+- Im `sales`-Schema wurde keine Collection-Dimension gefunden (vorhanden: `product_title`, `product_type`, `sales_channel`, Länder, Kundentyp).
+- Vor dem Aufgeben die aktuelle Schema-Referenz prüfen (shopify.dev/docs/api/shopifyql, Abschnitt Schemas).
+- Keine Dimension: `"top_collections": null` plus Note.
+- Machbarkeit wird im Pilot validiert.
 
-5. Snapshot schreiben: `reporting/data/<heute>/shopify.json`, im Puls-Modus
-   `shopify-pulse.json` (granularity `week`). Diese Session schreibt das JSON
-   selbst aus den CLI-Antworten, exakt nach dem Schema unten.
-6. Kernzahlen an den Nutzer melden: Umsatz, Bestellungen, AOV, Sessions und
-   Conversion Rate (falls vorhanden), Top-Produkt, Repeat-Rate (falls
-   `customer_type` da ist), Add-to-Cart-Sessions, Abandoned Carts und
-   die Verfügbarkeits-Quote. Bei Vergleich die Richtung (mehr/weniger) dazu.
-   Widerspricht die zugeordnete Conversion der Bestellzahl, das ausdrücklich
-   melden statt es im Snapshot zu vergraben.
+## Zielordner
+
+- Der Aufrufer bestimmt den Zielordner.
+- Solo: Vorgabe `reporting/data/<heute>`.
+- **Innerhalb eines Audit- oder Report-Laufs: `reporting/data/<run-id>`**, Datum plus Kadenz (`2026-10-01-audit`, `2026-11-01-month`).
+- Der Orchestrator gibt den Ordner vor. Bei manuellem Start während eines Laufs dieselbe Lauf-ID verwenden.
+- Ein Snapshot im falschen Ordner fehlt der Analyse, und sie rechnet ohne Fehlermeldung weiter.
 
 ## Snapshot-Schema
 
-`reporting/data/<heute>/shopify.json` (bzw. `shopify-pulse.json`). Die
-Kern-Felder `period`, `totals`, `by_month`, `top_products`, `top_collections`,
-`sessions`, `session_funnel`, `abandoned_checkouts`, `orders_by_source`,
-`products`, `availability` und `customer_type` sind immer vorhanden,
-gescheiterte Teile als `null`; `comparison` steht nur beim Erstlauf drin,
-`notes` nur, wenn mindestens ein Feld genullt wurde:
+`reporting/data/<heute>/shopify.json` (oder `shopify-pulse.json`).
+
+- Immer vorhanden, gescheiterte Teile als `null`: `period`, `totals`, `by_month`, `top_products`, `top_collections`, `sessions`, `session_funnel`, `abandoned_checkouts`, `orders_by_source`, `products`, `availability`, `customer_type`.
+- `comparison` nur im Erstlauf.
+- `notes` nur, wenn mindestens ein Feld genullt wurde (Ausnahmen unten).
 
 ```json
 {
@@ -552,45 +422,41 @@ gescheiterte Teile als `null`; `comparison` steht nur beim Erstlauf drin,
 }
 ```
 
-- `by_month` heißt in beiden Läufen so (einheitliches Schema); im Puls trägt
-  jede Zeile `"date"` statt `"month"` und die Reihe ist täglich.
-- `products` ist die Vollerhebung über alle aktiven Produkte, `availability`
-  die daraus gerechneten Aggregate, `customer_type` die Kundentyp-Zeilen wie
-  von ShopifyQL geliefert. Alle drei sind im Puls `null` plus Note ("im Puls
-  nicht gezogen"): Repeat-Rate, Verfügbarkeit und Sortiments-Diagnosen sind
-  Monats-Diagnosen. `session_funnel` und `abandoned_checkouts` laufen dagegen
-  auch im Puls mit, sie sind billig und tragen die Kaufweg-Aussage.
-- `notes` hält je genulltem Feld eine Begründung und entfällt, wenn nichts
-  `null` ist. Ausnahme `order_history`: der Historie-Check (Ablauf Schritt 2)
-  schreibt diese Note auch dann, wenn kein Feld selbst `null` wurde, weil eine
-  60-Tage-Baseline für sich genommen kein leeres Feld ist, sondern ein
-  verkürzter Zeitraum.
-- **`notes` nimmt außerdem jede methodische Abweichung auf, auch wenn das Feld
-  gefüllt ist.** Ein Audit über die volle Historie produziert davon
-  zwangsläufig welche: ein erhöhtes `LIMIT`, ein über Differenz ermittelter
-  Quellname, ein Zeitraum, den die API kürzer vorhält als angefragt, zwei
-  Felder mit verschiedenen Anfangsdaten. Wer sie weglässt, liefert einen
-  Snapshot, dessen Zahlen stimmen und dessen Bedeutung niemand mehr
-  rekonstruiert. Der Schlüssel heißt wie das betroffene Feld.
-- Der `comparison`-Block liegt immer in derselben Datei, nie als eigene Datei
-  oder eigener Ordner, und trägt einen eigenen `period` bei gleicher Struktur.
-  Er enthält `customer_type` (damit die Repeat-Rate ein Delta bekommt),
-  `session_funnel` und `abandoned_checkouts`, aber kein `top_collections`, kein
-  `products`, kein `availability` und keinen Bestand: `total_inventory`,
-  `status` und die Verfügbarkeit sind Momentaufnahmen von heute und gehören nur
-  in den Hauptteil. Scheitert
-  ein Teil-Pull des Vergleichsmonats, wird das Feld auch im `comparison`
-  `null` und der Grund steht in einem eigenen `notes`-Eintrag innerhalb von
-  `comparison`. Puls-Dateien überschreiben nie die Monats-Vergleichsbasis.
+### Regeln zum Schema
+
+**`by_month`**
+
+- Heißt in Monat und Puls gleich (einheitliches Schema).
+- Im Puls hat jede Zeile `"date"` statt `"month"`, die Reihe ist täglich.
+
+**Monats- und Puls-Felder**
+
+- `products` = Vollerhebung aller aktiven Produkte, `availability` = Aggregate daraus, `customer_type` = Zeilen wie von ShopifyQL geliefert.
+- Diese drei sind im Puls `null` plus Note ("im Puls nicht gezogen"); Repeat-Rate, Verfügbarkeit und Sortiment sind Monats-Diagnosen.
+- `session_funnel` und `abandoned_checkouts` laufen auch im Puls (billig, liefern die Kaufweg-Aussage).
+
+**`notes`**
+
+- Je genulltem Feld eine Begründung; entfällt, wenn nichts `null` ist.
+- Ausnahme `order_history`: wird auch ohne genulltes Feld geschrieben, da eine 60-Tage-Baseline kein leeres Feld, sondern ein verkürzter Zeitraum ist.
+- **Zusätzlich jede methodische Abweichung, auch bei gefülltem Feld:** erhöhtes `LIMIT`, per Differenz ermittelter Quellname, kürzer vorgehaltener Zeitraum als angefragt, Felder mit verschiedenen Anfangsdaten. Ohne diese Einträge lässt sich die Bedeutung der Zahlen nicht rekonstruieren.
+- Schlüssel = Name des betroffenen Felds.
+
+**`comparison`**
+
+- Immer in derselben Datei, nie als eigene Datei oder eigener Ordner; eigener `period`, gleiche Struktur.
+- Enthält `customer_type` (für das Delta der Repeat-Rate), `session_funnel`, `abandoned_checkouts`.
+- Enthält nicht: `top_collections`, `products`, `availability`, Bestand. `total_inventory`, `status` und Verfügbarkeit sind Momentaufnahmen und stehen nur im Hauptteil.
+- Scheitert ein Teil-Pull des Vergleichsmonats: Feld im `comparison` `null`, Grund in einem eigenen `notes`-Eintrag innerhalb von `comparison`.
+- Puls-Dateien überschreiben nie die Monats-Vergleichsbasis.
 
 ## Setup-Check
 
 Kein Script, drei Prüfungen für den Setup-Wizard:
 
 1. `shopify version` läuft (CLI installiert).
-2. `shopify store auth list --json` enthält die `shopify_store`-Domain aus der
-   Config.
-3. Mini-Query als Test-Call, Exit 0 und leere `parseErrors` heißt ok:
+2. `shopify store auth list --json` enthält die `shopify_store`-Domain aus der Config.
+3. Mini-Query als Test-Call; Exit 0 und leere `parseErrors` = ok:
 
    ```bash
    shopify store execute --store <shopify_store> --json --query 'query {
@@ -600,44 +466,28 @@ Kein Script, drei Prüfungen für den Setup-Wizard:
 
 ## Fehlerbilder
 
-- `command not found: shopify`: `npm install -g @shopify/cli@latest`, dann
-  erneut.
-- Store fehlt in `auth list` oder der Online-Token (etwa 24h) ist abgelaufen:
-  Auth nach der Scope-Regel oben, immer mit der Union, nie narrow.
-- Access denied bei `shopifyqlQuery`: dem Grant fehlt `read_reports`; bei der
-  Produkt-Query fehlt `read_products`. Re-Auth mit Union.
-- `read_all_orders` steht nicht im Grant, obwohl die Union es angefragt hat:
-  der Zustimmungsdialog hat den Scope stillschweigend verweigert. Re-Auth
-  bringt hier nichts, solange die Freigabe fehlt; `"Historie auf 60 Tage
-  begrenzt, read_all_orders fehlt"` melden und `notes.order_history` in den
-  Snapshot schreiben, kein Absturz.
-- `parseErrors` nicht leer: die ShopifyQL-Query ist ungültig, gegen die
-  ShopifyQL-Referenz (shopify.dev/docs/api/shopifyql) korrigieren und erneut.
-- `sessions` liefert Fehler oder keine Zeilen: plan-abhängig, `"sessions": null`
-  plus Note, Report verweist auf GA4. Nicht fatal.
-- `customer_type` liefert Fehler oder keine Zeilen: `"customer_type": null` plus
-  Note, die Repeat-Rate entfällt im Report. Nicht fatal.
-- Einzelner Teil-Pull kaputt: Feld wird `null` plus Note, die übrigen Teile
-  laufen weiter. Nur wenn CLI oder Auth komplett fehlen, gilt die Quelle als
-  "nicht verfügbar".
-- Shell-Quoting: Queries mit einfachen Anführungszeichen oder mit Datums-Filtern
-  (`sessions`, `abandonedCheckouts`, `orders`) immer per `--query-file`. In
-  einer `--query`-Zeichenkette zerlegt die Shell das `SINCE ... UNTIL ...` und
-  ShopifyQL antwortet mit einem ANTLR-Syntaxfehler, der wie ein Query-Fehler
-  aussieht, aber keiner ist.
+| Fall | Verhalten |
+|---|---|
+| `command not found: shopify` | `npm install -g @shopify/cli@latest`, erneut starten. |
+| Store fehlt in `auth list` oder Online-Token (etwa 24h) abgelaufen | Auth nach der Scope-Regel, immer mit Union, nie eingeschränkt. |
+| Access denied bei `shopifyqlQuery` | Grant ohne `read_reports`; bei der Produkt-Query fehlt `read_products`. Re-Auth mit Union. |
+| `read_all_orders` fehlt im Grant trotz Union | Zustimmungsdialog hat den Scope stillschweigend verweigert; Re-Auth hilft nicht, solange die Freigabe fehlt. `"Historie auf 60 Tage begrenzt, read_all_orders fehlt"` melden, `notes.order_history` schreiben, kein Absturz. |
+| `parseErrors` nicht leer | ShopifyQL-Query ungültig; gegen die Referenz (shopify.dev/docs/api/shopifyql) korrigieren, erneut. |
+| `sessions` mit Fehler oder ohne Zeilen | Plan-abhängig: `"sessions": null` plus Note, Report verweist auf GA4. Nicht fatal. |
+| `customer_type` mit Fehler oder ohne Zeilen | `"customer_type": null` plus Note, Repeat-Rate entfällt im Report. Nicht fatal. |
+| Einzelner Teil-Pull kaputt | Feld `null` plus Note, übrige Teile laufen weiter. "Nicht verfügbar" gilt nur, wenn CLI oder Auth ganz fehlen. |
+| Top-Produkt ohne Bestand nach Titel-Match | Nicht `null` lassen, gezielt per `query: "title:*<Titel>*"` nachfragen; der Bestand des Umsatzträgers ist für den Report am wichtigsten. |
 
-  **Diese Regel gewinnt gegen die Beispiele im Ablauf.** Die Umsatz-, Zeitreihen-
-  und Top-Produkt-Queries dort zeigen `SINCE`/`UNTIL` inline in `--query`, weil
-  sie ohne einfache Anführungszeichen auskommen und in dieser Form auch laufen.
-  Wer sich das nicht Zeichen für Zeichen ansehen will, nimmt für **jede** Query
-  mit Datumsgrenzen `--query-file`; das ist immer richtig und spart die
-  Unterscheidung.
-- Ein Top-Produkt ohne Bestand nach dem Titel-Match: nicht auf `null` stehen
-  lassen, sondern gezielt per `query: "title:*<Titel>*"` nachfragen. Ein
-  unbekannter Bestand beim Umsatzträger ist der Fall, in dem der Report am
-  meisten wert wäre.
-- Am Pilot-Shop bestätigt (nicht mehr offen): der `shopifyqlQuery`-Wrapper ist
-  der richtige Weg, rohes ShopifyQL an `--query` ist nicht dokumentiert; das
-  `sessions`-Schema liefert Daten inklusive der beiden Kaufweg-Stufen; eine
-  Collection-Dimension gibt es nicht, `top_collections` bleibt `null`;
-  `customer_type` existiert dort nicht und die Repeat-Rate entfällt.
+### Shell-Quoting
+
+- Queries mit einfachen Anführungszeichen oder Datums-Filtern (`sessions`, `abandonedCheckouts`, `orders`) immer per `--query-file`.
+- In einer `--query`-Zeichenkette zerlegt die Shell `SINCE ... UNTIL ...`; ShopifyQL meldet dann einen ANTLR-Syntaxfehler, der wie ein Query-Fehler aussieht, aber keiner ist.
+- **Diese Regel hat Vorrang vor den Beispielen oben.** Umsatz-, Zeitreihen- und Top-Produkt-Query zeigen `SINCE`/`UNTIL` inline in `--query`; das läuft, weil sie ohne einfache Anführungszeichen auskommen.
+- Einfachste Regel: **jede** Query mit Datumsgrenzen per `--query-file`; das ist immer richtig.
+
+### Am Pilot-Shop bestätigt
+
+- `shopifyqlQuery`-Wrapper ist der richtige Weg; rohes ShopifyQL an `--query` ist nicht dokumentiert.
+- Das `sessions`-Schema liefert Daten inklusive der beiden Kaufweg-Stufen.
+- Keine Collection-Dimension; `top_collections` bleibt `null`.
+- `customer_type` existiert dort nicht; die Repeat-Rate entfällt.

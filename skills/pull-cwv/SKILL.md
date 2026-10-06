@@ -1,39 +1,33 @@
 <!-- naming-lint: schema (CWV-Snapshot, durch bestehende Kundenlaeufe eingefroren: cwv.json liegt in mehreren Kunden-Workspaces) -->
 ---
 name: pull-cwv
-description: Core-Web-Vitals-Daten (Feld- plus Lab-Werte, plus CrUX-Wochenhistorie) über die PageSpeed-Insights-API je Seitentyp für den Kunden-Report oder den Wochen-Puls ziehen und als Snapshot ablegen. Nutzen, wenn ein Monats-Report oder Puls CWV-Zahlen braucht, oder wenn der Nutzer explizit Core-Web-Vitals- bzw. PageSpeed-Daten für die Kunden-Site abrufen will. Liest reporting/config.json und .env im Kunden-Workspace.
+description: Zieht Core-Web-Vitals-Daten (Feld- und Lab-Werte plus CrUX-Wochenhistorie) über die PageSpeed-Insights-API je Seitentyp für den Kunden-Report oder den Wochen-Puls und legt sie als Snapshot ab. Einsetzen, wenn ein Monats-Report oder Puls CWV-Zahlen braucht oder der Nutzer ausdrücklich Core-Web-Vitals- oder PageSpeed-Daten der Kunden-Site abrufen will. Liest reporting/config.json und .env im Kunden-Workspace.
 ---
 
 # pull-cwv: Core-Web-Vitals-Snapshot ziehen
 
-Zieht per PageSpeed Insights API je Seitentyp (aus `config.page_types()`,
-ersatzweise `cwv_urls`) die CrUX-Feldwerte (LCP, INP, CLS) plus den
-Lighthouse-Lab-Performance-Score, dazu die CrUX-Wochenhistorie je Origin, und
-legt alles als Snapshot im Kunden-Workspace ab. Wird vom Report- und
-Puls-Lauf aufgerufen, funktioniert aber auch solo.
+Zieht per PageSpeed Insights API je Seitentyp (aus `config.page_types()`, ersatzweise `cwv_urls`):
+
+- CrUX-Feldwerte (LCP, INP, CLS)
+- Lighthouse-Lab-Performance-Score
+- CrUX-Wochenhistorie je Origin
+
+Ablage als Snapshot im Kunden-Workspace. Aufruf durch Report- und Puls-Lauf oder einzeln.
 
 ## Voraussetzungen
 
 Im Kunden-Workspace (aktuelles Arbeitsverzeichnis):
 
-- `reporting/config.json` mit `page_types` (URL je Seitentyp, gelesen über
-  `config.page_types()`; fehlt `page_types` in der Config ganz, ersatzweise
-  `cwv_urls`, dieselbe Liste, die auch `pull-gsc` als Index-Stichprobe nutzt,
-  keine zweite Liste pflegen) und `sources.cwv` nicht `false`
-- `PTAI_PSI_KEY` in der `.env` des Workspace oder zentral in
-  `~/.config/ptai-ecom/.env` (PageSpeed-Insights-API-Key, gilt auch für die
-  CrUX-History-API)
-- `curl` und `jq` auf dem Rechner installiert (dokumentierte Voraussetzung des
-  Plugins)
+- `reporting/config.json` mit `page_types` (URL je Seitentyp, gelesen über `config.page_types()`) und `sources.cwv` ungleich `false`.
+- Fehlt `page_types` ganz: ersatzweise `cwv_urls`. Das ist dieselbe Liste, die `pull-gsc` als Index-Stichprobe nutzt; keine zweite Liste pflegen.
+- `PTAI_PSI_KEY` in der `.env` des Workspace oder zentral in `~/.config/ptai-ecom/.env` (PageSpeed-Insights-API-Key, gilt auch für die CrUX-History-API).
+- `curl` und `jq` installiert (dokumentierte Voraussetzung des Plugins).
 
-Fehlt eins davon oder steht `sources.cwv` auf `false`: CWV als "nicht verfügbar
-(Grund)" melden und aufhören. Nie den Gesamtlauf (Report/Puls) daran scheitern
-lassen.
+Fehlt etwas oder steht `sources.cwv` auf `false`: CWV als "nicht verfügbar (Grund)" melden und stoppen. Der Gesamtlauf (Report/Puls) scheitert nie daran.
 
 ## Ablauf
 
-1. `reporting/config.json` lesen. Seitentypen bevorzugt über
-   `config.page_types()`:
+1. `reporting/config.json` lesen, Seitentypen bevorzugt über `config.page_types()`:
 
    ```bash
    python3 -c "
@@ -45,51 +39,41 @@ lassen.
    "
    ```
 
-   Liefert immer die sechs Schlüssel `start, collection, product, cart,
-   search, blog`; ein nicht konfigurierter Typ liefert `null`, der Schlüssel
-   verschwindet nie. Fehlt `page_types` in der Config ganz, ersatzweise die
-   alte Liste `cwv_urls` verwenden; jede URL daraus bekommt beim Script
-   automatisch den Platzhalter-Seitentyp `unnamed`. Den Key findet das Skript
-   selbst.
+   - Ergebnis hat immer die sechs Schlüssel `start, collection, product, cart, search, blog`.
+   - Nicht konfigurierter Typ: Wert `null`, der Schlüssel bleibt.
+   - Fehlt `page_types` ganz: die alte Liste `cwv_urls` verwenden. Jede URL daraus erhält im Script den Platzhalter-Seitentyp `unnamed`.
+   - Den Key findet das Skript selbst.
 
-2. Kein Zeitraum nötig: CWV ist eine punktuelle Momentaufnahme, kein
-   Zeitraum-Pull wie bei GA4 oder GSC.
+2. Kein Zeitraum nötig. CWV ist eine Momentaufnahme, kein Zeitraum-Pull wie GA4 oder GSC.
 
-3. **Nur Seitentypen mit URL werden zu einem Argument.** Aus jedem Paar mit
-   einer URL (`null` ausgeschlossen) wird `<page_type>=<url>`. Script
-   aufrufen. **Zielordner ist der Daten-Ordner des laufenden Audits oder
-   Reports**, also `reporting/data/<run-id>` als erstes Argument; ohne Lauf-ID
-   gilt der heutige Daten-Ordner wie im Beispiel (Abschnitt Snapshot-Schema):
+3. **Nur Seitentypen mit URL werden Argument.** Jedes Paar mit URL (ohne `null`) wird zu `<page_type>=<url>`. Erstes Argument ist der Zielordner: **Daten-Ordner des laufenden Audits oder Reports** (`reporting/data/<run-id>`); ohne Lauf-ID der heutige Daten-Ordner wie im Beispiel (siehe Snapshot-Schema):
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/skills/pull-cwv/scripts/psi_pull.sh" \
      "reporting/data/$(date +%F)" - <page_type>=<url> [<page_type>=<url> ...]
    ```
 
-   Ein Seitentyp ohne URL (`null`) wird nie zu einem Argument, verschwindet
-   dabei aber auch nicht still: er erscheint als "nicht konfiguriert:
-   <Seitentyp>" in der Meldung an den Nutzer (Schritt 4).
+   Ein Seitentyp ohne URL (`null`) wird kein Argument, erscheint aber als "nicht konfiguriert: <Seitentyp>" in der Meldung an den Nutzer (Schritt 4).
 
-4. Kernzahlen an den Nutzer melden: Performance-Score je Seitentyp, LCP/INP/
-   CLS aus den Feldwerten (falls vorhanden), Auffälligkeiten (z. B. ein
-   Seitentyp im POOR-Bereich), die CrUX-Wochenhistorie je Origin (falls
-   vorhanden, sonst der Grund aus dem `error`-Feld). Jeder nicht
-   konfigurierte Seitentyp aus Schritt 3 wird explizit gemeldet, nie
-   stillschweigend ausgelassen. Fehlt die Feld-Datenbasis für eine URL, das
-   als "keine CrUX-Daten (zu wenig Traffic)" einordnen, nicht als Fehler.
+4. Dem Nutzer melden:
+   - Performance-Score je Seitentyp
+   - LCP, INP, CLS aus den Feldwerten, sofern vorhanden
+   - Auffälligkeiten, etwa ein Seitentyp im POOR-Bereich
+   - CrUX-Wochenhistorie je Origin, sonst der Grund aus dem `error`-Feld
+   - jeden nicht konfigurierten Seitentyp aus Schritt 3, nie stillschweigend weglassen
+   - fehlende Feld-Datenbasis einer URL als "keine CrUX-Daten (zu wenig Traffic)", nicht als Fehler
 
 ## Snapshot-Schema
 
-**Der Zielordner kommt vom Aufrufer.** Solo ist `reporting/data/<heute>` der
-sinnvolle Vorgabewert, und `report` und `pulse` legen ihre Snapshots dort ab,
-solange sie ohne Lauf-ID laufen (Spec Abschnitt 14, Umstellung in Stufe 3).
-**Läuft der Pull dagegen in einem Audit oder Report mit Lauf-ID, ist der
-Zielordner `reporting/data/<run-id>`**, also Datum plus Kadenz
-(`2026-10-01-audit`, `2026-11-01-month`), und das erste Argument des Scripts
-(`<out-dir>`) zeigt dorthin. Der Orchestrator gibt den Ordner vor; wer den Pull
-während eines Laufs von Hand startet, muss dieselbe Lauf-ID verwenden. Ein
-Snapshot im falschen Ordner ist für die Analyse nicht vorhanden, und sie meldet
-keinen Fehler, sondern rechnet ohne ihn weiter.
+### Zielordner
+
+- Der Aufrufer bestimmt den Zielordner.
+- Solo: Vorgabe `reporting/data/<heute>`. Dort legen auch `report` und `pulse` ab, solange sie ohne Lauf-ID laufen (Spec Abschnitt 14, Umstellung in Stufe 3).
+- **In einem Audit oder Report mit Lauf-ID: `reporting/data/<run-id>`**, Datum plus Kadenz (`2026-10-01-audit`, `2026-11-01-month`). Das erste Script-Argument (`<out-dir>`) zeigt dorthin.
+- Der Orchestrator gibt den Ordner vor. Bei manuellem Start während eines Laufs dieselbe Lauf-ID verwenden.
+- Ein Snapshot im falschen Ordner fehlt der Analyse, und sie rechnet ohne Fehlermeldung weiter.
+
+### Datei
 
 Das Script schreibt `<out-dir>/cwv.json`:
 
@@ -122,34 +106,22 @@ Das Script schreibt `<out-dir>/cwv.json`:
 }
 ```
 
-CWV ist punktuell: kein `period`-Block, kein `comparison`. Der Report
-vergleicht gegen den Vormonats-Snapshot (jüngster `reporting/data/`-Ordner mit
-`cwv.json`). Die Wochenhistorie in `historie` ersetzt das nicht: sie
-beschreibt rund 25 Wochen bis heute, keinen fixen Vergleichszeitraum wie GA4
-oder GSC.
+### Regeln zum Schema
 
-`page_type` kommt aus dem Aufruf-Argument (`<page_type>=<url>`); ein Argument
-ohne `=` bekommt den Platzhalter `unnamed`, damit bestehende Aufrufe ohne
-Seitentyp-Zuordnung unverändert weiterlaufen. `field_data` ist `null`, wenn
-CrUX für die URL keine Feld-Datenbasis hat (bei kleinen Sites normal, kein
-Fehler); `lab` ist davon unabhängig immer vorhanden, solange der Call selbst
-erfolgreich war. Scheitert der Call für eine URL (HTTP-Fehler, Timeout,
-ungültige Antwort), steht statt `field_data`/`lab` ein `{"page_type", "url",
-"error"}`-Eintrag in `pages`; die anderen Einträge bleiben davon unberührt.
-
-`historie` ist ein eigenes Array, ein Eintrag je eindeutigem Origin aus den
-übergebenen URLs, nicht je Seitentyp: mehrere Seitentypen auf demselben Shop
-teilen sich einen Origin und damit einen Eintrag. Jeder Eintrag trägt
-entweder `wochen` (rund 25 aufsteigend sortierte Wochenwerte für LCP, INP und
-CLS als p75-Perzentile) oder statt `wochen` ein `error`-Feld, wenn der Origin
-zu wenig CrUX-Traffic für die Historie hat, dieselbe Ursache wie ein
-`field_data: null` oben, nur für die Zeitreihe statt den Momentwert.
+- Kein `period`-Block, kein `comparison`.
+- Der Report vergleicht gegen den Vormonats-Snapshot (jüngster `reporting/data/`-Ordner mit `cwv.json`).
+- `historie` ersetzt diesen Vergleich nicht: sie deckt rund 25 Wochen bis heute ab, keinen festen Vergleichszeitraum wie GA4 oder GSC.
+- `page_type` stammt aus dem Argument `<page_type>=<url>`. Ein Argument ohne `=` erhält `unnamed`, damit alte Aufrufe ohne Seitentyp weiterlaufen.
+- `field_data: null`: CrUX hat für die URL keine Feld-Datenbasis. Bei kleinen Sites normal, kein Fehler.
+- `lab` ist unabhängig davon vorhanden, solange der Call gelungen ist.
+- Scheitert der Call einer URL (HTTP-Fehler, Timeout, ungültige Antwort): Eintrag `{"page_type", "url", "error"}` statt `field_data`/`lab`. Die übrigen Einträge bleiben unberührt.
+- `historie`: ein Eintrag je eindeutigem Origin der übergebenen URLs, nicht je Seitentyp. Seitentypen auf demselben Shop teilen einen Eintrag.
+- Jeder `historie`-Eintrag hat entweder `wochen` (rund 25 aufsteigend sortierte Wochenwerte für LCP, INP, CLS als p75-Perzentile) oder ein `error`-Feld.
+- `error` in `historie`: zu wenig CrUX-Traffic für den Origin, gleiche Ursache wie `field_data: null`, nur für die Zeitreihe.
 
 ## Setup-Check
 
-`--check` testet nur Auth plus einen schnellen Call gegen `https://example.com/`
-(nur die Performance-Kategorie), eine OK-/Fehlerzeile, Exit 0/1, gedacht für
-den Setup-Wizard:
+`--check` testet Auth plus einen schnellen Call gegen `https://example.com/` (nur Performance-Kategorie). Ausgabe: eine OK- oder Fehlerzeile, Exit 0/1. Für den Setup-Wizard:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/skills/pull-cwv/scripts/psi_pull.sh" --check -
@@ -157,20 +129,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/skills/pull-cwv/scripts/psi_pull.sh" --check -
 
 ## Fehlerbilder
 
-- `Fehler: 'jq' ist nicht installiert` bzw. `'curl' ist nicht installiert`: auf
-  dem Rechner nachinstallieren (`brew install jq`), dann erneut.
-- HTTP 400/403 vom PSI-Endpunkt: meist ein ungültiger oder gesperrter API-Key.
-  In der Google Cloud Console prüfen, ob die PageSpeed-Insights-API für den Key
-  aktiviert ist.
-- `error`-Eintrag statt `field_data`/`lab` bei einzelnen URLs: nicht fatal, die
-  übrigen URLs im Snapshot bleiben vollständig.
-- `field_data: null`: kein Fehler, sondern zu wenig CrUX-Traffic für die URL
-  (typisch bei kleinen Sites). Der Report weist das als "keine Feld-Daten" aus,
-  nutzt aber den Lab-Score weiter.
-- `error`-Eintrag statt `wochen` in `historie`: meist zu wenig CrUX-Traffic für
-  den Origin (HTTP 404 der CrUX-History-API, Meldung etwa "chrome ux report
-  data not found"), kein technischer Fehler. Die übrigen Origins und alle
-  Einträge in `pages` bleiben davon unberührt.
-- Ein Seitentyp aus `config.page_types()` ganz ohne URL: kein Argument für
-  ihn, aber immer eine "nicht konfiguriert: <Seitentyp>"-Meldung an den
-  Nutzer (Ablauf Schritt 3/4), nie ein stilles Weglassen.
+| Fall | Verhalten |
+|---|---|
+| `Fehler: 'jq' ist nicht installiert` oder `'curl' ist nicht installiert` | Nachinstallieren (`brew install jq`), erneut starten. |
+| HTTP 400/403 vom PSI-Endpunkt | Meist ungültiger oder gesperrter API-Key. In der Google Cloud Console prüfen, ob die PageSpeed-Insights-API für den Key aktiv ist. |
+| `error`-Eintrag statt `field_data`/`lab` bei einzelnen URLs | Nicht fatal, die übrigen URLs bleiben vollständig. |
+| `field_data: null` | Kein Fehler: zu wenig CrUX-Traffic (typisch bei kleinen Sites). Der Report zeigt "keine Feld-Daten" und nutzt den Lab-Score. |
+| `error`-Eintrag statt `wochen` in `historie` | Meist zu wenig CrUX-Traffic für den Origin (HTTP 404 der CrUX-History-API, Meldung etwa "chrome ux report data not found"), kein technischer Fehler. Übrige Origins und `pages` bleiben unberührt. |
+| Seitentyp aus `config.page_types()` ohne URL | Kein Argument, aber immer die Meldung "nicht konfiguriert: <Seitentyp>" an den Nutzer (Ablauf Schritt 3/4). |

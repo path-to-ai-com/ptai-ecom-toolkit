@@ -147,9 +147,9 @@ class TestAuditTexts(unittest.TestCase):
     def test_the_rule_speaks_of_the_operator(self):
         text = " ".join((ROOT / "skills" / "audit" / "SKILL.md").read_text(encoding="utf-8").split())
         self.assertNotIn("Kernangebot von Path to AI", text)
-        self.assertIn("was der Betreiber für den Kunden umsetzt", text)
+        self.assertIn("Was der Betreiber für den Kunden umsetzt", text)
         # Geschrieben wird weiterhin der alte Wert (D7).
-        self.assertIn('umsetzt (SEO, GEO, SEA, Shop und Conversion, Technik), `"Path to AI"`', text)
+        self.assertIn('umsetzt (SEO, GEO, SEA, Shop und Conversion, Technik): `"Path to AI"`', text)
         self.assertIn("`measures.responsible_label()`", text)
 
     def test_the_template_hint_names_no_company(self):
@@ -169,9 +169,7 @@ class TestNoCompanyAsOperator(unittest.TestCase):
     #: Datei, alter Wortlaut, neuer Wortlaut.
     OPERATOR_WORDING = (
         ("skills/audit/SKILL.md", "Yves ist das Subjekt",
-         "Der Betreiber ist das Subjekt (ich-Form)"),
-        ("skills/audit/SKILL.md", "lässt Yves sie ein zweites Mal schreiben",
-         "lässt den Betreiber sie ein zweites Mal schreiben"),
+         "Der Betreiber ist Subjekt in der ich-Form"),
         ("scripts/audit/revision.py", "lässt Yves sie ein zweites Mal schreiben",
          "lässt den Betreiber sie ein zweites Mal schreiben"),
         ("scripts/audit/publish.py", "den Yves nicht gelesen hat",

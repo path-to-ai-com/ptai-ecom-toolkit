@@ -235,7 +235,6 @@ class TestAccountDir(unittest.TestCase):
     def test_foreign_skills_only_if_installed(self):
         self.assertIn("falls installiert", self.content)
         self.assertIn("Ist `workos:lead` installiert", self.content)
-        self.assertIn("Ist `workos:report` installiert", self.content)
 
 
 class TestSendFindsTheRun(unittest.TestCase):

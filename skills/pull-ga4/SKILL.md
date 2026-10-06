@@ -1,93 +1,61 @@
 ---
 name: pull-ga4
-description: GA4-Daten für den Kunden-Report oder den Wochen-Puls ziehen (Kanäle, Landingpages, E-Commerce-Funnel) und als Snapshot ablegen. Nutzen, wenn ein Monats-Report oder Puls GA4-Zahlen braucht, oder wenn der Nutzer explizit GA4- bzw. Analytics-Daten für einen Zeitraum abrufen will. Liest reporting/config.json und .env im Kunden-Workspace.
+description: Zieht GA4-Daten für den Kunden-Report oder den Wochen-Puls (Kanäle, Landingpages, E-Commerce-Funnel) und legt sie als Snapshot ab. Einsetzen, wenn ein Monats-Report oder Puls GA4-Zahlen braucht oder der Nutzer ausdrücklich GA4- oder Analytics-Daten für einen Zeitraum abrufen will. Liest reporting/config.json und .env im Kunden-Workspace.
 ---
 
 # pull-ga4: GA4-Snapshot ziehen
 
-Zieht per Analytics Data API mehrere Sichten (Kanäle, Kampagnen, Geräte, Länder,
-Landingpages, Funnel, interne Suchbegriffe) für einen Zeitraum und legt sie als
-Snapshot im Kunden-Workspace ab. Wird vom Report- und Puls-Lauf aufgerufen,
-funktioniert aber auch solo.
+Zieht per Analytics Data API diese Sichten für einen Zeitraum: Kanäle, Kampagnen, Geräte, Länder, Landingpages, Funnel, interne Suchbegriffe. Ablage als Snapshot im Kunden-Workspace. Aufruf durch Report- und Puls-Lauf oder einzeln.
 
 ## Voraussetzungen
 
 Im Kunden-Workspace (aktuelles Arbeitsverzeichnis):
 
-- `reporting/config.json` mit `ga4_property_id` und `sources.ga4` nicht `false`
-- `.env` im Workspace-Root mit `PTAI_GOOGLE_CREDENTIALS` (Pfad zum Service-Account-JSON)
+- `reporting/config.json` mit `ga4_property_id` und `sources.ga4` ungleich `false`.
+- `.env` im Workspace-Root mit `PTAI_GOOGLE_CREDENTIALS` (Pfad zum Service-Account-JSON).
 
-Fehlt eins davon oder steht `sources.ga4` auf `false`: GA4 als "nicht verfügbar (Grund)"
-melden und aufhören. Nie den Gesamtlauf (Report/Puls) daran scheitern lassen.
+Fehlt etwas oder steht `sources.ga4` auf `false`: GA4 als "nicht verfügbar (Grund)" melden und stoppen. Der Gesamtlauf (Report/Puls) scheitert nie daran.
 
-## Mehr als eine Property
+## Mehrere Properties
 
-**Ein Shop kann denselben Kauf in mehrere GA4-Properties senden.** Der
-häufigste Fall: ein serverseitiges Werkzeug wie Littledata, Elevar oder
-Analyzify tritt neben das clientseitige Tag und bekommt eine eigene Property.
-Der Pull zieht genau eine, und ohne den Vergleich sieht der Audit die andere
-nie.
+- Ein Shop kann denselben Kauf an mehrere GA4-Properties senden. Häufig: ein serverseitiges Werkzeug (Littledata, Elevar, Analyzify) neben dem clientseitigen Tag, mit eigener Property.
+- Der Pull zieht genau eine Property. Ohne Vergleich bleibt die andere unsichtbar, und ein Kaufausfall in der gezogenen Property wird fälschlich als Messausfall gemeldet.
 
 ```
 --compare-properties 987654321,123456789
 ```
 
-Je genannter Property kommt eine Monatsreihe aus Sitzungen, Käufen und Umsatz
-samt der Währung dieser Property in den Snapshot, unter `compare_properties`.
-Nicht mehr: die Analysen arbeiten
-weiter mit der Hauptproperty, der Vergleich beantwortet nur die eine Frage,
-die alles trägt, nämlich **welche Property mit dem Shop übereinstimmt.**
-
-Die Liste kommt aus `reporting/config.json > ga4_compare_properties`.
-
-**Warum das im Plugin steht und nicht im Kopf des Nutzers.** Am 07.09.2026
-meldete die gezogene Property vier Monate ohne einen einzigen Kauf, und der
-Report schrieb "die Kaufmessung ist ausgefallen". Die Bestellungen standen die
-ganze Zeit in einer zweiten Property, die zudem um den Faktor zwei über
-Shopify lag. Der falsche Befund ging bis auf die erste Seite.
+- Liste aus `reporting/config.json > ga4_compare_properties`.
+- Je Property steht unter `compare_properties` eine Monatsreihe aus Sitzungen, Käufen und Umsatz plus Währung der Property.
+- Die Analysen nutzen weiter die Hauptproperty. Der Vergleich beantwortet nur: **welche Property stimmt mit dem Shop überein?**
 
 ## Käufe und Umsatz
 
-**Käufe kommen aus der Metrik `ecommercePurchases` und stehen im Snapshot als
-`purchases`, nie aus `transactions`.** GA4 zählt in `transactions` auch
-`refund`-Ereignisse mit, und serverseitige Connectoren wie Littledata senden
-Refunds. Bis zum 11.09.2026 zog der Pull `transactions`, und ein echter Audit
-wies deshalb eine Abweichung gegen Shopify aus, die es so nicht gab. Am
-11.09.2026 gegen zwei echte Properties nachgeprüft: `ecommercePurchases` lag in
-jedem Monat exakt bei der Zahl der `purchase`-Ereignisse, `transactions` bei
-Käufen plus Refunds.
+**Käufe**
 
-**Snapshots von vor dem 11.09.2026 tragen noch `transactions`**, mit Refunds.
-Kein Script liest das Feld als Käufe, der Report zeigt für solche Snapshots
-"nicht messbar". Wer einen alten Lauf auswertet, zieht die Käufe neu, statt
-`transactions` umzudeuten.
+- Quelle: Metrik `ecommercePurchases`, im Snapshot als `purchases`. **Nie `transactions`.**
+- `transactions` zählt auch `refund`-Ereignisse; serverseitige Connectoren wie Littledata senden Refunds.
+- Prüfung am 11.09.2026 an zwei Properties: `ecommercePurchases` = Zahl der `purchase`-Ereignisse in jedem Monat; `transactions` = Käufe plus Refunds.
+- **Snapshots vor dem 11.09.2026 enthalten `transactions`** samt Refunds. Kein Script liest das Feld als Käufe; der Report zeigt dafür "nicht messbar". Für alte Läufe Käufe neu ziehen, `transactions` nicht umdeuten.
 
-**`purchase_revenue` ist Umsatz abzüglich Erstattungen, in der Währung der
-Property.** Die Metrik `purchaseRevenue` war am 11.09.2026 in jedem Monat
-gleich `grossPurchaseRevenue` minus `refundAmount`. Zwei Folgen:
+**Umsatz**
 
-- Eine Property ohne `refund`-Ereignisse meldet Bruttoumsatz, eine mit ihnen
-  Nettoumsatz. Die Erstattung zählt am Datum des `refund`-Ereignisses, nicht
-  am Datum der Bestellung.
-- Die Währung ist die Berichtswährung der Property, nicht die des Shops.
-  Dieselbe Prüfung fand eine Property in USD neben einem Shop in Euro. Sie
-  steht als `currency` im Snapshot und je Vergleichs-Property. **Umsatz nur
-  gegen Shopify halten, wenn `currency` die Währung des Shops ist.**
+- **`purchase_revenue` = Umsatz minus Erstattungen, in der Währung der Property.** `purchaseRevenue` war am 11.09.2026 in jedem Monat `grossPurchaseRevenue` minus `refundAmount`.
+- Property ohne `refund`-Ereignisse: Bruttoumsatz. Property mit: Nettoumsatz.
+- Erstattungen zählen am Datum des `refund`-Ereignisses, nicht der Bestellung.
+- Währung = Berichtswährung der Property, nicht die des Shops (gefunden: Property in USD neben Shop in Euro). Sie steht als `currency` im Snapshot und je Vergleichs-Property.
+- **Umsatz nur gegen Shopify vergleichen, wenn `currency` die Shop-Währung ist.**
 
 ## Ablauf
 
-1. `reporting/config.json` lesen (`ga4_property_id`), `.env` sourcen
-   (`PTAI_GOOGLE_CREDENTIALS`).
-2. Zeitraum bestimmen. Default ist der letzte volle Monat (Erster bis Letzter des
-   Vormonats). Puls-Modus: letzte volle Woche, Montag bis Sonntag.
-3. Vergleichszeitraum nur beim Erstlauf: existiert bereits ein Vormonats-Snapshot
-   (jüngster `reporting/data/`-Ordner, dessen `ga4.json` einen `period` mit
-   granularity `month` über den vollen Vormonat trägt; `-pulse`-Dateien ignorieren),
-   dann keinen Vergleich mitziehen, der Report vergleicht gegen den Snapshot.
-   Existiert keiner, den Monat davor als `--compare-start/--compare-end` mitgeben.
-4. Script aufrufen. **Zielordner ist der Daten-Ordner des laufenden Audits oder
-   Reports**, also `reporting/data/<run-id>`; ohne Lauf-ID gilt der heutige
-   Daten-Ordner wie im Beispiel (Abschnitt Snapshot-Schema):
+1. `reporting/config.json` lesen (`ga4_property_id`), `.env` sourcen (`PTAI_GOOGLE_CREDENTIALS`).
+2. Zeitraum festlegen:
+   - Standard: letzter voller Monat (Erster bis Letzter des Vormonats).
+   - Puls-Modus: letzte volle Woche, Montag bis Sonntag.
+3. Vergleichszeitraum nur im Erstlauf:
+   - Vormonats-Snapshot vorhanden (jüngster `reporting/data/`-Ordner mit `ga4.json`, deren `period` granularity `month` über den vollen Vormonat hat; `-pulse`-Dateien ignorieren): keinen Vergleich ziehen, der Report vergleicht gegen den Snapshot.
+   - Kein Snapshot vorhanden: den Monat davor als `--compare-start/--compare-end` mitgeben.
+4. Script aufrufen. **Zielordner ist der Daten-Ordner des laufenden Audits oder Reports** (`reporting/data/<run-id>`); ohne Lauf-ID der heutige Daten-Ordner wie im Beispiel (siehe Snapshot-Schema):
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
@@ -97,22 +65,20 @@ gleich `grossPurchaseRevenue` minus `refundAmount`. Zwei Folgen:
      --out "reporting/data/$(date +%F)"
    ```
 
-   Optional dazu: `--compare-start YYYY-MM-DD --compare-end YYYY-MM-DD` (Erstlauf),
-   `--pulse` (Wochen-Puls, schreibt `ga4-pulse.json` mit granularity `week`),
-   `--config reporting/config.json` (Bot-Filter, siehe unten).
+   Optionen:
 
-   **Trägt die `config.json` einen `bot_filter`-Block, gehört `--config` an jeden
-   Aufruf.** Ohne den Schalter zieht der Lauf ungefiltert und vergleicht später
-   gefiltert gegen ungefiltert.
-5. Kernzahlen an den Nutzer melden: Sessions, Nutzer, Umsatz, Funnel-Schritte,
-   Top-Kanal. Bei Vergleich die Richtung (mehr/weniger) dazu. Bei `--max-history`
-   zusätzlich `history_from`, den gemessenen Beginn der Historie.
+   | Option | Wirkung |
+   |---|---|
+   | `--compare-start YYYY-MM-DD --compare-end YYYY-MM-DD` | Vergleich (Erstlauf) |
+   | `--pulse` | Wochen-Puls, schreibt `ga4-pulse.json` mit granularity `week` |
+   | `--config reporting/config.json` | Bot-Filter, siehe unten |
+
+   **Hat die `config.json` einen `bot_filter`-Block, `--config` an jeden Aufruf hängen.** Sonst zieht der Lauf ungefiltert und vergleicht später gefiltert gegen ungefiltert.
+5. Dem Nutzer melden: Sessions, Nutzer, Umsatz, Funnel-Schritte, Top-Kanal. Bei Vergleich die Richtung (mehr/weniger). Bei `--max-history` zusätzlich `history_from` (gemessener Beginn der Historie).
 
 ## Maximalzeitraum
 
-Für eine einmalige Baseline über die volle verfügbare Historie tritt
-`--max-history` an die Stelle von `--start`; `--end` ist dabei optional
-(ohne Angabe gilt gestern, wie bei `--check`):
+Einmalige Baseline über die volle verfügbare Historie: `--max-history` statt `--start`. `--end` ist optional (Standard: gestern, wie bei `--check`).
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
@@ -122,30 +88,18 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
   --out "reporting/data/$(date +%F)"
 ```
 
-Zielordner ist derselbe Daten-Ordner wie bei jedem anderen Lauf, im Audit also
-`reporting/data/<run-id>` statt des Tagesordners im Beispiel; das Script
-schreibt dort `ga4-max-history.json` mit granularity `max_history`, neben einem
-eventuell schon vorhandenen `ga4.json`. `--max-history` schließt `--start`,
-`--compare-start`/`--compare-end` und `--pulse` aus (das Script bricht sonst mit
-einer klaren Fehlermeldung ab).
-
-Die GA4-Aufbewahrungseinstellung (2 oder 14 Monate) betrifft vor allem
-nutzer- und ereignisbezogene Abfragen; aggregierte Standarddimensionen wie
-Kanal, Kampagne, Gerät oder Land reichen oft weiter zurück, und das
-unterscheidet sich je Property. Der Startpunkt wird deshalb an dieser Property
-gemessen statt angenommen: das Script fragt einen sehr weiten Zeitraum ab und
-liest aus der Antwort, ab welchem Tag tatsächlich Zeilen zurückkamen. Dieses
-Datum steht als `history_from` im Snapshot, ungefiltert vom Bot-Filter, damit
-eine kundenspezifische Regel die Messung selbst nicht verzerrt.
+- Zielordner wie bei jedem Lauf, im Audit `reporting/data/<run-id>` statt des Tagesordners im Beispiel.
+- Ausgabe: `ga4-max-history.json` mit granularity `max_history`, neben einem eventuell vorhandenen `ga4.json`.
+- Nicht kombinierbar mit `--start`, `--compare-start`/`--compare-end` und `--pulse`; das Script bricht mit Fehlermeldung ab.
+- Die Aufbewahrungseinstellung (2 oder 14 Monate) betrifft vor allem nutzer- und ereignisbezogene Abfragen. Aggregierte Standarddimensionen (Kanal, Kampagne, Gerät, Land) reichen oft weiter zurück, je Property verschieden.
+- Darum wird der Beginn gemessen: das Script fragt einen sehr weiten Zeitraum ab und nimmt den ersten Tag mit Zeilen.
+- Dieser Tag steht als `history_from` im Snapshot, ohne Bot-Filter gemessen, damit eine Kundenregel die Messung nicht verzerrt.
 
 ## Bot-Filter
 
-Automatisierter Traffic landet in GA4 als normale Session und verdirbt jede Quote:
-Sessions rauf, Verweildauer runter, Funnel-Basis rauf. Die eingebaute Bot-Erkennung
-von GA4 deckt nur die bekannte IAB-Liste ab, headless Chrome und Scraper laufen
-daran vorbei.
-
-Der Filter ist deshalb kundenspezifisch und liegt in `reporting/config.json`:
+- Automatisierter Traffic erscheint in GA4 als normale Session: Sessions steigen, Verweildauer sinkt, Funnel-Basis steigt.
+- Die GA4-Bot-Erkennung deckt nur die IAB-Liste ab; headless Chrome und Scraper kommen durch.
+- Darum ein kundenspezifischer Filter in `reporting/config.json`:
 
 ```json
 "bot_filter": {
@@ -162,40 +116,28 @@ Der Filter ist deshalb kundenspezifisch und liegt in `reporting/config.json`:
 }
 ```
 
-Jede Regel ist eine UND-Verknüpfung ihrer Bedingungen, die Regeln untereinander
-sind ODER-verknüpft, und passende Sessions fliegen aus allen Sichten (Kanäle,
-Kampagnen, Geräte, Länder, Landingpages, Funnel, interne Suchbegriffe).
-Erlaubte Bedingungen: `country_in`, `country_not_in`, `channel_in`,
-`channel_not_in`, `device_in`, `source_in`, `operating_system_in`,
-`browser_in`, `screen_resolution_in`. Ohne `enabled: true` passiert nichts.
-Die Messung von `history_from` bei `--max-history` bleibt bewusst ungefiltert,
-siehe oben.
+### Regellogik
 
-**Eine Regel beschreibt ein Muster, nie ein Land.** Ganze Länder auszuschließen
-kostet echte Besuche; bei Beispielshop wären mit einem reinen US-Ausschluss
-elf echte Organic-Search-Sessions mit 40,7 Sekunden und 4,27 Seiten pro Besuch
-mit rausgeflogen. Die Kombination aus Herkunft und Kanal trifft nur die Bots.
+- Bedingungen innerhalb einer Regel: UND.
+- Regeln untereinander: ODER.
+- Passende Sessions fallen aus allen Sichten (Kanäle, Kampagnen, Geräte, Länder, Landingpages, Funnel, interne Suchbegriffe).
+- Erlaubte Bedingungen: `country_in`, `country_not_in`, `channel_in`, `channel_not_in`, `device_in`, `source_in`, `operating_system_in`, `browser_in`, `screen_resolution_in`.
+- Ohne `enabled: true` keine Wirkung.
+- `history_from` bei `--max-history` bleibt ungefiltert (siehe oben).
 
-**Und nie einen ganzen Kanal.** Am 13.09.2026 nachgerechnet: ein Audit hatte
-empfohlen, Direct auszuschließen, weil der Kanal zwei Anzeichen automatisierten
-Zugriffs zeigte. Das hätte die echten Besuche in Direct samt ihren Käufen
-entfernt und die Bot-Sitzungen in Unassigned stehen lassen.
-Die Bots waren ein Geräteprofil, kein Kanal. Den Vorschlag dafür baut
-`--audit-checks` (unten) als `bot_profiles.filter_proposal`, mit
-`enabled: false`: übernommen wird er von einem Menschen, nachdem er Anteil,
-Engagement, Käufe und Zeiträume des Profils gelesen hat.
+### Regeln für Regeln
 
-**Der Filter macht Zahlen vor und nach seiner Einführung unvergleichbar.**
-Deshalb trägt jeder gefilterte Snapshot die angewandten Regeln unter `filters`,
-und die Config trägt `since`. Ein Report, der über diese Grenze hinweg
-vergleicht, benennt sie, statt den Sprung als Entwicklung zu verkaufen.
+- **Muster beschreiben, nie ein ganzes Land.** Ein Länder-Ausschluss entfernt echte Besuche (Beispiel: ein reiner US-Ausschluss hätte bei Beispielshop elf echte Organic-Search-Sessions mit 40,7 Sekunden und 4,27 Seiten pro Besuch entfernt). Herkunft plus Kanal trifft nur die Bots.
+- **Nie einen ganzen Kanal ausschließen.** Sonst fallen die echten Besuche samt Käufen raus, während Bots in anderen Kanälen (etwa Unassigned) bleiben. Bots sind oft ein Geräteprofil, kein Kanal.
+- Den Filtervorschlag liefert `--audit-checks` als `bot_profiles.filter_proposal` mit `enabled: false`. Ein Mensch übernimmt ihn, nachdem er Anteil, Engagement, Käufe und Zeiträume des Profils gelesen hat.
+- **Zahlen vor und nach Einführung des Filters sind nicht vergleichbar.** Jeder gefilterte Snapshot enthält die Regeln unter `filters`, die Config das Datum `since`. Ein Report, der über diese Grenze vergleicht, nennt sie, statt den Sprung als Entwicklung darzustellen.
 
 ## Bot-Profile und Absender (`--audit-checks`)
 
-Für jeden Audit Pflicht, für Report und Puls nicht vorgesehen; mit `--pulse`
-bricht das Script ab, weil ein zweiter Absender erst ab einer Woche zählt. Der
-Schalter hängt drei Abschnitte an den Snapshot, bevor irgendeine Analyse eine
-Rate aus GA4 rechnet:
+- Pflicht in jedem Audit, nicht für Report und Puls.
+- Mit `--pulse` bricht das Script ab; ein zweiter Absender zählt erst ab einer Woche.
+- Hängt drei Abschnitte an den Snapshot, bevor eine Analyse eine Rate aus GA4 rechnet.
+- Grund: Bot-Profile und doppelte Absender verzerren Add-to-Cart-Rate, Conversion Rate und Einstiegsseiten-Befunde und sind im Hauptteil nicht erkennbar.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
@@ -205,58 +147,48 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
   --out "reporting/data/<run-id>"
 ```
 
-**Warum.** Am 13.09.2026 in einem echten Audit nachgerechnet: ein einziges
-Geräteprofil trug die Hälfte aller Sitzungen, in Wellen über Monate, ohne
-Engagement und ohne Kauf, und ein zweiter Absender schickte seit einem Stichtag
-jede Stufe des Kaufwegs doppelt an dieselbe Mess-ID. Die Add-to-Cart-Rate stand
-bei der Hälfte ihres Werts, die Conversion Rate auf Desktop bei einem Viertel,
-und ein Befund über schwache Einstiegsseiten beschrieb fast nur Bots. Aus dem
-Hauptteil allein war das nicht zu sehen.
+### `bot_profiles`: Geräteprofile mit Bot-Merkmalen
 
-**`bot_profiles`: Geräteprofile, die wie Bots aussehen.** Ein Profil ist die
-Kombination aus Bildschirmauflösung, Betriebssystem, Gerätekategorie und
-Browser. Der Pull zieht Sitzungen je Tag und Profil, zählt die Kandidaten über
-den ganzen Zeitraum nach und urteilt mit `audit/bots.py`: auffällig ist ein
-Profil mit mindestens einem Prozent aller Sitzungen, einer Engagement Rate unter
-20 Prozent und höchstens einem Kauf auf 10.000 Sitzungen. `windows` sind die
-Zeiträume, in denen es einen ungewöhnlichen Tagesanteil trägt. Fällt eins auf,
-zieht der Pull den Hauptteil ein zweites Mal ohne diese Profile, als
-`bot_profiles.without`, mit den angewandten Regeln unter `filter`.
+- Profil = Bildschirmauflösung + Betriebssystem + Gerätekategorie + Browser.
+- Der Pull zieht Sitzungen je Tag und Profil, zählt Kandidaten über den ganzen Zeitraum nach, Urteil durch `audit/bots.py`.
+- Auffällig, wenn alles zutrifft:
+  - mindestens ein Prozent aller Sitzungen
+  - Engagement Rate unter 20 Prozent
+  - höchstens ein Kauf auf 10.000 Sitzungen
+- `windows` = Zeiträume mit ungewöhnlichem Tagesanteil des Profils.
+- Ist ein Profil auffällig, zieht der Pull den Hauptteil ein zweites Mal ohne diese Profile: `bot_profiles.without`, Regeln unter `filter`.
 
-**`senders`: mehr als ein Absender je Mess-ID.** Ereignisse und Sitzungen je
-Tag, getrennt danach, ob `hostName` und `customEvent:app_name` gesetzt sind,
-dazu die Formate der Artikel-ID; die Regeln stehen in `audit/senders.py`.
-Gerechnet wird ohne die auffälligen Bot-Profile (`variant`), weil ein Bot-Netz,
-das nur einer der Absender zählt, die Überschneidung verdeckt. Hat die Property
-`app_name` nicht als eigene Dimension registriert, trennt allein der Hostname,
-und der Grund steht unter `notes`.
+### `senders`: mehr als ein Absender je Mess-ID
 
-**`primary_sender`: die Zahlen nur mit dem ersten Absender**, im Hauptteil und
-in `bot_profiles.without`, sobald ein zweiter erkannt ist. Er trägt den Kaufweg
-je Stufe und, wenn der Kauf selbst doppelt kommt, Käufe und Umsatz je Kanal und
-Gerät, immer aus `ecommercePurchases`.
+- Ereignisse und Sitzungen je Tag, getrennt danach, ob `hostName` und `customEvent:app_name` gesetzt sind, plus Formate der Artikel-ID.
+- Regeln in `audit/senders.py`.
+- Gerechnet ohne die auffälligen Bot-Profile (`variant`), da ein Bot-Netz, das nur ein Absender zählt, die Überschneidung verdeckt.
+- Ist `app_name` in der Property nicht als Dimension registriert, trennt nur der Hostname; Grund unter `notes`.
 
-**Keine dieser Abfragen legt den Snapshot.** Scheitert eine, steht der Grund
-unter `bot_profiles.note` oder `senders.note`, und der Abschnitt meldet keinen
-Befund: `bot_profiles.checked` und `senders.measurable` sind dann falsch. Die
-Analysen lesen alle Varianten über `audit/ga4_variants.py`, das aus jeder
-dieselben Raten rechnet.
+### `primary_sender`: Zahlen nur mit dem ersten Absender
+
+- Gesetzt im Hauptteil und in `bot_profiles.without`, sobald ein zweiter Absender erkannt ist.
+- Enthält den Kaufweg je Stufe; kommt der Kauf selbst doppelt, auch Käufe und Umsatz je Kanal und Gerät, immer aus `ecommercePurchases`.
+
+### Teilfehler
+
+- Keine dieser Abfragen blockiert den Snapshot.
+- Scheitert eine: Grund unter `bot_profiles.note` oder `senders.note`, kein Befund; `bot_profiles.checked` bzw. `senders.measurable` sind dann falsch.
+- Die Analysen lesen alle Varianten über `audit/ga4_variants.py`, das aus jeder Variante dieselben Raten rechnet.
 
 ## Snapshot-Schema
 
-**Der Zielordner kommt vom Aufrufer.** Solo ist `reporting/data/<heute>` der
-sinnvolle Vorgabewert, und `report` und `pulse` legen ihre Snapshots dort ab,
-solange sie ohne Lauf-ID laufen (Spec Abschnitt 14, Umstellung in Stufe 3).
-**Läuft der Pull dagegen in einem Audit oder Report mit Lauf-ID, ist der
-Zielordner `reporting/data/<run-id>`**, also Datum plus Kadenz
-(`2026-10-01-audit`, `2026-11-01-month`), und `--out` zeigt dorthin. Der
-Orchestrator gibt den Ordner vor; wer den Pull während eines Laufs von Hand
-startet, muss dieselbe Lauf-ID verwenden. Ein Snapshot im falschen Ordner ist
-für die Analyse nicht vorhanden, und sie meldet keinen Fehler, sondern rechnet
-ohne ihn weiter.
+### Zielordner
 
-Das Script schreibt `<out>/ga4.json` (bzw. `ga4-pulse.json` oder, bei
-`--max-history`, `ga4-max-history.json`):
+- Der Aufrufer bestimmt den Zielordner.
+- Solo: Vorgabe `reporting/data/<heute>`. Dort legen auch `report` und `pulse` ab, solange sie ohne Lauf-ID laufen (Spec Abschnitt 14, Umstellung in Stufe 3).
+- **In einem Audit oder Report mit Lauf-ID: `reporting/data/<run-id>`**, Datum plus Kadenz (`2026-10-01-audit`, `2026-11-01-month`). `--out` zeigt dorthin.
+- Der Orchestrator gibt den Ordner vor. Bei manuellem Start während eines Laufs dieselbe Lauf-ID verwenden.
+- Ein Snapshot im falschen Ordner fehlt der Analyse, und sie rechnet ohne Fehlermeldung weiter.
+
+### Datei
+
+Das Script schreibt `<out>/ga4.json` (oder `ga4-pulse.json`, bei `--max-history` `ga4-max-history.json`):
 
 ```json
 {
@@ -303,67 +235,46 @@ Das Script schreibt `<out>/ga4.json` (bzw. `ga4-pulse.json` oder, bei
 }
 ```
 
-Jeder Funnel-Schritt trägt zwei Zahlen: `events` (wie oft das Ereignis
-ausgelöst wurde) und `sessions` (in wie vielen Besuchen es vorkam). **Für jede
-Quote im Report zählt `sessions`, nie `events`** (Kennzahlen-Katalog, Abschnitt
-Funnel): eine Person sieht mehrere Produkte an, im Pilotmonat standen 457
-`view_item`-Ereignisse für 273 Sessions. `funnel.sessions` daneben ist die
-Gesamtzahl der Besuche und damit die Basis für die erste Stufe.
+### Regeln zum Schema
 
-Fehlt ein Ereignis komplett (typisch `view_cart` bei einem Warenkorb-Drawer
-ohne eigene Adresse), steht es mit Nullen da. Das ist kein Messfehler, sondern
-die Aussage, dass es diesen Schritt in dem Shop nicht gibt; der Report darf
-daraus keine Abbruchquote bauen.
+**Funnel**
 
-`purchases` je Kanal trägt die Conversion Rate je Kanal (Formel und Schwelle
-im Kennzahlen-Katalog, `${CLAUDE_PLUGIN_ROOT}/reference/metrics.md`). Lehnt
-eine Property den Metrik-Namen ab, fällt der Kanal-Call genau einmal auf die
-übrigen Metriken zurück: `purchases` steht dann in jedem Kanal auf `null`
-(unbekannt, nie 0), der Grund steht unter `notes.purchases`, und der übrige
-Snapshot bleibt vollständig. `notes` fehlt, solange nichts genullt wurde.
+- Jeder Schritt hat `events` (Auslösungen) und `sessions` (Besuche mit dem Ereignis).
+- **Jede Quote im Report rechnet mit `sessions`, nie mit `events`** (Kennzahlen-Katalog, Abschnitt Funnel). Beispiel Pilotmonat: 457 `view_item`-Ereignisse in 273 Sessions.
+- `funnel.sessions` = alle Besuche, Basis der ersten Stufe.
+- Fehlt ein Ereignis ganz (typisch `view_cart` bei Warenkorb-Drawer ohne eigene Adresse): Nullen. Kein Messfehler, der Schritt existiert im Shop nicht. Keine Abbruchquote daraus bilden.
 
-Der `comparison`-Block liegt immer in derselben Datei, nie als eigene Datei oder
-eigener Ordner, und trägt `purchases` genauso. Puls-Dateien überschreiben nie
-die Monats-Vergleichsbasis.
+**`purchases` je Kanal**
 
-`campaigns`, `devices` und `countries` sind einfache Aufschlüsselungen derselben
-Sessions wie `channels`, nur nach Kampagne, Gerätekategorie und Land sortiert,
-mit denselben Basiszahlen samt `purchases`. `site_search` zählt die internen
-Suchbegriffe der Property (Ereignis `view_search_results`, Parameter
-`search_term`) nach demselben events/sessions-Muster wie der Funnel: `events`
-ist, wie oft gesucht wurde, `sessions`, in wie vielen Besuchen. Das setzt
-voraus, dass die Property den Parameter `search_term` als Custom Dimension
-registriert hat; fehlt sie, bleibt `site_search` im Snapshot ganz weg und der
-Grund steht unter `notes.site_search`, ohne den restlichen Lauf zu gefährden.
+- Grundlage der Conversion Rate je Kanal (Formel und Schwelle im Kennzahlen-Katalog, `${CLAUDE_PLUGIN_ROOT}/reference/metrics.md`).
+- Lehnt eine Property den Metrik-Namen ab: Kanal-Call fällt genau einmal auf die übrigen Metriken zurück, `purchases` = `null` in jedem Kanal (unbekannt, nie 0), Grund unter `notes.purchases`, Rest vollständig.
+- `notes` fehlt, solange nichts genullt wurde.
 
-`history_from` steht nur in `ga4-max-history.json`. Der Wert ist zugleich
-`period.start` dieses Snapshots, weil dieser Lauf die komplette gemessene
-Historie abdeckt, nicht nur einen Monat oder eine Woche.
+**`comparison`**
 
-`by_month` steht ebenfalls nur in `ga4-max-history.json`: eine Zeile je Monat
-der gemessenen Historie, jede mit der Aufschlüsselung nach Kanal. Der übrige
-Snapshot aggregiert über den gesamten Zeitraum zu einer Summe, die Baseline
-braucht aber Sessions je Monat und Kanal. Der Feldname ist derselbe wie im
-Shopify-Snapshot, damit die Baseline beide Quellen gleich liest.
+- Immer in derselben Datei, nie als eigene Datei oder eigener Ordner, mit `purchases`.
+- Puls-Dateien überschreiben nie die Monats-Vergleichsbasis.
 
-**Die Monatssumme trägt bewusst keine Nutzerzahl.** Sessions, Umsatz und
-Käufe addieren sich über Kanäle, `total_users` tut das nicht: GA4
-entdoppelt Nutzer je Dimensionskombination, wer im selben Monat über Organic
-und über E-Mail kommt, steht in beiden Kanalzeilen. Je Kanal ist die Zahl
-richtig und steht dort, eine Monatssumme daraus wäre zu hoch.
+**Aufschlüsselungen**
 
-**`totals` wird deshalb nicht summiert, sondern von GA4 gerechnet.** Der
-Kanal-Call fordert `metricAggregations: ["TOTAL"]` an. Bis zum 06.09.2026 hat
-der Pull über die Kanäle summiert, `totals.total_users` war damit systematisch
-zu hoch. Kommt die Gesamtzeile ausnahmsweise nicht mit, steht `total_users` auf
-`null` statt auf einer zu hohen Summe: eine fehlende Zahl fällt auf, eine um
-Prozente zu hohe nicht. `sessions` und `purchase_revenue` fallen in dem Fall
-auf die Summe zurück, die für sie richtig ist.
+- `campaigns`, `devices`, `countries`: dieselben Sessions wie `channels`, nach Kampagne, Gerätekategorie und Land, gleiche Basiszahlen samt `purchases`.
+- `site_search`: interne Suchbegriffe (Ereignis `view_search_results`, Parameter `search_term`), `events` = Suchen, `sessions` = Besuche mit Suche.
+- Voraussetzung: `search_term` als Custom Dimension registriert. Fehlt sie, entfällt `site_search`, Grund unter `notes.site_search`, der Lauf läuft weiter.
+
+**Nur in `ga4-max-history.json`**
+
+- `history_from`, zugleich `period.start`, da der Lauf die gesamte gemessene Historie abdeckt.
+- `by_month`: eine Zeile je Monat, jeweils mit Aufschlüsselung nach Kanal. Die Baseline braucht Sessions je Monat und Kanal. Feldname wie im Shopify-Snapshot, damit die Baseline beide Quellen gleich liest.
+
+**Nutzerzahlen**
+
+- **Die Monatssumme hat keine Nutzerzahl.** Sessions, Umsatz und Käufe addieren sich über Kanäle, `total_users` nicht: GA4 entdoppelt Nutzer je Dimensionskombination, ein Nutzer über Organic und E-Mail steht in beiden Kanalzeilen.
+- **`totals` rechnet GA4, nicht der Pull.** Der Kanal-Call fordert `metricAggregations: ["TOTAL"]` an.
+- Fehlt die Gesamtzeile: `total_users` = `null` statt einer zu hohen Summe. `sessions` und `purchase_revenue` fallen dann auf die Summe zurück, die für sie korrekt ist.
 
 ## Setup-Check
 
-`--check` testet nur Auth plus eine 1-Tages-Mini-Query (Exit 0/1), gedacht für den
-Setup-Wizard:
+`--check` testet Auth plus eine 1-Tages-Mini-Query (Exit 0/1), für den Setup-Wizard:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
@@ -372,24 +283,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
 
 ## Fehlerbilder
 
-- `google-auth fehlt`: `pip3 install --user google-auth requests`, dann erneut.
-- 403/Permission denied: die Service-Account-Mail hat keinen Lesezugriff auf die
-  GA4-Property. In GA4 unter Verwaltung, Property-Zugriffsverwaltung freigeben.
-- `error`-Objekt unter `comparison`: der Vergleichs-Pull ist fehlgeschlagen,
-  nicht fatal, der Hauptteil des Snapshots ist vollständig. Der Report zieht den
-  Vergleich dann später live oder lässt die Delta-Spalte weg.
-- `notes.purchases` im Snapshot: die Property hat die Metrik
-  `ecommercePurchases` abgelehnt. Nicht fatal, der Snapshot ist bis auf die
-  Conversion Rate je Kanal vollständig; der Report lässt die Spalte dann weg.
-- `notes.site_search` im Snapshot oder `site_search` fehlt ganz: die Property
-  hat den Event-Parameter `search_term` nicht als Custom Dimension
-  (`customEvent:search_term`) registriert. Nicht fatal, der übrige Snapshot ist
-  vollständig; in GA4 unter Verwaltung, Benutzerdefinierte Definitionen
-  einrichten, falls interne Suchbegriffe gebraucht werden.
-- `--max-history` bricht den Lauf ab, wenn schon die Messung des Startdatums
-  fehlschlägt (Auth/Netzwerk): dann ist auch für den Hauptteil keine
-  verlässliche Zahl zu erwarten.
-- Offener Punkt Pilot: der Dimension-Name `landingPage` vs.
-  `landingPagePlusQueryString` wird im Pilot gegen die echte API validiert.
-  `ecommercePurchases` ist seit dem 11.09.2026 gegen zwei echte Properties
-  geprüft.
+| Fall | Verhalten |
+|---|---|
+| `google-auth fehlt` | `pip3 install --user google-auth requests`, erneut starten. |
+| 403/Permission denied | Service-Account-Mail ohne Lesezugriff auf die GA4-Property. In GA4 unter Verwaltung, Property-Zugriffsverwaltung freigeben. |
+| `error`-Objekt unter `comparison` | Vergleichs-Pull gescheitert, nicht fatal, Hauptteil vollständig. Der Report zieht den Vergleich später live oder lässt die Delta-Spalte weg. |
+| `notes.purchases` im Snapshot | Property hat `ecommercePurchases` abgelehnt. Nicht fatal, nur die Conversion Rate je Kanal fehlt; der Report lässt die Spalte weg. |
+| `notes.site_search` oder `site_search` fehlt | Event-Parameter `search_term` nicht als Custom Dimension (`customEvent:search_term`) registriert. Nicht fatal. Bei Bedarf in GA4 unter Verwaltung, Benutzerdefinierte Definitionen einrichten. |
+| `--max-history` bricht ab | Messung des Startdatums gescheitert (Auth/Netzwerk); dann ist auch der Hauptteil nicht verlässlich. |
+| Offener Punkt Pilot | Dimension-Name `landingPage` vs. `landingPagePlusQueryString` wird im Pilot gegen die API validiert. `ecommercePurchases` ist seit dem 11.09.2026 an zwei Properties geprüft. |
