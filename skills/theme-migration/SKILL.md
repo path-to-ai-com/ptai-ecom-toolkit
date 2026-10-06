@@ -142,18 +142,17 @@ Schritt 0 läuft vor dem ersten `run_state`-Aufruf, weil es den Workspace erst h
      Installer; Windows: WinGet).
    - Übermittlung an Shopify abschalten: `~/.config/shopify-ai-toolkit/opt-out` anlegen, falls nicht
      vorhanden.
-   - Ordner der Marke: Liegt im Arbeitsverzeichnis schon ein Git-Repo mit `CLAUDE.md` und Shop-Adresse,
-     dort weiterarbeiten. Sonst zuerst bei GitHub anmelden (`gh auth login` im Browser), dann die Repos
-     auflisten, auf die die Person Zugriff hat (`gh repo list` für die eigenen und `gh api
-     user/repos?affiliation=collaborator,organization_member` für eingeladene), und darunter die
-     Arbeitsordner einer Theme-Migration suchen: Topic `theme-migration` oder eine `CLAUDE.md` mit
-     `.myshopify.com`, ohne die Repos mit Endung `-horizon`. Genau ein Treffer: ohne Rückfrage klonen,
-     das zugehörige `<repo>-horizon` daneben, und dort weiterarbeiten. Mehrere Treffer: die Liste
-     zeigen und wählen lassen. Kein Treffer: nach der Shop-Adresse fragen (`<shop>.myshopify.com`) und
-     einen neuen Ordner als Git-Repo anlegen. Nie nach einem Markennamen fragen, wenn das Repo die
-     Antwort schon kennt.
+   - Shop und Ordner: Liegt im Arbeitsverzeichnis schon ein Git-Repo mit `CLAUDE.md` und Shop-Adresse,
+     dort weiterarbeiten. Sonst als Erstes nach der Shop-Adresse fragen: "Wie lautet die
+     myshopify-Adresse eures Shops? Ihr findet sie im Shopify-Admin unter Einstellungen > Domains,
+     sie endet auf .myshopify.com." Danach bei GitHub anmelden (`gh auth login` im Browser) und unter
+     den Repos, auf die die Person Zugriff hat (`gh repo list` und `gh api
+     user/repos?affiliation=collaborator,organization_member`), den Arbeitsordner zu diesem Shop
+     suchen: ein Repo ohne Endung `-horizon`, dessen `CLAUDE.md` genau diese Adresse nennt. Gefunden:
+     klonen, das zugehörige `<repo>-horizon` daneben, dort weiterarbeiten. Nicht gefunden: einen neuen
+     Ordner `<shop>` als Git-Repo anlegen und die Adresse in dessen `CLAUDE.md` schreiben.
    - Config: Fehlt `reporting/config.json`, sie im Mindestumfang selbst schreiben, ohne `setup`
-     aufzurufen: Marke, Domain und Shop-Adresse aus der `CLAUDE.md` des Repos oder per Frage, alle
+     aufzurufen: Shop-Adresse aus Schritt 0, Marke und Domain aus der `CLAUDE.md` des Repos oder aus dem Shop, alle
      Quellen außer Shopify unter `sources` auf `false`, `account_slug` und `drive_path` nach
      `setup`, Abschnitt Config. Dann `config.validate()`.
    - Zugang zum Shop: `shopify store auth` mit der Vereinigung der vorhandenen und der benötigten
