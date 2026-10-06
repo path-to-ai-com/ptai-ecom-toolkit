@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "Claude-Code-Plugin für Shopify-Shops: Audit, audit-light, Monats-Report, Wochen-Puls, Datenabfragen aus Shopify, GA4, Search Console, PageSpeed, DataForSEO, Google Ads und AI-Suche sowie Theme-Migration auf ein aktuelles Theme wie Horizon.",
-    "version": "0.3.6"
+    "version": "0.3.7"
   },
   "plugins": [
     {

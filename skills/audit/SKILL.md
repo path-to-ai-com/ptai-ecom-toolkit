@@ -1161,7 +1161,7 @@ Nachdem alle Befunde aus allen vorliegenden `findings/`-Dateien durch `create()`
 | 4 | Zusammenfassung | fünf `__SUMMARY_*__` | Sitzung |
 | 4b | Die wichtigsten Erkenntnisse | `__TAKEAWAYS__` | Sitzung, fünf Sätze mit Befund-Kennung |
 | 4c | Die Befunde im Überblick | `__FINDINGS_OVERVIEW__` | Script |
-| 5 | Inhalt | fest im Template | nichts, die fünfzehn Zeilen stehen |
+| 5 | Inhalt | fest im Template | nichts, die sechzehn Zeilen stehen |
 | 6 | Fachsektionen | fünfzehn `SECTION:`-Marker (alle außer `sources`) | Script, siehe Tabelle darunter |
 | 7 | Nächster Schritt | `__NEXT_STEP__` | Sitzung |
 | 8 | Quellen | `SECTION:sources` | Script, aus `state.json > sources` |

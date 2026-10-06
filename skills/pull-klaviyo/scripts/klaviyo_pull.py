@@ -568,7 +568,7 @@ def pull_placed_order_aggregate(api_key: str, revision: str, placed_order_id: st
                 for i, month in enumerate(dates):
                     rows.append({
                         dimension: dim_value,
-                        "month": month[:7],  # YYYY-MM
+                        "month": bucket_month(month),  # YYYY-MM
                         "count": counts[i] if i < len(counts) else None,
                         "sum_value": sums[i] if i < len(sums) else None,
                     })
@@ -585,6 +585,20 @@ def pull_placed_order_aggregate(api_key: str, revision: str, placed_order_id: st
         "by_attributed_flow": by_flow,
         "raw_response_shape_confirmed": bool(by_channel or by_flow),
     }
+
+
+def bucket_month(stamp: str) -> str:
+    """Monat eines Klaviyo-Monats-Buckets als YYYY-MM.
+
+    Klaviyo liefert den Monatsbeginn in der Zeitzone des Accounts, umgerechnet
+    nach UTC. Bei Zeitzonen östlich von UTC liegt der Zeitstempel deshalb am
+    letzten Tag des Vormonats (2025-08-31T22:00:00+00:00 ist September in
+    Berlin). Ein Zeitstempel nach dem Ersten gehört zum Folgemonat.
+    """
+    year, month, day = int(stamp[0:4]), int(stamp[5:7]), int(stamp[8:10] or 1)
+    if day > 1:
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return f"{year:04d}-{month:02d}"
 
 
 def pull_lists(api_key: str, revision: str, notes: dict) -> list:

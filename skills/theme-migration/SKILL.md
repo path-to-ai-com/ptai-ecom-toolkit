@@ -137,7 +137,7 @@ Schritt 0 läuft vor dem ersten `run_state`-Aufruf, weil es den Workspace erst h
 
 0. **Rechner und Ordner einrichten.** Jeden Punkt prüfen und nur Fehlendes einrichten, jede
    Installation vorher in einem Satz ankündigen:
-   - Programme: Node.js ab 22.12, Git, Shopify CLI (`npm install -g @shopify/cli@latest`), `uv`. Fehlt
+   - Programme: Node.js ab 22.12, Git, GitHub CLI (`gh`), Shopify CLI (`npm install -g @shopify/cli@latest`), `uv`. Fehlt
      etwas, mit dem Paketweg des Betriebssystems installieren (Mac: Homebrew, sonst offizieller
      Installer; Windows: WinGet).
    - Übermittlung an Shopify abschalten: `~/.config/shopify-ai-toolkit/opt-out` anlegen, falls nicht
