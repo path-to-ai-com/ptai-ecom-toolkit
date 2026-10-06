@@ -13,7 +13,7 @@ from tests import repo_files  # noqa: E402
 
 #: Das öffentliche Repo. Wählt Yves im Halt einen anderen Namen, ändert er sich
 #: hier, in der README und in plugin.json.
-PUBLIC_REPO = "yves-s/ptai-ecom-toolkit"
+PUBLIC_REPO = "path-to-ai-com/ptai-ecom-toolkit"
 
 #: Skills, die im Plugin liegen, in der README aber bewusst nicht stehen.
 #: `audit-light-send` ist der Anfrage-Ablauf von Path to AI und braucht

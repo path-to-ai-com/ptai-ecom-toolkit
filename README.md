@@ -149,7 +149,7 @@ startet sie selbst.
 Das Plugin heißt `ptai-ecom`:
 
 ```text
-/plugin marketplace add yves-s/ptai-ecom-toolkit
+/plugin marketplace add path-to-ai-com/ptai-ecom-toolkit
 /plugin install ptai-ecom@ptai-ecom
 ```
 
