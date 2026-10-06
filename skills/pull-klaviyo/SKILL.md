@@ -121,7 +121,7 @@ Fehlt etwas oder steht `sources.klaviyo` auf `false`: Klaviyo als "nicht verfüg
        "conversion_rate": 0.0, "conversion_value": 0.0, "revenue_per_recipient": 0.0,
        "unsubscribe_rate": 0.0, "spam_complaint_rate": 0.0, "bounce_rate": 0.0}
     ],
-    "raw_response_shape_confirmed": false
+    "raw_response_shape_confirmed": true
   },
   "campaign_reports": {
     "by_campaign": [
@@ -129,24 +129,25 @@ Fehlt etwas oder steht `sources.klaviyo` auf `false`: Klaviyo als "nicht verfüg
        "conversion_rate": 0.0, "conversion_value": 0.0, "revenue_per_recipient": 0.0,
        "unsubscribe_rate": 0.0, "spam_complaint_rate": 0.0, "bounce_rate": 0.0}
     ],
-    "raw_response_shape_confirmed": false
+    "raw_response_shape_confirmed": true
   },
   "placed_order_aggregate": {
-    "by_attributed_channel": [{"$attributed_channel": "Email", "count": 0, "sum_value": 0.0}],
-    "by_attributed_flow": [{"$attributed_flow": "...", "count": 0, "sum_value": 0.0}],
-    "raw_response_shape_confirmed": false
+    "by_attributed_channel": [{"$attributed_channel": "Email", "month": "2026-08", "count": 0, "sum_value": 0.0}],
+    "by_attributed_flow": [{"$attributed_flow": "...", "month": "2026-08", "count": 0, "sum_value": 0.0}],
+    "raw_response_shape_confirmed": true
   },
   "lists": [{"id": "...", "name": "...", "profile_count": 0}],
   "segments": [{"id": "...", "name": "...", "profile_count": 0}],
   "forms": [{"id": "...", "name": "...", "status": "..."}],
   "notes": {
-    "flow_reports": "erster Lauf, Antwortform nicht bestaetigt",
-    "profiles": "kein Einzelprofil-Export, nur aggregierte Zaehler"
+    "profiles": "kein Einzelprofil-Export, nur aggregierte Zaehler (Listen/Segmente)"
   }
 }
 ```
 
-- `raw_response_shape_confirmed: false` steht in jedem Report-Block, bis ein echter Lauf die Feldnamen bestätigt. Danach auf `true` setzen (SKILL.md und Snapshot-Kommentar nachziehen) und diesen Hinweis aus dem Schema entfernen.
+- `raw_response_shape_confirmed` setzt das Script je Report-Block:
+  - `true`, wenn es Zeilen in der am 11.09.2026 bestätigten Antwortform gelesen hat
+  - `false`, wenn der Aufruf scheiterte, die Metrik-ID fehlte, keine Zeile kam oder die Antwort eine andere Form hatte; außer bei leerer Antwort steht der Grund in `notes`, bei abweichender Form liegt die Antwort zusätzlich unter `raw`
 - `notes` enthält jede methodische Abweichung, nicht nur Totalausfälle (wie `pull-shopify`): gekürzte Zeiträume, fehlende Scopes, Endpunkte mit 404 oder 403.
 
 ## Setup-Check

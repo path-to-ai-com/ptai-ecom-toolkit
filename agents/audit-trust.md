@@ -51,7 +51,7 @@ Die acht Prüfpunkte der Linse in ihrer Reihenfolge. Hier steht nur, was **diese
    - Hier geht der Lauf über den Verkaufs-Audit hinaus. Diesen Befund zuerst nennen, wenn er belegt ist.
 2. **Cookie-Dialog: nur beide Quellen zusammen.**
    - Der Screenshot zeigt den Dialog, `crawl.json` die Skripte, die ohne Interaktion geladen haben. Tracking-Host im Crawl bei vorhandenem Dialog: der Befund.
-   - **Ein nur aus dem Bild abgeleiteter Cookie-Befund ist unzuverlässig.** Ohne die Crawl-Seite: `confidence: "low"` und als Prüfauftrag formulieren, nicht als Feststellung.
+   - **Ein nur aus dem Bild abgeleiteter Cookie-Befund ist unzuverlässig.** Ohne die Crawl-Seite: `confidence: "hypothesis"` und als Prüfauftrag formulieren, nicht als Feststellung.
 3. **Pflichtseiten: Existenz aus dem Crawl, Erreichbarkeit aus dem Bild.**
    - Ob `/widerruf` existiert und mit 200 antwortet, zeigt der Crawl. Ob ein Käufer sie in einem Klick aus dem Footer erreicht, zeigt der Screenshot.
    - Beides in denselben Befund. Existenz allein ist keine Auffindbarkeit.
@@ -129,19 +129,19 @@ Bei einem Befund aus einem Bild nennt `evidence` den Dateinamen des Screenshots 
   "findings": [
     {
       "id": "TRS-01",
-      "statement": "184 von 612 Produkten haben keinen eigenen Beschreibungstext",
+      "statement": "Die Datenschutzerklärung nennt nicht jeden Dienst, dessen Skript der Shop lädt",
       "metrics": [
         {"label": "<was gemessen wurde>", "value": "<Wert>", "context": "<Zeitraum oder Grundgesamtheit>"}
       ],
       "explanation": "<was der Fachbegriff bedeutet und wie gemessen wurde, zwei bis vier Saetze, steht im Report zwischen Titel und Tabelle>",
       "benchmark": "<die Einordnung: gegen welches Band, welchen internen Vergleich, oder der Satz, dass es keine Benchmark gibt>",
-      "evidence": "catalog.json > summary.products_without_description; catalog.json > summary.products_total; catalog.json > summary.description_length_p50",
-      "effect": "Ein Drittel des Sortiments verkauft sich über den Titel allein.",
+      "evidence": "crawl.json > summary.third_party_script_hosts; crawl.json > findings_index.path_prefixes",
+      "effect": "Käufer erfahren nicht, an welche Dienste der Shop beim Besuch Daten überträgt.",
       "why": "<warum das ein Problem ist, in der Sprache eines Geschäftsführers>",
       "fix": "<der konkrete Eingriff und wo er passiert>",
-      "severity": "hoch",
+      "severity": "mittel",
       "confidence": "confirmed",
-      "effort": "large"
+      "effort": "small"
     }
   ]
 }

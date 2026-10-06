@@ -127,6 +127,7 @@ Fünf Felder je Befund, ohne Beleg kein Befund:
       "effect": "Die Kampagnen könnten mehr ausliefern, der Engpass ist das Budget und nicht die Anzeigenqualität.",
       "why": "<warum das ein Problem ist, in der Sprache eines Geschäftsführers>",
       "fix": "<der konkrete Eingriff und wo er passiert>",
+      "severity": "mittel",
       "confidence": "plausible",
       "effort": "small"
     }

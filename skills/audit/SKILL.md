@@ -8,7 +8,7 @@ description: Fährt den einmaligen Ecommerce-Audit eines Shops, als Nullpunkt vo
 - Der Audit setzt den Nullpunkt eines Shops und läuft genau einmal (Spec Abschnitt 3).
 - Kein Vergleichswert, kein Vormonat; je Quelle der maximal verfügbare Zeitraum.
 - Ergebnis: die Baseline, gegen die jeder spätere `/ptai-ecom:report` vergleicht, und ein priorisierter Maßnahmen-Backlog.
-- Die Skill steuert fünf Phasen (0 bis 4, Spec Abschnitt 6) über zwei Skripte, fünfzehn Pull-Skills, zehn Analyse-Subagents und zwei Module, die Baseline und Backlog schreiben.
+- Die Skill steuert fünf Phasen (0 bis 4, Spec Abschnitt 6) über zwei Skripte, fünfzehn Pull-Skills, elf Analyse-Subagents und zwei Module, die Baseline und Backlog schreiben.
 - Sie ruft selbst keine API auf und rechnet keine Kennzahl. Sie legt fest, wer wann läuft, führt den Zustand und hält zweimal an, bevor etwas zum Kunden geht.
 - Arbeitsverzeichnis: der Kunden-Workspace mit `reporting/`, wie bei jeder Skill dieses Plugins.
 - Abgrenzung zu `report`: `report` läuft nach Kadenz und vergleicht dreifach (Vorlauf, Baseline, Vorjahr). `audit` läuft einmal ohne Vergleich und setzt den Nullpunkt für `report`.
@@ -321,9 +321,9 @@ Gilt, wenn keine Verweigerung greift: der Lauf startet oder setzt fort.
 
 **Zielordner der Pulls: immer `reporting/data/<run-id>`.**
 
-- `pull-gsc`, `pull-ga4`, `pull-cwv`, `check-geo` und `pull-shopify` zeigen in ihrer Ablauf-Beschreibung `--out "reporting/data/$(date +%F)"` (nur Tagesdatum, ohne Kadenz-Suffix). Das stammt aus der Zeit vor der Lauf-ID-Konvention und gilt für `report` und den Wochen-Puls, **nicht für den Audit**.
+- `pull-gsc`, `pull-ga4` und `pull-cwv` zeigen in ihrer Ablauf-Beschreibung `--out "reporting/data/$(date +%F)"` (nur Tagesdatum, ohne Kadenz-Suffix). Das stammt aus der Zeit vor der Lauf-ID-Konvention und gilt für `report` und den Wochen-Puls, **nicht für den Audit**.
 - Im Audit `--out` auf `reporting/data/<run-id>` setzen, wie `crawl-site` es schon dokumentiert.
-- Die zehn Analyse-Subagents in Phase 2 erwarten `reporting/data/<run-id>/shopify.json` und so weiter, nie `reporting/data/<heute>/...`.
+- Die elf Analyse-Subagents in Phase 2 erwarten `reporting/data/<run-id>/shopify.json` und so weiter, nie `reporting/data/<heute>/...`.
 - Schreibt ein Pull in den Tages-Ordner, liefert Phase 2 eine leere Analyse ohne jede Fehlermeldung.
 
 ### Wer heute schon zieht, wer noch nicht gebaut ist
@@ -456,9 +456,9 @@ Statuswerte:
 | **vorhanden** | `done` | der Snapshot hat keine einschränkende Notiz |
 | **abgeschnitten** | `done` | der Snapshot hat eine Einschränkung (`shopify.json > notes.order_history`, oder ein `history_from` deutlich nach der Anmeldung der GA4-Property bzw. der Search Console); Grund wörtlich aus dieser Notiz |
 | **fehlend** | `failed` | Grund ist der gemeldete Fehlergrund der Quelle |
-| **übersprungen** | `skipped` | die Pull-Skill existiert in dieser Stufe noch nicht (die 13 Quellen oben) oder `geo_method: "off"` hat GEO abgeschaltet |
+| **übersprungen** | `skipped` | die Pull-Skill existiert in dieser Stufe noch nicht (`esp`, `meta` und `reviews`, siehe oben) oder `geo_method: "off"` hat GEO abgeschaltet |
 
-- Übersprungene Quellen als kurze Liste, nicht als Tabellenzeile je Quelle; sonst gehen die sieben gezogenen Quellen zwischen dreizehn gleichen Einträgen unter.
+- Übersprungene Quellen als kurze Liste unter der Tabelle, nicht als Tabellenzeile je Quelle. Die Tabelle bleibt den gezogenen Quellen vorbehalten, bis zu fünfzehn.
 
 **Die Zeile ga4 enthält die beiden Prüfungen aus `--audit-checks`.**
 
@@ -472,7 +472,7 @@ Statuswerte:
 
 1. Datenlage zeigen.
 2. Ausdrücklich fragen, ob Phase 2 (Analysen) starten soll.
-3. **Nie von selbst mit Phase 2 fortfahren, auch nicht, wenn alle sieben Quellen "vorhanden" melden.** Dieses Gate gehört zum Kern der Skill.
+3. **Nie von selbst mit Phase 2 fortfahren, auch nicht, wenn alle gezogenen Quellen "vorhanden" melden.** Dieses Gate gehört zum Kern der Skill.
 4. Bei "nein" oder ohne Antwort bleibt `state.json` unverändert, Phase `1-raw-data` auf `done`. Ein späterer Aufruf von `/ptai-ecom:audit` setzt über `next_phase()` bei Phase 2 an, ohne eine Quelle erneut zu ziehen.
 
 ## Phase 2: Analysen
@@ -480,7 +480,7 @@ Statuswerte:
 - Die Analyse-Subagents starten parallel, je einer pro Disziplin: ein Aufruf pro Subagent in derselben Nachricht, damit sie gleichzeitig laufen.
 - Jeder bekommt im Aufruf-Prompt die Lauf-ID.
 - Jeder liest nur die feste Dateiliste aus seiner eigenen Definition unter `reporting/data/<run-id>/`, nie das ganze Verzeichnis (Spec Abschnitt 13: "Die Analysen lesen nicht alles").
-- Alle zehn Subagents sind aktiv (`agents/audit-*.md`, Ziel-Ausbaustufe aus Spec Abschnitt 8).
+- Alle elf Subagents sind aktiv (`agents/audit-*.md`, Ziel-Ausbaustufe aus Spec Abschnitt 8).
 
 | Subagent | Disziplin | Liest |
 |---|---|---|
@@ -567,19 +567,19 @@ print(context.add('.',
 **Weitere Regeln für Phase 2:**
 
 - **Ein Subagent startet auch, wenn seine Quellen in Phase 1 fehlten.** Er meldet die Lücke als `blocked_questions`; Gate B braucht diese Meldung, um zu zeigen, was der fehlende Zugang kostet. Nicht vorher aussortieren.
-- **`audit-conversion` und `audit-content-brand` lesen Screenshots** (Bilddateien im Kundenordner, nicht nur JSON). Keine Sonderbehandlung nötig; sie laufen länger als die übrigen acht, das ist kein Hänger.
-- `audit-data-quality` steht im fertigen Report zuerst: ist die Messung kaputt, ist jede Zahl der übrigen neun eine Behauptung, kein Befund (Spec Abschnitt 8, Pilot-Beleg: 70 Prozent Zuordnungslücke zwischen Shopify und GA4).
+- **`audit-conversion`, `audit-content-brand` und `audit-trust` lesen Screenshots** (Bilddateien im Kundenordner, nicht nur JSON). Keine Sonderbehandlung nötig; sie laufen länger als die übrigen acht, das ist kein Hänger.
+- `audit-data-quality` steht im fertigen Report zuerst: ist die Messung kaputt, ist jede Zahl der übrigen zehn eine Behauptung, kein Befund (Spec Abschnitt 8, Pilot-Beleg: 70 Prozent Zuordnungslücke zwischen Shopify und GA4).
 
 **Modell je Subagent:**
 
-- Neun der zehn haben `model: sonnet` im Frontmatter: sie rechnen und klassifizieren gegen ein festes Ausgabeschema (Anteile bilden, Statuscodes einordnen, Kanalanteile gegen Schwellen halten, `null` von 0 unterscheiden).
+- Zehn der elf haben `model: sonnet` im Frontmatter: sie rechnen und klassifizieren gegen ein festes Ausgabeschema (Anteile bilden, Statuscodes einordnen, Kanalanteile gegen Schwellen halten, `null` von 0 unterscheiden).
 - `audit-data-quality` hat bewusst keinen Eintrag und erbt das Session-Modell, meist das stärkere. Er deutet Widersprüche zwischen vier Quellen (ist die Lücke zwischen Shopify-Bestellungen und GA4-Purchase-Events ein Zuordnungsverlust oder ein anderer Bestellweg?) und entscheidet damit über die Gültigkeit aller übrigen Analysen. Das fehlende `model:` ist Absicht.
 - `scripts/tests/test_agent_frontmatter.py` hält diese Tabelle und die Agent-Dateien synchron und prüft, dass kein Agent eine Eingabedatei nennt, die kein Pull schreibt.
 - Der Orchestrator läuft immer im Session-Modell; eine `SKILL.md` kennt kein `model:`-Frontmatter.
 
 **Artefakt:** `reporting/runs/<run-id>/findings/<disziplin>.json`, von jedem Subagent selbst geschrieben.
 
-- Dateien: `data-quality.json`, `commerce.json`, `traffic.json`, `seo-technical.json`, `seo-content.json`, `geo.json`, `sea.json`, `conversion.json`, `content-brand.json`, `competition.json`.
+- Dateien: `data-quality.json`, `commerce.json`, `traffic.json`, `seo-technical.json`, `seo-content.json`, `geo.json`, `sea.json`, `conversion.json`, `content-brand.json`, `competition.json`, `trust.json`.
 - Fünf Felder je Befund: `statement`, `evidence`, `effect`, `confidence`, `effort`, dazu `blocked_questions`.
 - Seit dem 02.10.2026 schreiben alle elf zusätzlich `facts`, `evidence_text`, `url` und `proof` nach dem Vertrag `reference/finding-format.md`. Conversion, Content und Vertrauen legen in `proof` zusätzlich Bild-Aufträge an.
 - Agents mit Kriterienliste (`audit-seo-technical`, `audit-seo-content`, `audit-geo`, seit 27.09.2026) schreiben zusätzlich `criteria_version` und `criteria`: je Kriterium genau eine Zeile mit `violated`, `passed`, `not_measurable` oder `not_applicable`.
@@ -1148,7 +1148,7 @@ Nachdem alle Befunde aus allen vorliegenden `findings/`-Dateien durch `create()`
 | Was | Wer | Warum |
 |---|---|---|
 | Zahlen je Sektion, Befunde, Maßnahmen, Quellen, Kennzahlenleiste | das Script | Zahlen gehören in Code, damit sie nicht driften |
-| neun Textelemente in `report-text.json` | die Sitzung | Text gehört an einen Menschen, damit er nicht generisch wird |
+| Textelemente in `report-text.json` (neun Textfelder, Problem-Kacheln, ein Satz je Sektion) | die Sitzung | Text gehört an einen Menschen, damit er nicht generisch wird |
 | Überschriften, Labels, Erklärzeilen | das Template | eine Zeile, die jeder Lauf neu schreibt, driftet |
 
 | # | Element | Steckt im Template als | Gefüllt aus |
@@ -1161,15 +1161,15 @@ Nachdem alle Befunde aus allen vorliegenden `findings/`-Dateien durch `create()`
 | 4 | Zusammenfassung | fünf `__SUMMARY_*__` | Sitzung |
 | 4b | Die wichtigsten Erkenntnisse | `__TAKEAWAYS__` | Sitzung, fünf Sätze mit Befund-Kennung |
 | 4c | Die Befunde im Überblick | `__FINDINGS_OVERVIEW__` | Script |
-| 5 | Inhalt | fest im Template | nichts, die vierzehn Zeilen stehen |
-| 6 | Fachsektionen | dreizehn `SECTION:`-Marker | Script, siehe Tabelle darunter |
+| 5 | Inhalt | fest im Template | nichts, die fünfzehn Zeilen stehen |
+| 6 | Fachsektionen | fünfzehn `SECTION:`-Marker (alle außer `sources`) | Script, siehe Tabelle darunter |
 | 7 | Nächster Schritt | `__NEXT_STEP__` | Sitzung |
 | 8 | Quellen | `SECTION:sources` | Script, aus `state.json > sources` |
 
 - **Alle Überschriften, Labels und Erklärzeilen stehen fest im Template.** Sie gelten für jeden Shop und werden nie je Lauf neu formuliert.
 - Der Lauf füllt Zahlen, Namen und Sektionsinhalte, sonst nichts.
 
-### Die elf Fachsektionen
+### Die sechzehn Sektionen
 
 Jede Sektion zeigt ihre eigenen Zahlen und direkt darunter die Befunde, die daraus folgen. Nicht alle Zahlen in eine gemeinsame Tabelle und alle Befunde in einen Block dahinter.
 
@@ -1536,14 +1536,17 @@ Sie stehen auch im Template und sind der Grund für ein eigenes Template statt `
    | `section_messages` | Objekt | je Fachsektion ein Satz, siehe unten |
 
    - Fehlt ein Schlüssel, bricht das Script ab und nennt ihn. Gewollt: ein Dokument mit leerem Einstieg geht nie an einen Kunden.
-   - Neun Felder, alle Pflicht: `cover_headline`, `intro`, die fünf `summary_*`, `takeaways`, `next_step`.
-   - Die Vorlage nennt zu jedem Feld, was hineingehört, und darunter unter `_zahlen_dieses_laufs` die acht Kennzahlen, die Liste aller Befund-Kennungen und die Zahl der Maßnahmen. **Diese Zahlen beim Schreiben verwenden**, sonst entsteht ein Statussatz ohne Beleg.
+   - Alle elf Schlüssel sind Pflicht (`report_build.text_laden()`):
+     - die neun Textfelder `cover_headline`, `intro`, die fünf `summary_*`, `takeaways`, `next_step`
+     - `problems` mit zwei bis vier Einträgen, je Eintrag `value`, `label`, `detail` und `finding_ref`
+     - `section_messages` mit einem Satz je Sektion, außer `gaps`, `method` und `sources`
+   - Die Vorlage nennt zu jedem Feld, was hineingehört, und darunter unter `_zahlen_dieses_laufs` die sechs Kennzahlen der Kennzahlenleiste samt Zeitraum, die Liste aller Befund-Kennungen und die Zahl der Maßnahmen. **Diese Zahlen beim Schreiben verwenden**, sonst entsteht ein Statussatz ohne Beleg.
    - `cover_headline` und `next_step` sind schlichte Sätze, siehe "Kopf, Einstieg und Schlussblock". Beide dürfen HTML enthalten; `intro`, `takeaways` und `next_step` erwarten es (`<p>`, `<ol><li>`).
 
 3. **Erneut aufrufen, jetzt baut das Script.** Es:
    - setzt die Pfade `__CSS_PATH__`, `__LOGO_PATH__`, `__LOGO_REVERSED_PATH__`, immer absolut, weil headless Chrome keine Plugin-relativen Pfade auflöst
    - setzt die drei Identitäts-Platzhalter: `__BRAND__` aus `config.json > brand`, `__RUN_LABEL__` als lesbarer Stand wie "Stand Oktober 2026" (nie die rohe Lauf-ID), `__GENERATED_DATE__` als `TT.MM.JJJJ`
-   - füllt die acht Kennzahlen mit ihren Notizen, die Zustandstabelle, die dreizehn Sektionen samt Befunden und den Maßnahmenteil
+   - füllt die sechs Kennzahlen mit ihren Notizen, die Befund-Übersicht (`__FINDINGS_OVERVIEW__`), die sechzehn Sektionen samt Befunden und den Maßnahmenteil
    - entfernt den BAUKASTEN
    - setzt zuletzt den Schluss `__CLOSING__` über `closing.apply` aus `scripts/audit/closing.py` ein
    - schreibt `reporting/runs/<run-id>/audit.html`
@@ -1557,21 +1560,13 @@ Sie stehen auch im Template und sind der Grund für ein eigenes Template statt `
 
    **Die Sitzung baut das HTML nicht selbst.** Fehler im Aufbau im Script korrigieren, nicht in der erzeugten Datei; ein Fix an der Kopie ist beim nächsten Lauf weg.
 
-4. Rendern mit dem Renderer aus `report` (ein Script für beide Dokumente, damit Chrome-Suche, A4-Einstellung und Größenprüfung nicht auseinanderlaufen):
+4. **Das PDF rendert derselbe Aufruf**, kein eigener Schritt (Abschnitt "Ein Aufruf, drei Dateien"):
+   - `--pdf` übergibt `audit.html` an den Renderer aus `report` (`skills/report/scripts/render_pdf.sh`) und schreibt `audit.pdf`. Ein Script für beide Dokumente, damit Chrome-Suche, A4-Einstellung und Größenprüfung nicht auseinanderlaufen.
+   - Ohne `--pdf` gibt das Script den Render-Befehl nur aus.
 
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/skills/report/scripts/render_pdf.sh" \
-     "reporting/runs/<run-id>/audit.html" \
-     "reporting/runs/<run-id>/audit.pdf"
-   ```
-
-5. **Die Web-Fassung bauen**, aus demselben Inhalt:
-
-   ```bash
-   python3 -m audit.report_web --workspace . --run-id <run-id>
-   ```
-
-   - Schreibt `reporting/runs/<run-id>/audit-web.html`: eine einzelne Datei mit Sprungnavigation, Volltextsuche und Filter nach Schweregrad.
+5. **Die Web-Fassung schreibt derselbe Aufruf** nach `reporting/runs/<run-id>/audit-web.html`, außer mit `--no-web`:
+   - `python3 -m audit.report_web --workspace . --run-id <run-id>` baut sie allein neu; im Ablauf ist das nicht nötig.
+   - Eine einzelne Datei mit Sprungnavigation, Volltextsuche und Filter nach Schweregrad.
    - Zwei Fassungen entsprechen IIA Standard 15.1 (mehrere Fassungen einer Abschlusskommunikation für verschiedene Zielgruppen). Das PDF wird weitergegeben, in der Web-Fassung wird gearbeitet.
 
    **Zum Ansehen einen Server starten, nicht doppelklicken:**
@@ -1589,7 +1584,7 @@ Sie stehen auch im Template und sind der Grund für ein eigenes Template statt `
 6. **Das PDF sichtprüfen:**
    - Archivo Black in den Überschriften
    - Logo oben rechts
-   - die acht Kacheln auf Seite eins
+   - die sechs Kacheln der Kennzahlenleiste auf Seite eins
    - Zusammenfassung und Erkenntnisse auf Seite zwei
    - Tabellen sauber
    - Schlussseite am Ende

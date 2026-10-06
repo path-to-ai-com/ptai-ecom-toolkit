@@ -189,7 +189,7 @@ Alle drei Plattformen im Browser der Session, `method: "browser"`.
 
 ### 6. Snapshot schreiben
 
-`reporting/data/<heute>/geo.json` exakt nach dem Schema unten, mit geltendem `query_set`, geltenden `competitors` und `config_drift` aus Schritt 1. Diese Session baut das JSON selbst aus den Script-Outputs und dem im Browser Gesehenen.
+`reporting/data/<run-id>/geo.json`, solo `reporting/data/<heute>/geo.json` (siehe "Zielordner"), exakt nach dem Schema unten, mit geltendem `query_set`, geltenden `competitors` und `config_drift` aus Schritt 1. Diese Session baut das JSON selbst aus den Script-Outputs und dem im Browser Gesehenen.
 
 ### 7. Kernergebnis melden
 
@@ -202,7 +202,7 @@ Alle drei Plattformen im Browser der Session, `method: "browser"`.
 
 ## Snapshot-Schema
 
-`reporting/data/<heute>/geo.json`:
+`reporting/data/<run-id>/geo.json` (solo `reporting/data/<heute>/geo.json`):
 
 ```json
 {

@@ -91,7 +91,7 @@ Die Liste wächst mit dem Audit-Scope. Die Union-Regel bleibt: bei Re-Auth immer
    - Vormonats-Snapshot vorhanden (jüngster `reporting/data/`-Ordner mit `shopify.json`, deren `period` granularity `month` über den vollen Vormonat hat; `-pulse`-Dateien ignorieren): keinen Vergleich ziehen, der Report vergleicht gegen den Snapshot.
    - Kein Snapshot: dieselben Teil-Pulls (ohne Bestand) zusätzlich für den Monat davor ausführen, als `comparison` ablegen.
 4. Teil-Pulls ausführen (siehe "Teil-Pulls").
-5. Snapshot schreiben: `reporting/data/<heute>/shopify.json`, im Puls-Modus `shopify-pulse.json` (granularity `week`). Diese Session schreibt das JSON selbst aus den CLI-Antworten, exakt nach dem Schema unten. Zielordner siehe "Zielordner".
+5. Snapshot schreiben: `reporting/data/<run-id>/shopify.json`, solo `reporting/data/<heute>/shopify.json` (siehe "Zielordner"), im Puls-Modus `shopify-pulse.json` (granularity `week`). Diese Session schreibt das JSON selbst aus den CLI-Antworten, exakt nach dem Schema unten.
 6. Dem Nutzer melden:
    - Umsatz, Bestellungen, AOV
    - Sessions und Conversion Rate, sofern vorhanden
@@ -310,7 +310,7 @@ Drei Snapshot-Felder aus dieser Antwort:
 
 Admin GraphQL, Scope `read_orders`. Zweck: Abweichung zwischen Bestellzahl und zugeordneter Conversion einordnen.
 
-- **Zählen, nicht exportieren.** Ein Zeilen-Export wären hunderte Seiten zu je 250 Bestellungen und ist laut "Was nie in den Snapshot geht" verboten. `ordersCount` liefert die Zahl je Quelle in einem Call ohne Bestellzeile:
+- **Zählen, nicht exportieren.** Ein Zeilen-Export wären hunderte Seiten zu je 250 Bestellungen und ist verboten (Abschnitt "Kundentyp", Absatz "Kohorten und Repeat-Rate nur aus aggregierten Abfragen"). `ordersCount` liefert die Zahl je Quelle in einem Call ohne Bestellzeile:
 
 ```bash
 shopify store execute --store <shopify_store> --json --query 'query {
@@ -371,7 +371,7 @@ shopify store execute --store <shopify_store> --json --query 'query {
 
 ## Snapshot-Schema
 
-`reporting/data/<heute>/shopify.json` (oder `shopify-pulse.json`).
+`reporting/data/<run-id>/shopify.json` (oder `shopify-pulse.json`), solo unter `reporting/data/<heute>/`.
 
 - Immer vorhanden, gescheiterte Teile als `null`: `period`, `totals`, `by_month`, `top_products`, `top_collections`, `sessions`, `session_funnel`, `abandoned_checkouts`, `orders_by_source`, `products`, `availability`, `customer_type`.
 - `comparison` nur im Erstlauf.

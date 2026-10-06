@@ -177,9 +177,11 @@ Fünf Felder je Befund, ohne Beleg kein Befund:
 - Mit `jq` gezielt die Felder abfragen, die eine Kernfrage braucht; nie ein volles Array ausgeben:
 
 ```bash
-jq '.totals, .period' reporting/data/<run-id>/<datei>.json
-jq '[.by_month[] | select(.orders > 0)] | length' reporting/data/<run-id>/<datei>.json
-jq '.top_products[0:10]' reporting/data/<run-id>/<datei>.json
+jq '.totals, .period' reporting/data/<run-id>/ga4.json
+jq '[.by_month[] | select(.sessions > 0)] | length' reporting/data/<run-id>/ga4.json
+jq '.channels[0:10] | map({channel, sessions, purchases})' reporting/data/<run-id>/ga4.json
+jq '.landing_pages[0:10]' reporting/data/<run-id>/ga4.json
+jq '.top_queries[0:10]' reporting/data/<run-id>/gsc.json
 ```
 
 - Zählen ohne Ausgabe (`| length`) ist erlaubt und oft der einzige Weg zu einer Aussage über die Gesamtmenge.

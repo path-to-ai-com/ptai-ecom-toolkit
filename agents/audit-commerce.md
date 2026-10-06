@@ -136,7 +136,7 @@ jq '.top_products[0:10]' reporting/data/<run-id>/<datei>.json
   "findings": [
     {
       "id": "HDL-01",
-      "statement": "Die drei umsatzstärksten Produkte tragen 61 Prozent des Gesamtumsatzes im Berichtszeitra",
+      "statement": "Die drei umsatzstärksten Produkte tragen 61 Prozent des Umsatzes im Berichtszeitraum",
       "metrics": [
         {"label": "<was gemessen wurde>", "value": "<Wert>", "context": "<Zeitraum oder Grundgesamtheit>"}
       ],

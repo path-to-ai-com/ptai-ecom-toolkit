@@ -1,6 +1,6 @@
 ---
 name: capture-screens
-description: Nimmt für den Audit-Lauf Screenshots aller Seitentypen (Desktop und Mobil) plus einen manuell durchlaufenen Kaufprozess bis zur Zahlungsauswahl auf und indexiert sie in runs/<run-id>/screens.json; dazu Belegbilder zu Befunden aus den Aufnahme-Aufträgen im Lauf (shoot_proof.py). Einsetzen, wenn der Audit-Orchestrator (/ptai-ecom:audit) Phase 1 durchläuft oder der Nutzer ausdrücklich Screenshots vom Kunden-Shop will. Einziger nicht wiederholbarer Pull: ohne Bild ist der Vorher-Zustand weg, sobald der Kunde sein Theme ändert. Liest reporting/config.json im Kunden-Workspace.
+description: Nimmt für den Audit-Lauf Screenshots aller Seitentypen (Desktop und Mobil) plus einen automatisiert durchlaufenen Kaufprozess bis zur Zahlungsauswahl auf und indexiert sie in runs/<run-id>/screens.json; dazu Belegbilder zu Befunden aus den Aufnahme-Aufträgen im Lauf (shoot_proof.py). Einsetzen, wenn der Audit-Orchestrator (/ptai-ecom:audit) Phase 1 durchläuft oder der Nutzer ausdrücklich Screenshots vom Kunden-Shop will. Einziger nicht wiederholbarer Pull: ohne Bild ist der Vorher-Zustand weg, sobald der Kunde sein Theme ändert. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # capture-screens: Screenshots je Seitentyp und der Kaufprozess
@@ -129,10 +129,10 @@ Gelten unabhängig davon, wer den Ablauf steuert; nur mit ihnen ist die Automati
 
 - `checkout_capture` in `reporting/config.json` steuert diesen Teil.
 - **Nie im Lauf nachfragen.** Die Aufnahme legt einen echten Testwarenkorb im Produktivshop an; die Freigabe gehört ins Setup, einmal je Kunde.
-- Fehlt das Feld, läuft der Kaufweg nicht, und die Lücke wird im Report ausgewiesen.
+- `true` nimmt den Kaufweg auf, `false` lässt ihn aus.
+- Fehlt das Feld oder ist es kein Wahrheitswert, liefert `config.checkout_capture()` `None`: der Kaufweg läuft nicht, und die Lücke wird im Report ausgewiesen.
 - Die Seitentyp-Aufnahmen laufen in jedem Fall.
 - Sinnvoll abzuschalten bei einer Kasse mit Kontopflicht und bei Kunden, die keinen Testwarenkorb wollen.
-- Fehlt das Feld, gilt `true`.
 
 ## screens.json-Schema
 
@@ -169,6 +169,7 @@ Gelten unabhängig davon, wer den Ablauf steuert; nur mit ihnen ist die Automati
 }
 ```
 
+- `manual: true` steht nur an den Bildern des Kaufwegs (Browser-Werkzeuge statt `shoot.sh`). Der Feldname bleibt, obwohl der Kaufweg automatisiert läuft.
 - `not_configured` enthält jeden Seitentyp, für den `config.page_types()` `null` geliefert hat.
 - Leere Liste = alle sechs Typen konfiguriert, nicht ausgefallene Prüfung.
 - Das Feld steht immer, auch leer.

@@ -25,6 +25,10 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   `shopify theme push --live` oder `--publish` auf. Diese Skill bereitet vor und wartet.
 - **Schreiben nur in ein Theme mit der Rolle `UNPUBLISHED`**, nur durch `upload-theme`, mit dem Schutz
   vor jedem Schreiben. Das Live-Theme bleibt unverändert.
+- **Durchlaufen bis zum nächsten Gate.** Ein Aufruf arbeitet alle Phasen nacheinander ab, ohne
+  zwischen den Phasen nachzufragen. Angehalten wird nur an den Gates G1 bis G5, wenn eine Person etwas
+  tun muss, das Claude nicht kann (Anmeldung im Browser, fehlender Zugang, Testrunde), oder bei einem
+  Fehler, der sich nicht selbst beheben lässt. Nach jedem Gate geht es von selbst weiter.
 - **Kein Gate ohne Frage.** Vorlegen, eine klare Frage stellen, auf eine ausdrückliche Antwort warten.
   Keine Antwort sind: Schweigen, Zustimmung zu einem anderen Thema, eine Freigabe aus einem früheren
   Gate.
@@ -172,9 +176,9 @@ Schritt 0 läuft vor dem ersten `run_state`-Aufruf, weil es den Workspace erst h
 7. **GitHub-Anbindung prüfen:** die Theme-Karte im Admin zeigt Repo und Branch, falls das Live-Theme mit
    GitHub verbunden ist. Dann wird jede Editor-Änderung ein Commit auf diesem Branch; das Team muss
    diesen Branch vom Ziel-Repo unterscheiden.
-8. **Vorlegen und fragen:** "Zugang und Ziel-Theme stehen: Lesen über ..., Schreiben über ..., Ziel
-   ... in Version ..., freie Plätze ..., Fristen ... Weiter mit der Sicherung?" Erst nach einem Ja:
-   `phase --phase 0-setup --status done`.
+8. **Kurz melden und weiterarbeiten:** "Zugang und Ziel-Theme stehen: Lesen über ..., Schreiben über
+   ..., Ziel ... in Version ..., freie Plätze ..., Fristen ..." Dann `phase --phase 0-setup --status
+   done` und ohne Rückfrage mit Phase 1 weiter.
 
 ## Phase 1: Sicherung
 

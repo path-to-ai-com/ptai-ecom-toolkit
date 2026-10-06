@@ -34,15 +34,15 @@ Der Lauf liest nur und schreibt nie in Kundensysteme.
 | `sessions` | Sessions | `shopify.json`: `sessions.sessions` | `ga4.json`: `totals.sessions` |
 | `revenue` | Umsatz | `shopify.json`: `totals.total_sales` | keine |
 | `orders` | Bestellungen | `shopify.json`: `totals.orders` | keine |
-| `conversion_rate` | Conversion Rate | `shopify.json`: `sessions.conversion_rate` | `ga4.json`: `funnel.purchase` / `totals.sessions` |
+| `conversion_rate` | Conversion Rate | `shopify.json`: `totals.orders` / `sessions.sessions` | `ga4.json`: `funnel.purchase.sessions` / `funnel.sessions` |
 | `aov` | AOV | `shopify.json`: `totals.average_order_value` | keine |
 | `gsc_clicks` | GSC-Klicks | `gsc.json`: `totals.clicks` | keine |
 | `gsc_impressions` | GSC-Impressionen | `gsc.json`: `totals.impressions` | keine |
 
 Conversion-Präzedenz (Verweis: `skills/report/SKILL.md`, Abschnitt "Zahlen-Regeln (hart)"):
 
-1. `sessions` und `conversion_rate` aus `shopify.json`.
-2. Ist das Feld dort `null`: aus `ga4.json`.
+1. Conversion Rate = `totals.orders` geteilt durch `sessions.sessions`, beides aus `shopify.json`. Nie `sessions.conversion_rate`: das Feld zählt nur Bestellungen, die Shopify einer Session zuordnen konnte, und liegt zu tief (Formel in `reference/metrics.md`).
+2. Fehlt `sessions` in `shopify.json`: aus `ga4.json`.
 3. Fehlt beides: KPI "nicht berechenbar", keine Ersatzzahl.
 
 Benötigte Pull-Skills:
@@ -50,7 +50,7 @@ Benötigte Pull-Skills:
 | Pull-Skill | Wenn konfiguriert |
 |---|---|
 | `pull-shopify` | eine von `sessions`, `revenue`, `orders`, `conversion_rate`, `aov` |
-| `pull-ga4` | `sessions` oder `conversion_rate` (Fallback-Daten müssen vorliegen, falls Shopify das Feld nicht liefert) |
+| `pull-ga4` | `sessions` oder `conversion_rate` (Fallback-Daten müssen vorliegen, falls Shopify keine Sessions liefert) |
 | `pull-gsc` | `gsc_clicks` oder `gsc_impressions` |
 
 - `pull-cwv` und `check-geo` laufen im Puls nie; Core Web Vitals und GEO sind laut Spec keine Puls-KPIs.
