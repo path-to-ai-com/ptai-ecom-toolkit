@@ -9,13 +9,47 @@
 
 # ptai-ecom-toolkit
 
-Plugin für Claude Code mit Skills für Shopify-Shops. Es enthält drei Bereiche:
+**Audit, Report und Theme-Migration für Shopify-Shops, direkt in Claude Code.**
 
-- **Audit und Report:** zieht Daten aus Shopify, Google Analytics 4, Search Console, Google Ads, PageSpeed, DataForSEO und der AI-Suche, wertet sie aus und erstellt Maßnahmen mit Beleg sowie PDFs.
-- **Prüfungen von außen:** Crawl, Screenshots und Prüfungen eines Shops ohne Zugänge.
-- **Theme-Migration:** überführt ein bestehendes Shopify-Theme in ein aktuelles Online-Store-2.0-Theme wie Horizon. Vorher werden Theme, Templates, Funktionen, Apps, Tracking und SEO-Ausgabe erfasst, damit beim Wechsel nichts fehlt.
+Elf Analyse-Agents werten Shopify, Google Analytics, Search Console, Google Ads und die AI-Suche gemeinsam aus und machen daraus Maßnahmen, die du direkt umsetzen kannst.
 
-Das Plugin läuft lokal in Claude Code und ist kostenlos.
+Wenn du für SEO oder Google Ads Agenturen bezahlst, bist du pro Disziplin schnell bei mehreren tausend Euro im Monat. Zurück kommen oft Reports voller Zahlen, und was du daraus tun sollst, musst du dir selbst überlegen.
+
+„Was mache ich denn mit den Zahlen?“ Diese Frage hatte ich nach fast jedem Agentur-Report. Die Zahlen lagen in fünf Tools, und was als Nächstes zu tun war, stand in keinem davon.
+
+Die Daten deines Shops liegen in Shopify, Google Analytics, Search Console und Google Ads, und jedes Tool zeigt seinen Ausschnitt. Was daraus folgt, sagt dir keines davon.
+
+### Warum ich das gebaut habe
+
+Mit Dienstleistern habe ich als E-Commerce-Verantwortlicher immer dasselbe erlebt. Reports kamen, Ideen nicht, und die Zahlen musste ich mir aus fünf Tools selbst zusammensuchen. Das Toolkit macht das, was ich damals von ihnen erwartet hätte.
+
+### So funktioniert es
+
+1. **Installieren:** zwei Befehle in Claude Code, kostenlos, deine Daten bleiben bei dir.
+2. **Wählen, was du brauchst:** den Audit mit den Zugängen zu deinem Shop, den ersten Check nur mit der Adresse deines Shops oder den Wechsel auf ein neues Theme.
+3. **Entscheiden:** Zu jeder Maßnahme steht, woraus sie folgt, und umgesetzt wird, was du freigibst. Ein neues Theme veröffentlichst immer du.
+
+### Was du bekommst
+
+**Elf Disziplinen, eine Liste**
+SEO, AI-Suche, Google Ads, Conversion, Content, Wettbewerb und Pflichtangaben prüft je ein eigener Agent. Ihre Befunde landen in einer gemeinsamen Liste, sortiert nach Wirkung. Jede Maßnahme trägt den Beleg, damit du sie nachvollziehen kannst.
+
+**Erster Check ohne Zugänge**
+Du willst wissen, wo dein Shop steht, bevor du jemandem Zugänge gibst? `audit-light` braucht nur die Adresse deines Shops. Es zeigt dir, wie er bei Google und in ChatGPT gefunden wird, was auf dem Weg bis zur Zahlungsauswahl stört und ob Impressum, AGB und Versandangaben vorhanden sind. Das Ergebnis bekommst du als PDF.
+
+**Neues Theme, dieselben Funktionen**
+Wenn dein Theme seit Jahren kein Update gesehen hat, bringt dich das Toolkit auf ein aktuelles. Es erfasst vorher jede App, jeden Tracking-Tag und jede Anpassung, damit nach dem Wechsel noch alles da ist, was vorher lief. Gearbeitet wird in einem unveröffentlichten Theme, live geht es erst, wenn du es veröffentlichst.
+
+### Für wen es ist
+
+- E-Commerce-Verantwortliche, die zu jeder Zahl wissen wollen, was zu tun ist
+- Founder und Geschäftsführer einer Shopify-Brand, bei denen niemand das Gesamtbild hält
+- Investoren mit D2C-Portfolio, die mit den Zugängen einer Brand den Stand aus den echten Daten sehen wollen
+- Teams, die ihr Theme auf ein aktuelles wechseln wollen
+
+Nur für Shopify. Wer keine Zugänge geben kann, startet mit dem ersten Check über die Adresse des Shops.
+
+Zieh deinen ersten Audit noch heute: kostenlos, lokal in Claude Code, mit zwei Befehlen installiert (siehe [Installation](#installation)). Fragen und Feedback gerne an mich auf [LinkedIn](https://www.linkedin.com/in/yves-schleich/).
 
 ## Was drin ist
 
