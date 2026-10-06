@@ -142,11 +142,16 @@ Schritt 0 läuft vor dem ersten `run_state`-Aufruf, weil es den Workspace erst h
      Installer; Windows: WinGet).
    - Übermittlung an Shopify abschalten: `~/.config/shopify-ai-toolkit/opt-out` anlegen, falls nicht
      vorhanden.
-   - Ordner der Marke: Liegt im Arbeitsverzeichnis kein Git-Repo mit `CLAUDE.md`, nach der Marke fragen.
-     Gibt es ein Repo dafür (Name `<kunde>-<marke>`, zum Beispiel aus der Einladung), es hier klonen und
-     das zugehörige `<repo>-horizon` daneben. Für den Zugriff auf GitHub `gh auth login` im Browser
-     starten oder Git das Login im Browser öffnen lassen. Danach im geklonten Ordner weiterarbeiten.
-     Gibt es kein Repo, einen neuen Ordner als Git-Repo anlegen.
+   - Ordner der Marke: Liegt im Arbeitsverzeichnis schon ein Git-Repo mit `CLAUDE.md` und Shop-Adresse,
+     dort weiterarbeiten. Sonst zuerst bei GitHub anmelden (`gh auth login` im Browser), dann die Repos
+     auflisten, auf die die Person Zugriff hat (`gh repo list` für die eigenen und `gh api
+     user/repos?affiliation=collaborator,organization_member` für eingeladene), und darunter die
+     Arbeitsordner einer Theme-Migration suchen: Topic `theme-migration` oder eine `CLAUDE.md` mit
+     `.myshopify.com`, ohne die Repos mit Endung `-horizon`. Genau ein Treffer: ohne Rückfrage klonen,
+     das zugehörige `<repo>-horizon` daneben, und dort weiterarbeiten. Mehrere Treffer: die Liste
+     zeigen und wählen lassen. Kein Treffer: nach der Shop-Adresse fragen (`<shop>.myshopify.com`) und
+     einen neuen Ordner als Git-Repo anlegen. Nie nach einem Markennamen fragen, wenn das Repo die
+     Antwort schon kennt.
    - Config: Fehlt `reporting/config.json`, sie im Mindestumfang selbst schreiben, ohne `setup`
      aufzurufen: Marke, Domain und Shop-Adresse aus der `CLAUDE.md` des Repos oder per Frage, alle
      Quellen außer Shopify unter `sources` auf `false`, `account_slug` und `drive_path` nach
