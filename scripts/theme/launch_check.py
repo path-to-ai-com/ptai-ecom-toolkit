@@ -87,6 +87,16 @@ OPEN_TEST_STATUS = ("open", "in_progress", "decision")
 BASELINE_FILES = {"gsc.json": "gsc", "ga4.json": "ga4", "cwv.json": "cwv", "crawl.json": "crawl"}
 #: So viele Wochen vor Black Friday beginnt die Saisonspitze für den Launch.
 SEASON_LEAD = timedelta(days=28)
+#: Entscheidungen, nach denen ein Dienst oder eine App im neuen Theme bewusst fehlt.
+DROPPED_DECISIONS = ("drop", "replace")
+#: Crawler, deren Gruppe in der robots.txt zählt. Shopify sperrt etwa `Nutch` ganz, das ist Standard.
+ROBOTS_AGENTS = ("*", "googlebot")
+#: Kategorien aus `hosts.json`, deren Anfragen als Analyse-Ereignisse zählen. Werbung zählt nicht:
+#: ihre Anfragen schwanken zwischen zwei Durchläufen derselben Seite um das Dreifache.
+EVENT_CATEGORIES = ("analytics",)
+#: Ab diesem Faktor und dieser Differenz gelten Ereignisse je Seite als vervielfacht.
+EVENT_FACTOR = 1.5
+EVENT_MIN_DELTA = 3
 #: Pause zwischen zwei Abrufen der Storefront; sie verträgt keine Parallelität.
 FETCH_PAUSE = 2.0
 USER_AGENT = "ptai-ecom launch-check"
@@ -238,6 +248,49 @@ def canonical_path(url: str | None) -> str | None:
     return (parsed.path.rstrip("/") or "/")
 
 
+def robots_groups(body: str) -> dict:
+    """Regeln je User-Agent aus einer robots.txt: `{agent: [(directive, value)]}`.
+
+    Aufeinanderfolgende `User-agent`-Zeilen bilden eine Gruppe, die Regeln danach
+    gelten für jede davon (RFC 9309). Ein `Disallow: /` gilt also nur für seine
+    Gruppe; Shopify sperrt so etwa `Nutch`, ohne dass Google betroffen ist.
+    """
+    groups, agents, in_rules = {}, [], False
+    for raw in (body or "").splitlines():
+        key, sep, value = raw.split("#", 1)[0].partition(":")
+        if not sep:
+            continue
+        key, value = key.strip().lower(), value.strip()
+        if key == "user-agent":
+            if in_rules:
+                agents, in_rules = [], False
+            agents.append(value.lower())
+            groups.setdefault(value.lower(), [])
+        elif key in ("allow", "disallow") and agents:
+            in_rules = True
+            for agent in agents:
+                groups[agent].append((key, value))
+    return groups
+
+
+def blocks_everything(rules: list) -> bool:
+    """Sperrt eine Gruppe die ganze Seite: `Disallow: /` ohne `Allow: /` daneben."""
+    roots = ("/", "/*")
+    return any(k == "disallow" and v in roots for k, v in rules) and not any(k == "allow" and v in roots
+                                                                          for k, v in rules)
+
+
+def blocked_agents(body: str) -> tuple:
+    """Maßgebliche und übrige Crawler, für die alles gesperrt ist.
+
+    Googlebot folgt seiner eigenen Gruppe und ohne sie der Gruppe `*`.
+    """
+    groups = robots_groups(body)
+    relevant = [a for a in ROBOTS_AGENTS if blocks_everything(groups.get(a, groups.get("*", [])))]
+    others = sorted(a for a, rules in groups.items() if a not in ROBOTS_AGENTS and blocks_everything(rules))
+    return relevant, others
+
+
 def load_captures(paths: list) -> dict:
     """Mitschnitte je Seite: `{page_id: {"runs": [...], "path", "template"}}`, dazu Basis-URL und Modi."""
     pages, modes, problems = {}, set(), []
@@ -284,28 +337,36 @@ def registrable(host: str) -> str:
     return ".".join(parts[-2:])
 
 
-def third_party_keys(runs: list, own_hosts: set, catalog) -> set:
-    """Dienste oder Domains, die eine Seite lädt, ohne eigene Domain und ohne Shopify selbst.
+def request_key(url: str, own_hosts: set, catalog, host_map: dict | None = None) -> str | None:
+    """Dienst oder Domain einer Anfrage; None für die eigene Domain, Shopify und Ignoriertes.
 
-    Unbekannte Hosts zählen über ihre Domain, damit wechselnde Subdomains
-    (Werbe-Auktionen, Lastverteiler) keine Scheinlücke erzeugen.
+    Nur die Shop-Domain selbst ist eigen. Eine Subdomain davon gehört oft einem
+    Dienst, der sie per CNAME oder A-Eintrag als eigenen Endpunkt nutzt
+    (Attribution, Server-Side-Tagging). Sie zählt über `host_map` aus der
+    Bestandsaufnahme als dieser Dienst, sonst als eigener Host. Weggefiltert
+    erschiene der Ausweich-Endpunkt desselben Dienstes fälschlich als neu.
+    Unbekannte fremde Hosts zählen über ihre Domain, damit wechselnde
+    Subdomains (Werbe-Auktionen, Lastverteiler) keine Scheinlücke erzeugen.
     """
-    keys = set()
-    for run in runs:
-        for request in run.get("requests") or []:
-            host = (urlparse(request.get("url") or "").hostname or "").lower()
-            if not host or host in own_hosts or any(host.endswith("." + h) for h in own_hosts):
-                continue
-            if catalog.ignored(host):
-                continue
-            sid = catalog.service_for_url(request["url"])
-            if catalog.is_platform(sid):
-                continue
-            keys.add(sid or registrable(host))
-    return keys
+    host = (urlparse(url or "").hostname or "").lower()
+    if not host or host in own_hosts or catalog.ignored(host):
+        return None
+    sid = (host_map or {}).get(host) or catalog.service_for_url(url)
+    if catalog.is_platform(sid):
+        return None
+    if sid:
+        return sid
+    return host if any(host.endswith("." + h) for h in own_hosts) else registrable(host)
 
 
-def compare_tracking(old: dict, new: dict, own_hosts: set, catalog) -> dict:
+def third_party_keys(runs: list, own_hosts: set, catalog, host_map: dict | None = None) -> set:
+    """Dienste oder Domains, die eine Seite lädt, ohne eigene Domain und ohne Shopify selbst."""
+    keys = {request_key(r.get("url") or "", own_hosts, catalog, host_map)
+            for run in runs for r in run.get("requests") or []}
+    return keys - {None}
+
+
+def compare_tracking(old: dict, new: dict, own_hosts: set, catalog, host_map: dict | None = None) -> dict:
     """Je Seite und Consent-Zustand: was alt lädt und neu fehlt, was neu dazukommt."""
     result = {"missing": [], "added": [], "pages": 0, "wrong_theme": [], "unmatched": []}
     for page_id, old_entry in sorted(old["pages"].items(), key=lambda kv: str(kv[0])):
@@ -317,9 +378,9 @@ def compare_tracking(old: dict, new: dict, own_hosts: set, catalog) -> dict:
                                   if r.get("state") == "wrong_theme"]
         for mode in sorted({r.get("consent") for r in old_entry["runs"]} & {r.get("consent") for r in new_entry["runs"]}):
             before = third_party_keys([r for r in old_entry["runs"] if r.get("consent") == mode
-                                       and r.get("state") == "ok"], own_hosts, catalog)
+                                       and r.get("state") == "ok"], own_hosts, catalog, host_map)
             after = third_party_keys([r for r in new_entry["runs"] if r.get("consent") == mode
-                                      and r.get("state") == "ok"], own_hosts, catalog)
+                                      and r.get("state") == "ok"], own_hosts, catalog, host_map)
             result["pages"] += 1
             for key in sorted(before - after):
                 result["missing"].append({"page_id": page_id, "path": old_entry.get("path"), "consent": mode,
@@ -327,6 +388,153 @@ def compare_tracking(old: dict, new: dict, own_hosts: set, catalog) -> dict:
             for key in sorted(after - before):
                 result["added"].append({"page_id": page_id, "consent": mode, "service": key})
     return result
+
+
+def page_number(url: str | None) -> int:
+    """Wert von `page` in einer Adresse, 1 ohne den Parameter."""
+    for key, value in parse_qsl(urlparse(url or "").query):
+        if key == "page" and value.isdigit():
+            return int(value)
+    return 1
+
+
+def event_counts(run: dict, own_hosts: set, catalog, host_map: dict | None = None) -> dict:
+    """Anfragen je Analysedienst in einem Durchlauf.
+
+    Eine nicht zugeordnete eigene Subdomain zählt mit: meist ist sie der
+    Sammelendpunkt eines Attributions- oder Server-Side-Dienstes.
+    """
+    counts = {}
+    for request in run.get("requests") or []:
+        key = request_key(request.get("url") or "", own_hosts, catalog, host_map)
+        if not key:
+            continue
+        own_subdomain = any(key.endswith("." + h) for h in own_hosts)
+        if own_subdomain or catalog.describe(key)["category"] in EVENT_CATEGORIES:
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def compare_pagination(old: dict, new: dict, own_hosts: set, catalog, host_map: dict | None = None) -> list:
+    """Je Seite und Gerät: schreibt das neue Theme beim Scrollen Seiten in die Adresse, sendet es mehr Ereignisse?
+
+    Der Mitschnitt scrollt jede Seite bis zum Ende. Lädt ein Theme dabei nach und
+    schreibt `page=N` in die Adresse, steht das in `final_url`; jede so
+    geschriebene Seite kann in GA4 und anderen Werkzeugen als eigener
+    Seitenaufruf oder eigene Suche zählen. Verglichen wird vorsichtig: das
+    Minimum der neuen Durchläufe gegen das Maximum der alten, damit Schwankung
+    zwischen zwei Durchläufen (Werbe-Auktionen, Ladezeit) keinen Befund erzeugt.
+    """
+    rows = []
+    for page_id, old_entry in sorted(old["pages"].items(), key=lambda kv: str(kv[0])):
+        new_entry = new["pages"].get(page_id)
+        if not new_entry:
+            continue
+        start = page_number(old_entry.get("path"))
+        for device in sorted({r.get("device") for r in old_entry["runs"]} | {r.get("device") for r in new_entry["runs"]},
+                             key=str):
+            old_runs = [r for r in old_entry["runs"] if r.get("device") == device and r.get("state") == "ok"]
+            new_runs = [r for r in new_entry["runs"] if r.get("device") == device and r.get("state") == "ok"]
+            if not (old_runs and new_runs):
+                continue
+            old_page = max(page_number(r.get("final_url")) for r in old_runs)
+            new_page = max(page_number(r.get("final_url")) for r in new_runs)
+            old_counts = [event_counts(r, own_hosts, catalog, host_map) for r in old_runs]
+            new_counts = [event_counts(r, own_hosts, catalog, host_map) for r in new_runs]
+            inflated = []
+            for key in sorted({k for c in old_counts for k in c}):
+                before = max(c.get(key, 0) for c in old_counts)
+                after = min(c.get(key, 0) for c in new_counts)
+                if after >= before * EVENT_FACTOR and after - before >= EVENT_MIN_DELTA:
+                    inflated.append({"service": key, "name": catalog.describe(key)["service_name"],
+                                     "old": before, "new": after})
+            rows.append({"page_id": page_id, "template": old_entry.get("template") or page_id,
+                         "path": old_entry.get("path"), "device": device, "start_page": start,
+                         "old_page": old_page, "new_page": new_page, "inflated": inflated})
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Entscheidungen aus der Bestandsaufnahme
+# ---------------------------------------------------------------------------
+
+def subject_keys(subject: str, catalog) -> set:
+    """Schlüssel, unter denen ein Eintrag der Entscheidungsliste einen Dienst trifft.
+
+    Ein Gegenstand kann Dienst-ID, Name, App-Handle oder Host sein; jeder wird
+    über den Host-Katalog auf die Dienst-ID geführt, mit der Tracking und Embeds
+    rechnen.
+    """
+    text = str(subject or "").strip()
+    lowered = text.lower()
+    if not lowered:
+        return set()
+    keys = {lowered}
+    looks_like_host = "." in lowered and " " not in lowered and "/" not in lowered
+    sid = lowered if lowered in catalog.services else None
+    if looks_like_host:
+        sid = sid or catalog.service_for(lowered)
+        # Die Domain nur für unbekannte Hosts: ajax.googleapis.com darf nicht alles unter googleapis.com streichen.
+        if not sid:
+            keys.add(registrable(lowered))
+    sid = sid or catalog.service_for_name(text) or catalog.service_for_handle(lowered)
+    if sid:
+        keys.add(sid)
+    return keys
+
+
+def load_decisions(workspace: Path, catalog) -> tuple:
+    """Bewusst entfallene Dienste und die Zuordnung eigener Subdomains, aus der Bestandsaufnahme.
+
+    Quellen: `migration/inventory/apps.json` (Zeilen mit `decision`) und
+    `migration/mapping/decisions.json` (Einträge der Art `app`, angehängt, der
+    jüngste gilt). Liefert `({schlüssel: beleg}, {host: dienst})`; der Beleg
+    nennt Gegenstand, Entscheidung, Person und Grund.
+    """
+    dropped, host_map = {}, {}
+    data = read_json(workspace / "migration" / "inventory" / "apps.json") or {}
+    rows = data.get("integrations") if isinstance(data, dict) else data
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("service_id") or "")
+        hosts = [str(h).lower() for h in row.get("hosts") or []]
+        if sid and not sid.startswith("unknown:"):
+            for host in hosts:
+                host_map[host] = sid
+        if row.get("decision") not in DROPPED_DECISIONS:
+            continue
+        label = (f"{row.get('service_name') or row.get('app_handle') or sid}: {row['decision']} laut apps.json"
+                 + (f", {row['decided_by']}" if row.get("decided_by") else ""))
+        keys = {k for k in (sid, str(row.get("app_handle") or "").lower()) if k} | set(hosts)
+        keys |= {registrable(h) for h in hosts if not catalog.service_for(h)}
+        for key in keys:
+            dropped[key] = label
+    data = read_json(workspace / "migration" / "mapping" / "decisions.json")
+    entries = data.get("decisions") if isinstance(data, dict) else data
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict) or entry.get("kind") not in (None, "", "app"):
+            continue
+        keys = subject_keys(entry.get("subject"), catalog)
+        if entry.get("decision") not in DROPPED_DECISIONS:
+            for key in keys:
+                dropped.pop(key, None)
+            continue
+        label = (f"{entry.get('subject')}: {entry['decision']} laut decisions.json"
+                 + (f", {entry['decided_by']}" if entry.get("decided_by") else "")
+                 + (f" am {str(entry['decided_at'])[:10]}" if entry.get("decided_at") else "")
+                 + (f" ({entry['reason']})" if entry.get("reason") else ""))
+        for key in keys:
+            dropped[key] = label
+    return dropped, host_map
+
+
+def dropped_reason(ctx: dict, *keys) -> str | None:
+    """Beleg der Entscheidung, wenn einer der Schlüssel als bewusst entfallen gilt."""
+    for key in keys:
+        if key and str(key).lower() in ctx["dropped"]:
+            return ctx["dropped"][str(key).lower()]
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +581,8 @@ def build_context(args, config: dict, workspace: Path, *, transport=None) -> dic
                                    workspace / "migration" / "inventory" / "pages.json"] if p and p.is_file()), None)
     answers_file = Path(args.answers) if args.answers else workspace / "reporting" / "launch-answers.json"
     answers = (read_json(answers_file) or {}).get("answers") or {} if answers_file.is_file() else {}
+    catalog = apps.HostCatalog.load()
+    dropped, host_map = load_decisions(workspace, catalog)
     # Vor dem Launch ist das alte Theme das Live-Theme und das neue der Entwurf; danach dieselben zwei.
     return {
         "workspace": workspace, "config": config, "after": args.after, "base_url": domain.rstrip("/"),
@@ -382,7 +592,7 @@ def build_context(args, config: dict, workspace: Path, *, transport=None) -> dic
         "transport_error": transport_error, "run_dir": run_dir, "suffix": suffix,
         "old": load_captures(network_old), "new": load_captures(network_new),
         "pages_file": pages_file, "answers": answers, "answers_file": str(answers_file),
-        "catalog": apps.HostCatalog.load(), "cache": {},
+        "catalog": catalog, "dropped": dropped, "host_map": host_map, "cache": {},
     }
 
 
@@ -475,7 +685,7 @@ def check_timing(ctx: dict) -> list:
                           owner=TEAM))
     tests = sorted({ctx["catalog"].describe(k)["service_name"]
                     for entry in ctx["old"]["pages"].values()
-                    for k in third_party_keys(entry["runs"], own_hosts(ctx), ctx["catalog"])
+                    for k in third_party_keys(entry["runs"], own_hosts(ctx), ctx["catalog"], ctx["host_map"])
                     if ctx["catalog"].describe(k)["category"] == "ab_testing"})
     out.append(make_check("timing-tests", group, "Preis- und A/B-Tests", MANUAL,
                           ("im Mitschnitt des Live-Themes geladen: " + ", ".join(tests)) if tests
@@ -687,14 +897,6 @@ def embeds_of(ctx: dict, theme_id) -> tuple:
     return {(e["app_handle"], e["block"]): e for e in apps.app_embeds(settings)}, None
 
 
-def dropped_handles(workspace: Path) -> set:
-    """App-Handles, die in der Entscheidungsliste gestrichen sind; ihr Fehlen ist gewollt."""
-    data = read_json(workspace / "migration" / "inventory" / "apps.json") or {}
-    rows = data.get("integrations") if isinstance(data, dict) else data
-    return {str(r.get("app_handle")).lower() for r in rows or []
-            if isinstance(r, dict) and r.get("decision") == "drop" and r.get("app_handle")}
-
-
 def check_embeds(ctx: dict) -> list:
     group = "Apps und Embeds"
     title = "App-Embeds im neuen Theme"
@@ -704,18 +906,19 @@ def check_embeds(ctx: dict) -> list:
     new, error_new = embeds_of(ctx, ctx["new_id"])
     if old is None or new is None:
         return [make_check("app-embeds", group, title, BLOCKED, f"nicht lesbar: {error_old or error_new}")]
-    dropped = dropped_handles(ctx["workspace"])
     active_old = {k for k, e in old.items() if not e["disabled"]}
     active_new = {k for k, e in new.items() if not e["disabled"]}
-    gaps = sorted(k for k in active_old - active_new if k[0].lower() not in dropped)
+    reasons = {k: dropped_reason(ctx, k[0], ctx["catalog"].service_for_handle(k[0])) for k in active_old - active_new}
+    gaps = sorted(k for k, reason in reasons.items() if not reason)
+    intended = sorted({reason for reason in reasons.values() if reason})
     extra = sorted(active_new - active_old)
     evidence = f"{len(active_old)} aktiv im alten, {len(active_new)} aktiv im neuen Theme"
     if gaps:
         evidence += "; fehlt oder aus: " + short_list([f"{h}/{b}" for h, b in gaps], 10)
     if extra:
         evidence += "; nur im neuen: " + short_list([f"{h}/{b}" for h, b in extra], 6)
-    if dropped:
-        evidence += f"; gestrichen laut apps.json: {short_list(sorted(dropped))}"
+    if intended:
+        evidence += "; bewusst entfallen: " + "; ".join(intended)
     return [make_check("app-embeds", group, title, MISSING if gaps else OK, evidence,
                        action="im Theme-Editor des Entwurfs einschalten oder bewusst streichen" if gaps else "",
                        owner=OPERATOR if gaps else "", links=link_pair(ctx))]
@@ -883,7 +1086,10 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
         return [make_check(check_id, group, title, BLOCKED, f"Mitschnitt fehlt ({which})",
                            action="beide Themes mit capture_network.py mitschneiden, höchstens zwei Browser gleichzeitig",
                            owner=OPERATOR)]
-    result = compare_tracking(ctx["old"], ctx["new"], own_hosts(ctx), ctx["catalog"])
+    result = compare_tracking(ctx["old"], ctx["new"], own_hosts(ctx), ctx["catalog"], ctx["host_map"])
+    # Was laut Entscheidungsliste bewusst entfällt, ist erfüllt, mit der Entscheidung als Beleg.
+    intended = [m for m in result["missing"] if dropped_reason(ctx, m["service"])]
+    result["missing"] = [m for m in result["missing"] if m not in intended]
     status = MISSING if result["missing"] else OK
     evidence = f"{result['pages']} Seiten und Consent-Zustände verglichen"
     if result["missing"]:
@@ -893,6 +1099,8 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
         evidence += "; fehlt im neuen Theme: " + short_list(
             [f"{name} ({len(pages)} {'Seite' if len(pages) == 1 else 'Seiten'})"
              for name, pages in sorted(by_service.items(), key=lambda kv: (-len(kv[1]), kv[0]))], 12)
+    if intended:
+        evidence += "; bewusst entfallen: " + "; ".join(sorted({dropped_reason(ctx, m["service"]) for m in intended}))
     if result["added"]:
         evidence += "; nur im neuen: " + short_list(sorted({a["service"] for a in result["added"]}), 6)
     if result["wrong_theme"]:
@@ -905,7 +1113,7 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
                       action="Einbindung im neuen Theme herstellen oder bewusst streichen (apps-and-tracking.md)"
                       if result["missing"] else "", owner=OPERATOR if status != OK else "",
                       links=[l for p in paths for l in link_pair(ctx, p)])]
-    out[0]["details"] = {"missing": result["missing"], "added": result["added"]}
+    out[0]["details"] = {"missing": result["missing"], "added": result["added"], "dropped": intended}
     if not after:
         both = ctx["old"]["modes"] & ctx["new"]["modes"]
         if "accepted" in both:
@@ -916,6 +1124,54 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
                                   "nur ohne Einwilligung mitgeschnitten; App-Pixel in Consent-Regionen laden erst danach",
                                   question="Darf ich auf beiden Themes mit Einwilligung mitschneiden?", owner=TEAM))
     return out
+
+
+def check_pagination(ctx: dict) -> list:
+    """Nachladen je Seitentyp und Zahl der Analyse-Ereignisse, neu gegen alt.
+
+    Am 07.10.2026 übersehen: eine Suchseite lud im neuen Theme beim Scrollen endlos
+    nach und schrieb jede Seite in die Adresse; das vervielfachte die
+    Suchereignisse in Analyse und Attribution. Die Host-Prüfung sieht das nicht,
+    weil dieselben Dienste laden, nur öfter.
+    """
+    group = "Tracking"
+    title = "Pagination und Analyse-Ereignisse je Seitentyp"
+    if not ctx["old"]["pages"] or not ctx["new"]["pages"]:
+        return [make_check("pagination", group, title, BLOCKED,
+                           f"Mitschnitt fehlt ({'alt' if not ctx['old']['pages'] else 'neu'})", owner=OPERATOR)]
+    rows = compare_pagination(ctx["old"], ctx["new"], own_hosts(ctx), ctx["catalog"], ctx["host_map"])
+    if not rows:
+        return [make_check("pagination", group, title, BLOCKED, "keine Seite mit gültigem Durchlauf in beiden "
+                           "Mitschnitten", owner=OPERATOR)]
+    paging, inflated = [], []
+    for row in rows:
+        where = f"{row['template']} ({row['device']})"
+        if row["new_page"] > row["start_page"] and row["old_page"] <= row["start_page"]:
+            paging.append((row, f"{where}: lädt beim Scrollen nach bis page={row['new_page']} in der Adresse, "
+                                "das alte Theme nicht"))
+        elif row["old_page"] > row["start_page"] and row["new_page"] <= row["start_page"]:
+            paging.append((row, f"{where}: schreibt keine Seite mehr in die Adresse, das alte Theme bis "
+                                f"page={row['old_page']}"))
+        if row["inflated"]:
+            inflated.append((row, f"{where}: " + ", ".join(f"{i['name']} {i['new']} statt {i['old']} Anfragen"
+                                                          for i in row["inflated"])))
+    templates = sorted({str(r["template"]) for r in rows})
+    evidence = f"{len(templates)} Seitentypen mitgeschnitten bis zum Seitenende, alt gegen neu"
+    if paging:
+        evidence += "; " + short_list([text for _, text in paging], 6)
+    if inflated:
+        evidence += "; mehr Analyse-Ereignisse je Seite: " + short_list([text for _, text in inflated], 6)
+    status = MISSING if inflated else (MANUAL if paging else OK)
+    paths = sorted({r["path"] or "/" for r, _ in paging + inflated})[:4]
+    check = make_check(
+        "pagination", group, title, status, evidence,
+        action="Nachladen so bauen wie im alten Theme oder ohne Adresswechsel; danach neu mitschneiden"
+        if inflated else "",
+        question="Die Pagination verhält sich anders als im alten Theme. Ist das gewollt, und zählt jede "
+                 "nachgeladene Seite in GA4 und Attribution nicht als eigener Aufruf?" if status == MANUAL else "",
+        owner=OPERATOR if status != OK else "", links=[l for p in paths for l in link_pair(ctx, p)])
+    check["details"] = {"pages": rows}
+    return [check]
 
 
 def check_baseline(ctx: dict) -> list:
@@ -990,6 +1246,15 @@ def previous_robots(ctx: dict) -> Path | None:
     return newest(p for p in runs.glob("*-launch-check/robots-live.txt"))
 
 
+def old_noindex(ctx: dict, page: dict) -> bool | None:
+    """Stand `noindex` im HTML des alten Themes auf dieser Seite? None ohne Mitschnitt davon."""
+    entry = ctx["old"]["pages"].get(page.get("id")) or next(
+        (e for e in ctx["old"]["pages"].values() if e.get("path") == page.get("path")), None)
+    run = primary_run(entry) if entry else None
+    html = run_html(run) if run else None
+    return head_tags(html)["noindex"] if html is not None else None
+
+
 def check_after_seo(ctx: dict) -> list:
     group = "SEO am Launch-Tag"
     out = []
@@ -1000,23 +1265,27 @@ def check_after_seo(ctx: dict) -> list:
     else:
         status, _, body = fetched
         before_path = previous_robots(ctx)
-        blocks_all = bool(re.search(r"(?im)^disallow:\s*/\s*$", body))
-        if status != 200 or blocks_all:
+        relevant, others = blocked_agents(body) if status == 200 else ([], [])
+        note = f"; Disallow: / nur für {', '.join(others)}" if others else ""
+        if status != 200 or relevant:
+            agents = " und ".join("alle Crawler (*)" if a == "*" else "Googlebot" for a in relevant)
             out.append(make_check("robots-after", group, "robots.txt", MISSING,
-                                  f"{url} antwortet {status}" + (", sperrt alles (Disallow: /)" if blocks_all else ""),
+                                  f"{url} antwortet {status}" + (f", sperrt alles für {agents} (Disallow: /)"
+                                                                 if relevant else ""),
                                   action="robots.txt sofort korrigieren", owner=OPERATOR))
         elif before_path is None:
             out.append(make_check("robots-after", group, "robots.txt", MANUAL,
-                                  f"{url} antwortet 200, {len(body.splitlines())} Zeilen; kein Stand von vorher im Workspace",
+                                  f"{url} antwortet 200, {len(body.splitlines())} Zeilen; kein Stand von vorher im "
+                                  "Workspace" + note,
                                   question="Ist die robots.txt wie vor dem Launch?", owner=OPERATOR))
         else:
             same = before_path.read_text(encoding="utf-8").strip() == body.strip()
             rel = before_path.relative_to(ctx["workspace"]).as_posix()
             out.append(make_check("robots-after", group, "robots.txt", OK if same else MISSING,
-                                  f"{'gleich wie' if same else 'anders als'} {rel}",
+                                  f"{'gleich wie' if same else 'anders als'} {rel}" + note,
                                   action="" if same else "Unterschied ansehen und entscheiden",
                                   owner="" if same else OPERATOR))
-    problems, checked, errors = [], 0, []
+    problems, notes, checked, errors = [], [], 0, []
     for index, page in enumerate(page_list(ctx)):
         if index:
             ctx["sleep"](FETCH_PAUSE)
@@ -1030,13 +1299,23 @@ def check_after_seo(ctx: dict) -> list:
         tags = head_tags(html)
         if status >= 400:
             problems.append(f"{page['path']}: Status {status}")
-        if tags["noindex"] or "noindex" in headers.get("x-robots-tag", "").lower():
-            problems.append(f"{page['path']}: noindex")
+        if tags["noindex"]:
+            before = old_noindex(ctx, page)
+            if before:
+                notes.append(f"{page['path']}: noindex wie im alten Theme")
+            else:
+                problems.append(f"{page['path']}: noindex" + (", ohne Mitschnitt des alten Themes zum Vergleich"
+                                                              if before is None else ", im alten Theme nicht"))
+        elif "noindex" in headers.get("x-robots-tag", "").lower():
+            # Ein Theme setzt keine Antwort-Header; X-Robots-Tag kommt von Shopify (etwa auf /search).
+            notes.append(f"{page['path']}: noindex als Header X-Robots-Tag von Shopify, unabhängig vom Theme")
         if tags["canonical"] and canonical_path(tags["canonical"]) != canonical_path(page_url):
             problems.append(f"{page['path']}: Canonical {canonical_path(tags['canonical'])}")
     evidence = f"{checked} Seiten live abgerufen"
     if problems:
         evidence += "; " + short_list(problems, 8)
+    if notes:
+        evidence += "; Hinweis: " + short_list(notes, 4)
     if errors:
         evidence += "; nicht abrufbar: " + short_list(errors, 4)
     status = MISSING if problems else (BLOCKED if not checked else OK)
@@ -1138,10 +1417,10 @@ def recommend(checks: list) -> str:
 def collect(ctx: dict) -> list:
     if ctx["after"]:
         checks = check_published(ctx) + check_after_seo(ctx) + check_tracking(ctx, after=True) \
-            + check_after_languages(ctx) + check_after_rest(ctx)
+            + check_pagination(ctx) + check_after_languages(ctx) + check_after_rest(ctx)
     else:
         checks = (check_timing(ctx) + check_acceptance(ctx) + check_sync(ctx) + check_draft(ctx)
-                  + check_embeds(ctx) + check_translations(ctx) + check_tracking(ctx)
+                  + check_embeds(ctx) + check_translations(ctx) + check_tracking(ctx) + check_pagination(ctx)
                   + [check_seo_robots(ctx, "SEO"), check_seo_pages(ctx, "SEO")]
                   + check_baseline(ctx) + check_criteria(ctx) + check_customer_accounts(ctx)
                   + check_script_tags(ctx))

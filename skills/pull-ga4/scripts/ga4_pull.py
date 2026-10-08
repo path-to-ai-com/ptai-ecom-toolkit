@@ -18,10 +18,15 @@ GA4-Aufbewahrungseinstellung (siehe measure_history_start).
 --audit-checks prüft vor jeder Rate auf Bot-Profile und auf einen zweiten
 Absender je Mess-ID und schreibt bot_profiles, senders und primary_sender dazu
 (siehe read_audit_checks).
+--config liest aus reporting/config.json den bot_filter, shop_hostnames und
+ga4_stream_ids. Mit den beiden letzten läuft jeder Bericht nur über diesen Shop
+(siehe scope_filter), und der Snapshot trägt unter scope, was der Filter
+draußen lässt und wie viele Käufe doppelt ankommen (siehe read_scope).
 Nur Stdlib plus google-auth (über den geteilten Token-Helfer), kein requests.
 """
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -32,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 from api_common import describe_error  # noqa: E402
 from audit import bots, senders  # noqa: E402
+from audit import config as run_config  # noqa: E402
 from google_token import get_access_token  # noqa: E402
 
 API_URL = "https://analyticsdata.googleapis.com/v1beta/properties/{prop}:runReport"
@@ -114,6 +120,19 @@ APP_NAME_DIMENSION = "customEvent:app_name"
 # Feldnamen, den `audit/senders.py` liest.
 ITEM_METRICS = {"itemsViewed": "items_viewed", "itemsAddedToCart": "items_added_to_cart",
                 "itemsCheckedOut": "items_checked_out", "itemsPurchased": "items_purchased"}
+
+# Die Metriken der Aufschlüsselung je Stream und Hostname in read_scope():
+# genug, um zu sehen, welcher Shop und welcher Stream welchen Anteil an
+# Sitzungen, Käufen und Umsatz hat.
+SCOPE_METRICS = ["sessions", PURCHASE_METRIC, "purchaseRevenue"]
+
+# Ab welchem Überhang der Käufe über die Transaktions-IDs die Ausgabe warnt.
+# Ein einzelner doppelt gesendeter Kauf auf Hunderte ist Rauschen.
+DUPLICATE_PURCHASE_SHARE = 0.01
+
+# Ab welchem Anteil die zweite Form der Transaktions-ID als eigener Absender
+# zählt. Darunter liegen Testbestellungen und Einzelfälle.
+SECOND_ID_FORMAT_SHARE = 0.05
 
 
 def _num(value):
@@ -517,6 +536,220 @@ def merge_filters(base, extra):
     return {"andGroup": {"expressions": [base, extra]}}
 
 
+def scope_filter(hostnames: list[str], stream_ids: list[str] | None = None):
+    """Der dimensionFilter, der eine Property auf einen Shop eingrenzt: auf
+    seine Hostnamen und, wo nötig, auf einen Datenstream. Beide Listen mit
+    UND verbunden, None ohne beide.
+
+    **Hostnamen.** Eine Property kann mehrere Shops sammeln (je Markt eine
+    Subdomain), und ohne Eingrenzung hält der Audit den Umsatz eines Stores
+    gegen die GA4-Zahlen aller. `hostName` ist der Host der Seite, auf der
+    das Ereignis fiel. Ereignisse ohne Hostnamen ("(not set)", typisch für
+    serverseitige Kauf-Connectoren) fallen heraus, solange "(not set)" nicht
+    selbst in der Liste steht.
+
+    **Streams.** Lädt ein Shop die Tags zweier Streams derselben Property,
+    kommt jedes Ereignis zweimal an. Am 07.10.2026 an einer echten Property
+    gemessen: auf dem Host eines Markts lagen die Käufe um gut ein Drittel
+    über den verschiedenen Transaktions-IDs, weil ein Teil der Bestellungen
+    in beiden Streams ankam. Der Stream mit dem Namen des Markts war dabei
+    der unvollständige. Sitzungen entdoppelt GA4 über die Streams, Ereignisse nicht; ein
+    Hostnamen-Filter allein lässt die Käufe also doppelt. Der Stream-Filter
+    nimmt den vollständigen Stream; welcher das ist, zeigt
+    `scope.transactions.by_stream`, nicht der Name des Streams.
+    """
+    parts = []
+    if hostnames:
+        values = list(hostnames)
+        # GA4 führt Ereignisse ohne Hostnamen teils als "(not set)", teils mit
+        # leerem Wert; am 07.10.2026 lagen in einer Connector-Property Käufe
+        # unter beiden. "(not set)" in der Config meint beide.
+        if "(not set)" in values and "" not in values:
+            values.append("")
+        parts.append({"filter": {"fieldName": "hostName",
+                                 "inListFilter": {"values": values,
+                                                  "caseSensitive": False}}})
+    if stream_ids:
+        parts.append({"filter": {"fieldName": "streamId",
+                                 "inListFilter": {"values": list(stream_ids)}}})
+    if not parts:
+        return None
+    return parts[0] if len(parts) == 1 else {"andGroup": {"expressions": parts}}
+
+
+def build_scope_rows(rows: list, hostnames: list[str], stream_ids: list[str],
+                     streams: list | None = None) -> list:
+    """Zeilen je Stream und Hostname, absteigend nach Sitzungen.
+
+    `rows` aus einer Abfrage mit den Dimensionen streamId, streamName und
+    hostName. `included` sagt, ob die Zeile im Filter liegt; ohne Filter gilt
+    jede als enthalten. Die Sitzungen zweier Streams auf demselben Host
+    addieren sich nicht: GA4 entdoppelt Sitzungen über die Streams.
+    """
+    wanted_hosts = {h.lower() for h in hostnames}
+    wanted_streams = set(stream_ids)
+    measurement_ids = {st.get("stream_id"): st.get("measurement_id") for st in (streams or [])}
+    out = []
+    for dims, metrics in rows:
+        stream_id, stream_name, host = (list(dims) + ["(not set)"] * 3)[:3]
+        out.append({
+            "stream_id": stream_id,
+            "stream_name": stream_name.strip(),
+            "measurement_id": measurement_ids.get(stream_id),
+            "host_name": host,
+            "sessions": metrics.get("sessions", 0),
+            "purchases": metrics.get(PURCHASE_METRIC, 0),
+            "purchase_revenue": round(float(metrics.get("purchaseRevenue", 0)), 2),
+            "included": ((not wanted_hosts or host.lower() in wanted_hosts)
+                         and (not wanted_streams or stream_id in wanted_streams)),
+        })
+    return sorted(out, key=lambda r: r["sessions"], reverse=True)
+
+
+def id_format(transaction_id: str) -> str:
+    """Die Form einer Transaktions-ID: jede Ziffernfolge wird zu einer 9.
+
+    Zwei Absender derselben Bestellung schicken oft verschiedene IDs, etwa
+    die Bestellnummer mit Präfix und die numerische Bestell-ID. Gleiche IDs
+    findet dann keine Prüfung, verschiedene Formen im selben Stream schon.
+    """
+    return re.sub(r"[0-9]+", "9", transaction_id)
+
+
+def summarize_transactions(rows: list, stream_ids: list[str]) -> dict:
+    """Käufe gegen verschiedene Transaktions-IDs, je Stream und gesamt.
+
+    `rows` aus einer Abfrage mit den Dimensionen transactionId und streamId
+    und der Kaufmetrik. Zwei Arten, dieselbe Bestellung doppelt zu zählen:
+
+    - **Gleiche ID mehrfach**, etwa in zwei Streams: `counted_more_than_once`
+      und `in_multiple_streams`.
+    - **Zwei Absender mit verschiedener ID**: `id_formats` je Stream. Am
+      07.10.2026 an einer echten Property gefunden: ein Stream erhielt jeden
+      Kauf einmal mit der Bestellnummer und einen Teil zusätzlich mit der
+      numerischen Bestell-ID. Die IDs waren verschieden, die Bestellungen
+      dieselben, und nur die Form der ID zeigte es.
+
+    `in_scope` gilt für die Streams aus `ga4_stream_ids`, ohne Stream-Filter
+    für alle. Gegen die Bestellungen in Shopify zu halten ist dort
+    `transactions`, bei mehreren Formen die der größten Form.
+    """
+    by_id: dict = {}
+    not_set = 0
+    for dims, metrics in rows:
+        tx, stream = (list(dims) + ["(not set)"] * 2)[:2]
+        purchases = metrics.get(PURCHASE_METRIC, 0) or 0
+        if tx in ("", "(not set)"):
+            not_set += purchases
+            continue
+        by_id.setdefault(tx, {})
+        by_id[tx][stream] = by_id[tx].get(stream, 0) + purchases
+
+    def formats(ids) -> list:
+        counts: dict = {}
+        for tx in ids:
+            counts[id_format(tx)] = counts.get(id_format(tx), 0) + 1
+        return [{"format": f, "transactions": n}
+                for f, n in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)]
+
+    def several(fmts: list) -> bool:
+        total = sum(f["transactions"] for f in fmts)
+        return len(fmts) > 1 and fmts[1]["transactions"] >= SECOND_ID_FORMAT_SHARE * total
+
+    stream_set = sorted({st for counts in by_id.values() for st in counts})
+    by_stream = []
+    for st in stream_set:
+        ids = [tx for tx, c in by_id.items() if c.get(st)]
+        fmts = formats(ids)
+        by_stream.append({"stream_id": st,
+                          "purchases": sum(by_id[tx][st] for tx in ids),
+                          "transactions": len(ids),
+                          "id_formats": fmts,
+                          "multiple_id_formats": several(fmts)})
+    wanted = set(stream_ids) or set(stream_set)
+    scoped = {tx: {st: n for st, n in c.items() if st in wanted} for tx, c in by_id.items()}
+    scoped = {tx: c for tx, c in scoped.items() if c}
+    scoped_formats = formats(scoped)
+    return {
+        "purchases": sum(sum(c.values()) for c in by_id.values()),
+        "transactions": len(by_id),
+        "counted_more_than_once": sum(1 for c in by_id.values() if sum(c.values()) > 1),
+        "in_multiple_streams": sum(1 for c in by_id.values() if len(c) > 1),
+        "purchases_without_transaction_id": not_set,
+        "multiple_id_formats": any(st["multiple_id_formats"] for st in by_stream),
+        "by_stream": sorted(by_stream, key=lambda r: r["transactions"], reverse=True),
+        "in_scope": {"purchases": sum(sum(c.values()) for c in scoped.values()),
+                     "transactions": len(scoped),
+                     "id_formats": scoped_formats,
+                     "multiple_id_formats": several(scoped_formats)},
+    }
+
+
+def duplicate_purchases(tx: dict | None) -> list[str]:
+    """Gründe, aus denen die Käufe im Filter doppelt ankommen, für die
+    Ausgabe. Leer, wenn nichts darauf hinweist. Ein einzelner Kauf, der
+    zweimal ankommt, ist Rauschen; gemeldet wird erst ab
+    DUPLICATE_PURCHASE_SHARE."""
+    scope = (tx or {}).get("in_scope") or {}
+    reasons = []
+    purchases, transactions = scope.get("purchases", 0), scope.get("transactions", 0)
+    if purchases > transactions * (1 + DUPLICATE_PURCHASE_SHARE):
+        reasons.append(f"{purchases} Käufe auf {transactions} Transaktions-IDs")
+    if scope.get("multiple_id_formats"):
+        reasons.append("Transaktions-IDs in mehreren Formen ("
+                       + ", ".join(f"{f['format']} {f['transactions']}"
+                                   for f in scope["id_formats"][:3])
+                       + "), also ein zweiter Absender")
+    return reasons
+
+
+def read_scope(prop: str, token: str, date_range: dict, bot_filter, hostnames: list[str],
+               stream_ids: list[str], streams: list | None = None) -> dict:
+    """Wessen Zahlen dieser Snapshot zählt: Sitzungen, Käufe und Umsatz je
+    Stream und Hostname, dazu Käufe gegen Transaktions-IDs.
+
+    Läuft in jedem Pull, auch ohne Filter in der Config: nur so sieht die
+    Datenqualität, dass eine Property mehrere Shops sammelt oder ein Shop zwei
+    Streams lädt, bevor sie deren Summe gegen einen einzelnen Store hält.
+
+    - `rows` ohne den Shop-Filter, damit sichtbar ist, was er draußen lässt
+      (andere Shops, Käufe unter "(not set)", der zweite Stream).
+    - `transactions` mit dem Hostnamen-Filter, aber ohne den Stream-Filter:
+      gesucht ist gerade die Bestellung, die in zwei Streams ankommt.
+
+    Der Bot-Filter gilt in beiden, damit die Zahlen zum Hauptteil passen.
+    Scheitert eine Abfrage, steht der Grund unter `note`, der Pull läuft weiter.
+    """
+    section = {"filter": {"shop_hostnames": list(hostnames), "ga4_stream_ids": list(stream_ids)},
+               "period": {"start": date_range["startDate"], "end": date_range["endDate"]},
+               "rows": [], "transactions": None, "note": None}
+    extra = {"dimensionFilter": bot_filter} if bot_filter else {}
+    try:
+        resp = run_report(prop, token, {
+            "dateRanges": [date_range],
+            "dimensions": [{"name": "streamId"}, {"name": "streamName"}, {"name": "hostName"}],
+            "metrics": [{"name": name} for name in SCOPE_METRICS],
+            "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
+            "limit": 100,
+            **extra,
+        })
+        section["rows"] = build_scope_rows(parse_rows(resp).get("date_range_0", []),
+                                           hostnames, stream_ids, streams)
+        host_only = merge_filters(scope_filter(hostnames), bot_filter)
+        resp = run_report_all(prop, token, {
+            "dateRanges": [date_range],
+            "dimensions": [{"name": "transactionId"}, {"name": "streamId"}],
+            "metrics": [{"name": PURCHASE_METRIC}],
+            "limit": 250000,
+            **({"dimensionFilter": host_only} if host_only else {}),
+        })
+        section["transactions"] = summarize_transactions(
+            parse_rows(resp).get("date_range_0", []), stream_ids)
+    except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
+        section["note"] = f"Streams, Hostnamen oder Transaktionen nicht abrufbar: {describe_error(exc)}"
+    return section
+
+
 def landing_body(date_range: dict, bot_filter) -> dict:
     """Query-Body der Einstiegsseiten, immer für genau einen Zeitraum.
 
@@ -605,7 +838,7 @@ def read_block(prop: str, token: str, period: dict, date_range: dict, bot_filter
     return block
 
 
-def measure_history_start(prop: str, token: str, end_date: str) -> str:
+def measure_history_start(prop: str, token: str, end_date: str, shop_filter=None) -> str:
     """Ermittelt das früheste Datum, für das diese Property tatsächlich Zeilen
     liefert.
 
@@ -615,15 +848,18 @@ def measure_history_start(prop: str, token: str, end_date: str) -> str:
     Grenze wird deshalb an dieser Property gemessen statt angenommen: ein
     einziger Call über einen sehr weiten Zeitraum ab HISTORY_ANCHOR, GA4 lässt
     Tage ohne Daten in der Antwort automatisch weg (keepEmptyRows ist per
-    Default aus). Ungefiltert, damit ein kundenspezifischer Bot-Filter die
-    Messung nicht verzerrt. Liefert die Property gar keine Zeile (brandneu),
-    gilt end_date selbst als frühestes Datum.
+    Default aus). Ohne Bot-Filter, damit eine kundenspezifische Regel die
+    Messung nicht verzerrt. `shop_filter` (scope_filter) gilt dagegen: er
+    bestimmt, wessen Historie gemessen wird, und ein anderer Shop derselben
+    Property kann früher begonnen haben. Liefert die Property gar keine Zeile
+    (brandneu), gilt end_date selbst als frühestes Datum.
     """
     body = {
         "dateRanges": [{"startDate": HISTORY_ANCHOR, "endDate": end_date}],
         "dimensions": [{"name": "date"}],
         "metrics": [{"name": "sessions"}],
         "limit": 100000,
+        **({"dimensionFilter": shop_filter} if shop_filter else {}),
     }
     resp = run_report(prop, token, body)
     dates = [row["dimensionValues"][0]["value"] for row in resp.get("rows", [])]
@@ -1060,13 +1296,26 @@ def read_audit_checks(prop: str, token: str, snapshot: dict, date_range: dict,
                                 f"{describe_error(exc)}")
 
 
-def check(prop: str, token: str) -> None:
-    """Auth plus 1-Tages-Mini-Query, eine OK-/Fehlerzeile, Exit 0/1."""
+def check(prop: str, token: str, hostnames: list[str] | None = None,
+          stream_ids: list[str] | None = None) -> None:
+    """Auth plus 1-Tages-Mini-Query, eine OK-/Fehlerzeile, Exit 0/1.
+
+    Mit `hostnames` und `stream_ids` (aus `--config`) zählt die Mini-Query
+    nur diesen Shop, und die OK-Zeile nennt den Filter. Hat die Property mehr
+    als einen Stream oder Hostnamen, folgen Sitzungen und Käufe je Stream
+    und Hostname der letzten 28 Tage und die Käufe gegen Transaktions-IDs:
+    so fällt eine Property über mehrere Shops oder ein Shop mit zwei Streams
+    im Setup auf, nicht erst im Report. Die letzte Zeile bleibt die der
+    Mess-IDs, check_env.sh zeigt sie.
+    """
+    hostnames, stream_ids = hostnames or [], stream_ids or []
     yesterday = (date.today() - timedelta(days=1)).isoformat()
+    scope = scope_filter(hostnames, stream_ids)
     body = {
         "dateRanges": [{"startDate": yesterday, "endDate": yesterday}],
         "metrics": [{"name": "sessions"}],
         "limit": 1,
+        **({"dimensionFilter": scope} if scope else {}),
     }
     try:
         resp = run_report(prop, token, body)
@@ -1077,11 +1326,45 @@ def check(prop: str, token: str) -> None:
     info = read_streams(prop, token)
     name = f" \"{info['display_name']}\"" if info.get("display_name") else ""
     ids = ", ".join(info["measurement_ids"])
-    print(f"OK: GA4-Property {prop}{name} erreichbar (Sessions gestern: {sessions})")
+    print(f"OK: GA4-Property {prop}{name} erreichbar (Sessions gestern: {sessions}, "
+          f"{describe_scope(hostnames, stream_ids)})")
+    window = {"startDate": (date.today() - timedelta(days=28)).isoformat(), "endDate": yesterday}
+    section = read_scope(prop, token, window, None, hostnames, stream_ids, info.get("streams"))
+    if section["note"]:
+        print(f"     Hinweis: {section['note']}")
+    elif len(section["rows"]) > 1:
+        filtered = bool(hostnames or stream_ids)
+        print("     Letzte 28 Tage je Stream und Hostname (Sitzungen / Käufe):")
+        for row in section["rows"][:10]:
+            mark = "  im Filter" if filtered and row["included"] else ""
+            print(f"       {row['stream_id']} {row['measurement_id'] or ''} "
+                  f"\"{row['stream_name']}\" {row['host_name']}: "
+                  f"{row['sessions']} / {row['purchases']}{mark}")
+        tx = section["transactions"] or {}
+        for stream in tx.get("by_stream") or []:
+            print(f"       Stream {stream['stream_id']}: {stream['purchases']} Käufe, "
+                  f"{stream['transactions']} Transaktions-IDs, Formen "
+                  + ", ".join(f"{f['format']} {f['transactions']}"
+                              for f in stream["id_formats"][:3]))
+        reasons = duplicate_purchases(tx)
+        if reasons:
+            print(f"     Warnung: Käufe kommen im Filter doppelt an: {'; '.join(reasons)}. "
+                  "Der vollständige Stream gehört in ga4_stream_ids, ein zweiter Absender "
+                  "im selben Stream ins Setup des Kunden.")
     if ids:
         print(f"     Mess-IDs dieser Property: {ids}")
     elif info.get("note"):
         print(f"     Hinweis: {info['note']}")
+
+
+def describe_scope(hostnames: list[str], stream_ids: list[str]) -> str:
+    """Der Shop-Filter in Worten, für die Ausgabe auf der Kommandozeile."""
+    parts = []
+    if hostnames:
+        parts.append(f"nur Hostnamen {', '.join(hostnames)}")
+    if stream_ids:
+        parts.append(f"nur Streams {', '.join(stream_ids)}")
+    return " und ".join(parts) or "ohne Shop-Filter"
 
 
 def main():
@@ -1112,7 +1395,8 @@ def main():
                         help="Nur Auth plus Mini-Query testen, Exit 0/1")
     parser.add_argument("--config",
                         help="Pfad zu reporting/config.json; liest daraus den "
-                             "optionalen bot_filter-Block")
+                             "optionalen bot_filter-Block, shop_hostnames und "
+                             "ga4_stream_ids, auch mit --check")
     parser.add_argument("--audit-checks", action="store_true",
                         help="prüft auf Bot-Profile und einen zweiten Absender je "
                              "Mess-ID und schreibt bot_profiles, senders und "
@@ -1149,22 +1433,28 @@ def main():
             # Prüfung nie einen und meldete trotzdem "ein Absender".
             parser.error("--audit-checks nicht mit --pulse kombinierbar")
 
+    bot_filter, bot_rules, hostnames, stream_ids = None, [], [], []
+    if args.config:
+        try:
+            cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+            hostnames = run_config.shop_hostnames(cfg)
+            stream_ids = run_config.ga4_stream_ids(cfg)
+        except (OSError, ValueError, AttributeError) as exc:
+            sys.exit(f"Fehler beim Lesen von {args.config}: {exc}")
+        bot_filter, bot_rules = build_exclusion_filter(cfg.get("bot_filter"))
+    # Der Shop-Filter grenzt die Property auf diesen Shop ein, der Bot-Filter
+    # nimmt darin Sitzungen heraus. Jeder Bericht trägt beide.
+    shop_filter = scope_filter(hostnames, stream_ids)
+    base_filter = merge_filters(shop_filter, bot_filter)
+
     try:
         token = get_access_token(args.creds, "analytics")
     except Exception as exc:
         sys.exit(f"Fehler beim Holen des Access-Tokens: {exc}")
 
     if args.check:
-        check(prop, token)
+        check(prop, token, hostnames, stream_ids)
         return
-
-    bot_filter, bot_rules = None, []
-    if args.config:
-        try:
-            spec = json.loads(Path(args.config).read_text(encoding="utf-8")).get("bot_filter")
-        except (OSError, ValueError) as exc:
-            sys.exit(f"Fehler beim Lesen von {args.config}: {exc}")
-        bot_filter, bot_rules = build_exclusion_filter(spec)
 
     history_from = None
     if args.max_history:
@@ -1173,7 +1463,7 @@ def main():
         if not args.end:
             args.end = (date.today() - timedelta(days=1)).isoformat()
         try:
-            history_from = measure_history_start(prop, token, args.end)
+            history_from = measure_history_start(prop, token, args.end, shop_filter)
         except (urllib.error.HTTPError, urllib.error.URLError, RuntimeError) as exc:
             sys.exit(f"Fehler bei der Messung der Historie: {describe_error(exc)}")
         args.start = history_from
@@ -1184,9 +1474,9 @@ def main():
     if compare:
         date_ranges.append({"startDate": args.compare_start, "endDate": args.compare_end})
 
-    calls = block_bodies(date_ranges, bot_filter)
+    calls = block_bodies(date_ranges, base_filter)
     if compare:
-        calls["landing_pages_compare"] = landing_body(date_ranges[1], bot_filter)
+        calls["landing_pages_compare"] = landing_body(date_ranges[1], base_filter)
     if args.max_history:
         # Nur hier: die Baseline zieht ihre Monatsreihe aus diesem Snapshot,
         # ein Monats- oder Wochenlauf berichtet ohnehin über genau einen
@@ -1199,7 +1489,7 @@ def main():
                            {"name": "sessionDefaultChannelGroup"}],
             "metrics": [{"name": name} for name in CHANNEL_METRICS],
             "limit": 100000,
-            **({"dimensionFilter": bot_filter} if bot_filter else {}),
+            **({"dimensionFilter": base_filter} if base_filter else {}),
         }
 
     results = {}
@@ -1242,7 +1532,7 @@ def main():
         "dimensionFilter": merge_filters(
             {"filter": {"fieldName": "eventName",
                         "inListFilter": {"values": ["view_search_results"]}}},
-            bot_filter,
+            base_filter,
         ),
         "limit": 50,
     })
@@ -1264,6 +1554,8 @@ def main():
     # Shopify hält, prüft sie zuerst.
     snapshot["currency"] = currency
     snapshot["property"] = read_streams(args.property, token)
+    snapshot["scope"] = read_scope(prop, token, main_range, bot_filter, hostnames, stream_ids,
+                                   snapshot["property"].get("streams"))
     weitere = [p for p in (args.compare_properties or "").split(",") if p.strip()]
     if weitere:
         snapshot["compare_properties"] = read_compare(
@@ -1294,15 +1586,22 @@ def main():
             )
 
     if args.audit_checks:
-        read_audit_checks(prop, token, snapshot, main_range, bot_filter,
+        read_audit_checks(prop, token, snapshot, main_range, base_filter,
                           snapshot["property"].get("streams"))
 
     # notes steht nur in der Datei, wenn wirklich etwas genullt wurde (gleiche
     # Konvention wie in shopify.json).
     # Gefilterte Zahlen müssen sich als gefiltert zu erkennen geben, sonst
     # vergleicht ein späterer Lauf ungefiltert gegen gefiltert.
+    filters = {}
+    if hostnames:
+        filters["shop_hostnames"] = hostnames
+    if stream_ids:
+        filters["ga4_stream_ids"] = stream_ids
     if bot_rules:
-        snapshot["filters"] = {"bot_filter": bot_rules}
+        filters["bot_filter"] = bot_rules
+    if filters:
+        snapshot["filters"] = filters
 
     # Beide Hinweise in einem Dict sammeln statt nacheinander zuzuweisen: sonst
     # würde ein zweiter Hinweis den ersten in snapshot["notes"] stillschweigend
@@ -1337,6 +1636,18 @@ def main():
     currency_note = f" {currency}" if currency else ""
     print(f"Geschrieben: {out_path} (Sessions: {totals['sessions']}, "
           f"Umsatz: {totals['purchase_revenue']}{currency_note}{history_note})")
+    section = snapshot["scope"]
+    tx = section["transactions"] or {}
+    print(f"Shop-Filter: {describe_scope(hostnames, stream_ids)}"
+          + (f" (Hinweis: {section['note']})" if section.get("note") else ""))
+    hosts = sorted({r["host_name"] for r in section["rows"] if r["purchases"]})
+    if not hostnames and len(hosts) > 1:
+        print(f"Warnung: Käufe auf mehreren Hostnamen ({', '.join(hosts[:5])}). Sammelt die "
+              "Property mehrere Shops, gehört shop_hostnames in die Config")
+    reasons = duplicate_purchases(tx)
+    if reasons:
+        print(f"Warnung: Käufe kommen im Filter doppelt an: {'; '.join(reasons)} "
+              "(scope.transactions)")
     if args.audit_checks:
         profiles = snapshot["bot_profiles"]
         flagged = [p["label"] for p in profiles["profiles"] if p["flagged"]]

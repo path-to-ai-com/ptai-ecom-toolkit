@@ -1,6 +1,6 @@
 ---
 name: launch-check
-description: Prüft vor einem Livegang alle Launch-Voraussetzungen und gibt aus, was noch fehlt, als wiederholbarer Prüflauf mit Go/No-Go-Empfehlung. Je Punkt der Launch-Checkliste ein Status (ok, missing, blocked, manual, n/a) mit einer Zeile Beleg, Verantwortlichem und Links auf Entwurf und Live: Zeitpunkt (Wochentag, Feiertag, Saisonspitze, Kampagnen, Preis- und A/B-Tests), Abnahme und offene Befunde, Abgleich mit dem Live-Stand, Änderungsstopp, Entwurf und Rückfall-Theme, App-Embeds, Theme-Übersetzungen, Tracking je Seite per Mitschnitt, SEO (robots.txt, noindex, Canonicals, Statuscodes), Vergleichswerte von heute oder gestern, Go/No-Go- und Rückfallkriterien, Kommunikation, Plattform-Fristen. Mit --after die Prüfungen direkt nach dem Veröffentlichen. Führt Phase 9 der Theme-Migration eigenständig aus, auch ohne Migrationslauf und für Launches ohne Theme-Wechsel (größere Theme-Änderung, neuer Shop). Nutzen bei /ptai-ecom:launch-check, "Launch-Check", "sind wir bereit für den Livegang", "was fehlt noch bis zum Launch", "Go/No-Go", "Prüfung nach dem Veröffentlichen", in Phase 9 einer Theme-Migration. Schreibt nichts in den Shop und veröffentlicht nie. Liest reporting/config.json im Kunden-Workspace.
+description: Prüft vor einem Livegang alle Launch-Voraussetzungen und gibt aus, was noch fehlt, als wiederholbarer Prüflauf mit Go/No-Go-Empfehlung. Je Punkt der Launch-Checkliste ein Status (ok, missing, blocked, manual, n/a) mit einer Zeile Beleg, Verantwortlichem und Links auf Entwurf und Live: Zeitpunkt (Wochentag, Feiertag, Saisonspitze, Kampagnen, Preis- und A/B-Tests), Abnahme und offene Befunde, Abgleich mit dem Live-Stand, Änderungsstopp, Entwurf und Rückfall-Theme, App-Embeds, Theme-Übersetzungen, Tracking je Seite per Mitschnitt, Pagination und Analyse-Ereignisse je Seitentyp, SEO (robots.txt, noindex, Canonicals, Statuscodes), Vergleichswerte von heute oder gestern, Go/No-Go- und Rückfallkriterien, Kommunikation, Plattform-Fristen. Mit --after die Prüfungen direkt nach dem Veröffentlichen. Führt Phase 9 der Theme-Migration eigenständig aus, auch ohne Migrationslauf und für Launches ohne Theme-Wechsel (größere Theme-Änderung, neuer Shop). Nutzen bei /ptai-ecom:launch-check, "Launch-Check", "sind wir bereit für den Livegang", "was fehlt noch bis zum Launch", "Go/No-Go", "Prüfung nach dem Veröffentlichen", in Phase 9 einer Theme-Migration. Schreibt nichts in den Shop und veröffentlicht nie. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # launch-check: bereit für den Livegang?
@@ -115,8 +115,14 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
      Empfehlung und Zahl je Status aus.
 
 5. **Vorlegen.** Zuerst die Empfehlung, dann `missing` und `blocked` mit Beleg, Link und Verantwortlichem.
-   Jeden Punkt `missing` vorher selbst ansehen: ein fehlender Host im Mitschnitt kann eine gewollte
-   Streichung sein (dann steht sie in der Entscheidungsliste), ein Embed kann absichtlich aus sein.
+   Jeden Punkt `missing` vorher selbst ansehen.
+   - Was laut Entscheidungsliste entfällt (`drop` oder `replace` in `migration/inventory/apps.json` oder
+     `migration/mapping/decisions.json`), steht als `ok` mit der Entscheidung als Beleg.
+   - Erscheint eine gewollte Streichung trotzdem als `missing`, fehlt sie in der Liste: mit Person, Datum
+     und Grund in `decisions.json` nachtragen (`kind: app`), nie im Bericht übergehen.
+   - Eine eigene Subdomain eines Dienstes (CNAME oder A-Eintrag, etwa ein Attributions-Endpunkt) gehört
+     über `hosts` in ihre Zeile von `apps.json`; sonst erscheint sie als eigener Host und der
+     Ausweich-Endpunkt des Dienstes als neu.
 
 6. **Folgeschritte empfehlen, nicht selbst starten:**
    - `live-sync` auf `missing`: `sync-live-theme` (Abgleich II)
@@ -166,8 +172,13 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
    - das veröffentlichte Theme ist das erwartete, das alte liegt als Entwurf vor
    - `robots.txt` antwortet und ist gleich wie vor dem Launch (verglichen mit `robots-live.txt` aus dem
      Lauf davor)
-   - Statuscodes, `noindex` (auch als Header) und Canonicals der Seiten live
+   - `robots.txt` je User-Agent-Gruppe: ein Fehler nur, wenn die Gruppe `*` oder Googlebot alles sperrt;
+     ein `Disallow: /` für einen einzelnen anderen Crawler (bei Shopify etwa `Nutch`) steht als Hinweis
+   - Statuscodes, `noindex` und Canonicals der Seiten live. `noindex` im HTML ist ein Fehler, wenn es im
+     Mitschnitt des alten Themes nicht stand. Der Header `X-Robots-Tag` kommt von Shopify, nicht vom Theme
+     (etwa auf `/search`), und steht als Hinweis
    - fremde Hosts je Seite gegen den Stand vorher
+   - Pagination und Analyse-Ereignisse je Seitentyp gegen den Mitschnitt vorher
    - jede veröffentlichte Sprache einmal
    - die Sitemap
    - als Fragen: Testbestellung, Einreichen der Sitemap, Festhalten des Stands
@@ -186,9 +197,10 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
 | Abgleich | Live-Theme seit dem letzten Abgleich | `updatedAt` frisch gegen jüngstes `delta.json` oder `manifest.json` unter `migration/` |
 | Abgleich | Änderungsstopp | `freeze_from` und `freeze_until` im Lauf oder `theme_migration.freeze`, deckt den Termin |
 | Entwurf | Entwurf, Rückfall-Theme | Rolle `UNPUBLISHED`, nicht in Verarbeitung; Live-Theme `MAIN`, ID notiert |
-| Apps | App-Embeds | aktive Embeds aus `config/settings_data.json` beider Themes; gestrichen laut `apps.json` zählt nicht |
+| Apps | App-Embeds | aktive Embeds aus `config/settings_data.json` beider Themes; gestrichen laut `apps.json` oder `decisions.json` ist `ok` mit Beleg |
 | Übersetzungen | Theme-Übersetzungen | je veröffentlichter Sprache: übersetzt, veraltet, Anteil neu gegen alt |
-| Tracking | Hosts je Seite | Mitschnitt alt gegen neu, je Consent-Zustand; Shopify selbst und die eigene Domain zählen nicht |
+| Tracking | Hosts je Seite | Mitschnitt alt gegen neu, je Consent-Zustand; Shopify selbst und die Shop-Domain zählen nicht, ihre Subdomains schon (zugeordnet über `hosts` in `apps.json`); gestrichen laut Entscheidungsliste ist `ok` mit Beleg |
+| Tracking | Pagination und Analyse-Ereignisse | je Seitentyp und Gerät: `page=N` in `final_url` (Nachladen beim Scrollen schreibt die Seite in die Adresse) und Anfragen je Analysedienst, Minimum neu gegen Maximum alt; ab 1,5-fach und 3 mehr ein Fehler, geändertes Nachladen allein eine Frage |
 | SEO | robots.txt | `templates/robots.txt.liquid` in beiden Themes, Live-Ausgabe gesichert |
 | SEO | Statuscodes, noindex, Canonicals | aus dem Mitschnitt des Entwurfs gegen den des Live-Themes |
 | Vergleichswerte | GSC, GA4, CWV, Crawl | jüngste Datei unter `reporting/data/` vom Termin oder Vortag |

@@ -179,6 +179,38 @@ class TestSourceFields(unittest.TestCase):
         self.assertTrue(config.source_switched_off({"sources": {"ga4": False}}, "ga4"))
 
 
+
+class TestShopScope(unittest.TestCase):
+    """Eine GA4-Property kann mehrere Shops sammeln; ein ungültiger Filter
+    ist ein harter Fehler, weil er sonst still ungefiltert zieht."""
+
+    def test_without_fields_no_filter(self):
+        self.assertEqual(config.shop_hostnames(MINIMAL), [])
+        self.assertEqual(config.ga4_stream_ids(MINIMAL), [])
+        self.assertEqual(config.validate(MINIMAL), [])
+
+    def test_hostnames_are_lowercased_and_deduplicated(self):
+        c = dict(MINIMAL, shop_hostnames=[" EU.Beispielshop.test", "eu.beispielshop.test", "(not set)"])
+        self.assertEqual(config.shop_hostnames(c), ["eu.beispielshop.test", "(not set)"])
+        self.assertEqual(config.validate(c), [])
+
+    def test_a_url_instead_of_a_hostname_is_an_error(self):
+        c = dict(MINIMAL, shop_hostnames=["https://eu.beispielshop.test/"])
+        self.assertIn("shop_hostnames", " ".join(config.validate(c)))
+        with self.assertRaises(ValueError):
+            config.shop_hostnames(c)
+
+    def test_a_single_string_is_an_error(self):
+        c = dict(MINIMAL, shop_hostnames="eu.beispielshop.test")
+        self.assertIn("shop_hostnames", " ".join(config.validate(c)))
+
+    def test_stream_ids_are_digits(self):
+        self.assertEqual(config.ga4_stream_ids(dict(MINIMAL, ga4_stream_ids=[111, "222"])),
+                         ["111", "222"])
+        errors = config.validate(dict(MINIMAL, ga4_stream_ids=["G-ABC123"]))
+        self.assertIn("Mess-ID", " ".join(errors))
+
+
 if __name__ == "__main__":
     unittest.main()
 

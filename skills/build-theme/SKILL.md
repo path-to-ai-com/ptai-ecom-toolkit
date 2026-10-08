@@ -63,7 +63,8 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.generate \
   --target-schemas <target-repo> \
   --out migration/build/out/<date> \
   --lock migration/build/sources.lock \
-  --living migration/inventory/templates.json
+  --living migration/inventory/templates.json \
+  --apps migration/inventory/apps.json
 ```
 
 - `--living` erzeugt nur Templates, die einem Objekt zugewiesen sind, plus die Grundtypen; jedes
@@ -74,6 +75,10 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.generate \
   `report.json` mit verworfenen Einstellungen, gesetzten Standardwerten, `build`-Fällen und
   Limit-Verstößen.
 - `sources.lock` speichert Herkunft und SHA-256 jeder Eingabe.
+- **App-Embeds** gehen mit ihrem Zustand aus der Sicherung in `config/settings_data.json` des Ziels.
+  Derselbe Shop hat dieselben Apps installiert, Shopify nimmt die Blöcke beim Upload an. `--apps` hält
+  jedes Embed zurück, dessen Dienst in G1 `drop` oder `replace` bekommen hat. Der Report führt jedes
+  Embed unter `app_embeds` mit `decision` und `carried`.
 
 **Regeln des Generators**, jede durch seine Tests abgesichert:
 

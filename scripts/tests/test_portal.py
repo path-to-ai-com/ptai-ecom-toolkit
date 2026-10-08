@@ -131,5 +131,16 @@ class TestAnmeldung(unittest.TestCase):
         request.assert_not_called()
 
 
+
+class TestShopScopeFields(unittest.TestCase):
+    def test_setup_leaves_the_shop_filter_alone(self):
+        """Ob ein Shop den Filter braucht, misst audit.scope, nicht die Domain."""
+        self.assertNotIn("shop_hostnames",
+                         portal.merge_config({}, dict(SETTINGS, domain="eu.beispielshop.test")))
+        before = {"shop_hostnames": ["eu.beispielshop.test"], "ga4_stream_ids": ["111"]}
+        merged = portal.merge_config(before, SETTINGS)
+        self.assertEqual(merged["shop_hostnames"], ["eu.beispielshop.test"])
+        self.assertEqual(merged["ga4_stream_ids"], ["111"])
+
 if __name__ == "__main__":
     unittest.main()

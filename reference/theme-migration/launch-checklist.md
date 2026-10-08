@@ -31,11 +31,17 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
 5. **App-Embeds im Entwurf aktiviert** und App-Blöcke platziert. Embeds gelten je Theme; was im
    Entwurf eingeschaltet ist, ist nach dem Veröffentlichen eingeschaltet.
 6. **Theme-Übersetzungen** auf dem Entwurf registriert und nicht `outdated`.
-7. **Go/No-Go-Kriterien schriftlich**: was muss stimmen, damit veröffentlicht wird.
-8. **Rückfallkriterien schriftlich** (`rollback.md`): welcher Einbruch über welchen Zeitraum führt zum
+7. **Tracking und Pagination je Seitentyp wie im alten Theme**, im Mitschnitt bis zum Seitenende:
+   dieselben Dienste (bewusst gestrichene stehen mit Grund in der Entscheidungsliste) und nicht mehr
+   Analyse-Ereignisse je Seite. Lädt eine Liste beim Scrollen nach und schreibt dabei `page=N` in die
+   Adresse, kann jede nachgeladene Seite als eigener Seitenaufruf oder eigene Suche zählen. Am
+   07.10.2026 übersehen: auf einer Suchseite vervielfachte das die Suchereignisse in Analyse und
+   Attribution.
+8. **Go/No-Go-Kriterien schriftlich**: was muss stimmen, damit veröffentlicht wird.
+9. **Rückfallkriterien schriftlich** (`rollback.md`): welcher Einbruch über welchen Zeitraum führt zum
    Zurückschalten, wer entscheidet. Im Ernstfall wird nicht diskutiert.
-9. **Liste dessen, was ein Rückfall nicht zurückdreht**, dem Team gezeigt (`rollback.md`).
-10. **Kommunikation:** Termin, Stopp und Rückfallkriterien an alle Beteiligten.
+10. **Liste dessen, was ein Rückfall nicht zurückdreht**, dem Team gezeigt (`rollback.md`).
+11. **Kommunikation:** Termin, Stopp und Rückfallkriterien an alle Beteiligten.
 
 ## Go/No-Go (Gate G5)
 
@@ -72,10 +78,12 @@ Live-Themes und die Template-Zuweisungen. Jede Änderung seit Abgleich II hält 
 Direkt nach dem Veröffentlichen, in dieser Reihenfolge:
 
 1. Das veröffentlichte Theme ist das erwartete (ID, Rolle `MAIN`), das alte liegt als Entwurf.
-2. `robots.txt` wie vorher, kein `noindex` oder `nofollow`.
+2. `robots.txt` wie vorher und für `*` und Googlebot offen; kein `noindex` oder `nofollow`, das im alten
+   Theme nicht stand. Shopify sperrt einzelne Crawler ganz (etwa `Nutch`) und setzt auf Suchseiten
+   selbst den Header `X-Robots-Tag: noindex`; beides ist Plattform-Standard und unabhängig vom Theme.
 3. Statuscodes und Canonicals der Top-Seiten aus der Schutzliste, Redirects der Top-Seiten.
-4. Apps und Embeds auf dem veröffentlichten Theme: Mitschnitt je Seitentyp gegen die Liste, weil die
-   Vorschau andere Bedingungen hatte.
+4. Apps, Embeds und Analyse-Ereignisse auf dem veröffentlichten Theme: Mitschnitt je Seitentyp gegen
+   den Mitschnitt vorher, weil die Vorschau andere Bedingungen hatte.
 5. Tracking mit einer Testbestellung, **nur nach ausdrücklicher Freigabe durch das Team**: Pixel,
    Checkout, Dankeseite, Events in GA4 und Werbekonten. Danach stornieren und erstatten.
 6. Jede Sprache und jeder Markt-Pfad einmal.

@@ -6,12 +6,14 @@ Aufruf:
         [--overrides migration/mapping/overrides.json] \\
         --source migration/snapshots/<date>-<theme-id> \\
         --target-schemas <target-repo> \\
-        --out <test-dir> --lock migration/build/sources.lock
+        --out <test-dir> --lock migration/build/sources.lock \\
+        [--apps migration/inventory/apps.json]
 
 Liest die eingefrorenen Quellen (JSON-Templates, Section-Groups und
 `config/settings_data.json` der Sicherung, die Schemas beider Themes), wendet
 Mapping und Overrides an und schreibt `templates/*.json`, `sections/*.json` und
-`config/settings_data.json` nach `--out`, dazu `report.json` dort und
+`config/settings_data.json` nach `--out` (App-Embeds mit ihrem Zustand, außer
+eine Entscheidung aus G1 streicht sie), dazu `report.json` dort und
 `sources.lock` mit SHA-256 jeder Eingabe. Das Format des Mappings steht in
 `reference/theme-migration/mapping-format.md`.
 
@@ -405,8 +407,9 @@ def custom_css_length(rules: list[str]) -> int:
 class Generator:
     """Ein Lauf: Mapping plus Overrides auf eine Sicherung gegen die Schemas des Ziels."""
 
-    def __init__(self, mapping: dict, overrides: dict | None, source_dir, target_dir):
+    def __init__(self, mapping: dict, overrides: dict | None, source_dir, target_dir, apps: dict | None = None):
         self.instances = (overrides or {}).get("instances") or {}
+        self.apps = apps
         self.mapping = merge_mapping(mapping, overrides)
         self.source_dir = Path(source_dir)
         self.target_dir = Path(target_dir)
@@ -957,9 +960,19 @@ class Generator:
         if isinstance(current, str):
             # Ältere Themes speichern in `current` nur den Namen eines Presets.
             current = (source_doc.get("presets") or {}).get(current) or {}
+        carried = {}
         for block_id, block in (current.get("blocks") or {}).items():
+            block_type = block.get("type") or ""
+            decision = self.embed_decision(block_type, block_id)
+            # App-Embeds gehen mit ihrem Zustand ins Ziel. Derselbe Shop hat dieselben Apps installiert,
+            # deshalb nimmt Shopify die Blöcke beim Upload an (belegt in einer Migration im September 2026).
+            # Nur eine Entscheidung `drop` oder `replace` aus G1 hält ein Embed zurück.
+            carry = block_type.startswith(APP_PREFIX) and decision not in ("drop", "replace")
+            if carry:
+                carried[block_id] = copy.deepcopy(block)
             self.report["app_embeds"].append({"file": rel, "path": f"current.blocks.{block_id}",
-                                              "type": block.get("type"), "disabled": bool(block.get("disabled"))})
+                                              "type": block_type, "disabled": bool(block.get("disabled")),
+                                              "decision": decision, "carried": carry})
         for key in ("sections", "content_for_index"):
             if current.get(key):
                 self.build_case(f"current.{key}", "vintage_static_sections",
@@ -975,7 +988,23 @@ class Generator:
         presets = {}
         if existing_path.is_file():
             presets = schema_module.read_json_file(existing_path).get("presets") or {}
+        if carried:
+            mapped["blocks"] = carried
         self.documents[rel] = {"current": mapped, "presets": presets}
+
+    def embed_decision(self, block_type: str, block_id: str) -> str | None:
+        """Entscheidung aus G1 für ein App-Embed, über Integration und Dienst in `apps.json`.
+
+        `None`, wenn kein Inventar mitgegeben ist oder das Embed dort fehlt.
+        """
+        if not self.apps:
+            return None
+        decisions = {s.get("service_id"): s.get("decision") for s in self.apps.get("services") or []}
+        for integration in self.apps.get("integrations") or []:
+            location = integration.get("location") or {}
+            if location.get("type") == block_type or block_id in (location.get("block_ids") or []):
+                return decisions.get(integration.get("service_id")) or integration.get("decision")
+        return None
 
     def run(self, living: set[str] | None = None) -> None:
         """Erzeugt alle Templates oder, mit `living`, nur die zugewiesenen und die Grundtypen."""
@@ -1130,6 +1159,7 @@ def main(argv=None) -> int:
     parser.add_argument("--out", required=True, help="Testverzeichnis für die Ausgabe")
     parser.add_argument("--lock", required=True, help="Pfad für sources.lock")
     parser.add_argument("--living", help="templates.json aus theme.templates: nur zugewiesene Templates erzeugen")
+    parser.add_argument("--apps", help="apps.json aus inventory-apps: App-Embeds mit drop oder replace nicht übernehmen")
     args = parser.parse_args(argv)
 
     def fail(message: str) -> int:
@@ -1157,7 +1187,11 @@ def main(argv=None) -> int:
     if problem:
         return fail(problem)
 
-    generator = Generator(mapping, overrides, args.source, args.target_schemas)
+    try:
+        apps = schema_module.read_json_file(args.apps) if args.apps else None
+    except (OSError, json.JSONDecodeError) as exc:
+        return fail(f"--apps nicht lesbar: {exc}")
+    generator = Generator(mapping, overrides, args.source, args.target_schemas, apps)
     try:
         living = living_templates(args.living) if args.living else None
     except (OSError, json.JSONDecodeError) as exc:

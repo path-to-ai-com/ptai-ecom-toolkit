@@ -18,7 +18,7 @@ import difflib
 import os
 import re
 
-from audit import run, tiers
+from audit import gsc_scope, run, tiers
 
 #: Ohne diese sieben Felder kann kein Lauf starten (Spec Abschnitt 12).
 REQUIRED_FIELDS = (
@@ -102,6 +102,15 @@ def validate(config: dict) -> list[str]:
             errors.append(f"Pflichtfeld leer: {field} (steht in der Config, hat aber "
                           f"keinen Wert: {value!r})")
 
+    # Lesbar heißt nicht passend: eine Property, die den Shop nicht abdeckt,
+    # liefert Zahlen eines anderen Hosts, und der Lauf fröre sie als Baseline
+    # ein (Befund 2 vom 07.10.2026). Deshalb hier, vor jedem Pull.
+    if not source_switched_off(config, "gsc"):
+        problem = gsc_scope.mismatch(config.get("gsc_site"), config.get("domain"))
+        if problem:
+            errors.append(f"{problem} Property im Cockpit oder in der Config korrigieren "
+                          f"oder sources.gsc auf false setzen, siehe /ptai-ecom:setup")
+
     # Absolut, wie check_env.sh es verlangt: ein relativer Pfad, auch einer mit
     # Tilde, die keine Shell mehr auflöst, landete relativ zum Workspace und
     # damit im Kunden-Repo (Abschnitt 13). Leer oder fehlend meldet schon die
@@ -184,6 +193,9 @@ def validate(config: dict) -> list[str]:
 
     if "theme_migration" in config:
         errors.extend(theme_migration_errors(config["theme_migration"]))
+
+    errors.extend(shop_hostname_errors(config.get("shop_hostnames")))
+    errors.extend(ga4_stream_id_errors(config.get("ga4_stream_ids")))
 
     return errors
 
@@ -286,6 +298,95 @@ def compare_properties(config: dict) -> list[str]:
     haupt = str(config.get("ga4_property_id") or "").strip()
     return [str(p).strip() for p in raw
             if str(p).strip() and str(p).strip() != haupt]
+
+
+def shop_hostname_errors(raw) -> list[str]:
+    """Prüft `shop_hostnames`: fehlend oder eine Liste nackter Hostnamen.
+
+    Ein Fehler hier ist hart, nicht weich: ein Wert, der still nicht greift,
+    zieht die Zahlen aller Shops der Property und macht daraus im Audit eine
+    Abweichung gegen Shopify, die es nicht gibt. Erlaubt ist auch der
+    GA4-Wert "(not set)", für Ereignisse ohne Hostnamen (serverseitige
+    Connectoren).
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return [f"shop_hostnames muss eine Liste von Hostnamen sein, ist {type(raw).__name__}"]
+    errors = []
+    for value in raw:
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"shop_hostnames: leerer oder ungültiger Eintrag {value!r}")
+        elif "/" in value or ":" in value:
+            errors.append(f"shop_hostnames: {value!r} ist kein nackter Hostname, ohne "
+                          f"Schema und Pfad eintragen (etwa \"eu.beispielshop.test\")")
+    return errors
+
+
+def shop_hostnames(config: dict) -> list[str]:
+    """Die Hostnamen, auf die jeder GA4-Bericht eingegrenzt wird.
+
+    **Warum es das gibt.** Eine GA4-Property kann mehrere Shops sammeln,
+    etwa je Markt eine Subdomain mit eigenem Shopify-Store. Der Audit eines
+    Shops hielte dann den Umsatz dieses einen Stores gegen die GA4-Zahlen
+    aller Stores, und die Datenqualität meldete auf der ersten Seite eine
+    Abweichung, die nur aus den anderen Märkten kommt.
+
+    Leer heißt: kein Filter. Kleingeschrieben und ohne Dubletten, weil GA4
+    `hostName` kleingeschrieben liefert. Wirft ValueError bei einem
+    ungültigen Wert, statt still ungefiltert zu ziehen.
+    """
+    raw = config.get("shop_hostnames")
+    errors = shop_hostname_errors(raw)
+    if errors:
+        raise ValueError("; ".join(errors))
+    result = []
+    for value in raw or []:
+        host = value.strip().lower()
+        if host not in result:
+            result.append(host)
+    return result
+
+
+def ga4_stream_id_errors(raw) -> list[str]:
+    """Prüft `ga4_stream_ids`: fehlend oder eine Liste von Stream-IDs.
+
+    Die Data API filtert auf die numerische Stream-ID, nicht auf die
+    Mess-ID `G-...`. Wer die Mess-ID einträgt, bekommt hier den Hinweis,
+    wo die Stream-ID steht, statt eines Filters, der nie greift.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return [f"ga4_stream_ids muss eine Liste von Stream-IDs sein, ist {type(raw).__name__}"]
+    errors = []
+    for value in raw:
+        text = str(value).strip() if isinstance(value, (str, int)) and not isinstance(value, bool) else ""
+        if not text.isdigit():
+            errors.append(f"ga4_stream_ids: {value!r} ist keine Stream-ID. Gemeint ist die "
+                          f"Ziffernfolge, nicht die Mess-ID G-...; ga4_pull.py --check nennt beide")
+    return errors
+
+
+def ga4_stream_ids(config: dict) -> list[str]:
+    """Die Datenstreams, auf die jeder GA4-Bericht eingegrenzt wird.
+
+    **Warum es das gibt.** Lädt ein Shop die Tags zweier Streams derselben
+    Property, kommt jedes Ereignis zweimal an; GA4 entdoppelt Sitzungen über
+    die Streams, Käufe nicht. Ein Hostnamen-Filter allein lässt die Käufe
+    deshalb doppelt. Leer heißt: alle Streams. Wirft ValueError bei einem
+    ungültigen Wert, statt still ungefiltert zu ziehen.
+    """
+    raw = config.get("ga4_stream_ids")
+    errors = ga4_stream_id_errors(raw)
+    if errors:
+        raise ValueError("; ".join(errors))
+    result = []
+    for value in raw or []:
+        stream_id = str(value).strip()
+        if stream_id not in result:
+            result.append(stream_id)
+    return result
 
 
 def checkout_capture(config: dict) -> bool | None:

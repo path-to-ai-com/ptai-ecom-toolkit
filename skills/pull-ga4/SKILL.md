@@ -28,6 +28,38 @@ Fehlt etwas oder steht `sources.ga4` auf `false`: GA4 als "nicht verfügbar (Gru
 - Liste aus `reporting/config.json > ga4_compare_properties`.
 - Je Property steht unter `compare_properties` eine Monatsreihe aus Sitzungen, Käufen und Umsatz plus Währung der Property.
 - Die Analysen nutzen weiter die Hauptproperty. Der Vergleich beantwortet nur: **welche Property stimmt mit dem Shop überein?**
+- Die Vergleichs-Properties laufen ohne Shop-Filter (nächster Abschnitt): ihre Hostnamen und Streams sind andere.
+
+## Mehrere Shops oder Streams in einer Property
+
+Der umgekehrte Fall: eine Property sammelt mehrere Shops, oder ein Shop lädt die Tags zweier Streams derselben Property.
+
+- **Mehrere Shops**, typisch je Markt eine Subdomain mit eigenem Shopify-Store. Ohne Eingrenzung hält der Audit den Umsatz dieses Stores gegen die GA4-Zahlen aller.
+- **Zwei Streams auf einem Shop.** GA4 entdoppelt die Sitzungen über die Streams, die Käufe nicht. Am 07.10.2026 an einer echten Property gefunden: auf dem Host eines Markts lagen die Käufe deutlich über den Transaktions-IDs, und der Stream mit dem Namen des Markts war der unvollständige.
+
+Zwei Felder in `reporting/config.json`, beide optional, zusammen mit UND:
+
+```json
+"shop_hostnames": ["eu.beispielshop.de"],
+"ga4_stream_ids": ["1234567890"]
+```
+
+- `shop_hostnames`: Filter auf die Dimension `hostName`. Nimmt Ereignisse ohne Hostnamen (`(not set)` oder leer, serverseitige Connectoren) heraus, solange `"(not set)"` nicht selbst in der Liste steht; es deckt beide Formen ab.
+- Ob ein Shop die Felder braucht und mit welchen Werten, misst `audit.scope` (Skill `setup`, Ablauf Schritt 5).
+- `ga4_stream_ids`: Filter auf `streamId`, die Ziffernfolge, nicht die Mess-ID. `--check` nennt beide nebeneinander.
+- Beide wirken auf jede Sicht, auf `by_month`, die internen Suchbegriffe, die Bot- und Absenderprüfung von `--audit-checks` und die Messung von `history_from`: ein anderer Shop derselben Property kann früher begonnen haben.
+- Ein ungültiger Wert (URL statt Hostname, Mess-ID statt Stream-ID) bricht den Pull ab, statt still ungefiltert zu ziehen.
+- Jeder gefilterte Snapshot trägt die Werte unter `filters.shop_hostnames` und `filters.ga4_stream_ids`.
+- Setzen und prüfen: Skill `setup`, Config-Vorlage.
+
+**`scope` im Snapshot**, in jedem Pull, auch ohne Filter:
+
+- `rows`: Sitzungen, Käufe und Umsatz je Stream und Hostname, **ohne** den Shop-Filter, damit sichtbar ist, was er draußen lässt. `included` markiert die Zeilen im Filter. Sitzungen zweier Streams auf einem Host addieren sich nicht.
+- `transactions`: Käufe gegen verschiedene Transaktions-IDs, mit dem Hostnamen-, aber ohne den Stream-Filter, denn gesucht ist gerade die Bestellung in zwei Streams.
+  - `counted_more_than_once`, `in_multiple_streams`: dieselbe ID mehrfach.
+  - `by_stream[].id_formats`: die Formen der IDs je Stream, jede Ziffernfolge als `9` (`#BSP-9` für eine Bestellnummer, `9` für die numerische Bestell-ID). **Zwei Formen im selben Stream sind ein zweiter Absender**, auch wenn `senders` keinen findet: die IDs sind verschieden, die Bestellungen dieselben.
+  - `in_scope`: dieselben Zahlen nur für die Streams aus `ga4_stream_ids`. Gegen die Shopify-Bestellungen zu halten ist `in_scope.transactions`, bei mehreren Formen die Zahl der größten Form.
+- Der Pull warnt, wenn die Käufe im Filter um mehr als ein Prozent über den Transaktions-IDs liegen oder die IDs in mehreren Formen ankommen, und ohne Hostnamen-Filter, wenn Käufe auf mehreren Hostnamen liegen.
 
 ## Käufe und Umsatz
 
@@ -71,9 +103,9 @@ Fehlt etwas oder steht `sources.ga4` auf `false`: GA4 als "nicht verfügbar (Gru
    |---|---|
    | `--compare-start YYYY-MM-DD --compare-end YYYY-MM-DD` | Vergleich (Erstlauf) |
    | `--pulse` | Wochen-Puls, schreibt `ga4-pulse.json` mit granularity `week` |
-   | `--config reporting/config.json` | Bot-Filter, siehe unten |
+   | `--config reporting/config.json` | Shop-Filter (`shop_hostnames`, `ga4_stream_ids`) und Bot-Filter |
 
-   **Hat die `config.json` einen `bot_filter`-Block, `--config` an jeden Aufruf hängen.** Sonst zieht der Lauf ungefiltert und vergleicht später gefiltert gegen ungefiltert.
+   **`--config reporting/config.json` an jeden Aufruf hängen, auch an `--check`.** Ohne zieht der Lauf die ganze Property ohne Bot-Filter und vergleicht später gefiltert gegen ungefiltert.
 5. Dem Nutzer melden: Sessions, Nutzer, Umsatz, Funnel-Schritte, Top-Kanal. Bei Vergleich die Richtung (mehr/weniger). Bei `--max-history` zusätzlich `history_from` (gemessener Beginn der Historie).
 
 ## Maximalzeitraum
@@ -214,6 +246,18 @@ Das Script schreibt `<out>/ga4.json` (oder `ga4-pulse.json`, bei `--max-history`
   "totals": {"sessions", "total_users (null, wenn die Gesamtzeile fehlt)", "purchase_revenue"},
   "property": {"property_id", "display_name", "measurement_ids",
                "streams": [{"stream_id", "measurement_id"}], "note"},
+  "scope": {"filter": {"shop_hostnames", "ga4_stream_ids"}, "period", "note",
+            "rows": [{"stream_id", "stream_name", "measurement_id", "host_name",
+                      "sessions", "purchases", "purchase_revenue", "included"}],
+            "transactions": {"purchases", "transactions", "counted_more_than_once",
+                             "in_multiple_streams", "purchases_without_transaction_id",
+                             "multiple_id_formats",
+                             "by_stream": [{"stream_id", "purchases", "transactions",
+                                            "id_formats": [{"format", "transactions"}],
+                                            "multiple_id_formats"}],
+                             "in_scope": {"purchases", "transactions", "id_formats",
+                                          "multiple_id_formats"}}},
+  "filters": {"shop_hostnames", "ga4_stream_ids", "bot_filter": ["Begründung je Regel"]},
   "bot_profiles": {"checked", "flagged", "note", "period", "dimensions", "daily_floor",
                    "profiles": [{"profile", "label", "sessions", "share_of_sessions",
                                  "engagement_rate", "purchases", "purchase_rate", "total_users",
@@ -278,8 +322,13 @@ Das Script schreibt `<out>/ga4.json` (oder `ga4-pulse.json`, bei `--max-history`
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
-  --property <id> --creds "$PTAI_GOOGLE_CREDENTIALS" --check
+  --property <id> --creds "$PTAI_GOOGLE_CREDENTIALS" --check \
+  --config reporting/config.json
 ```
+
+- Die OK-Zeile nennt den Shop-Filter aus der Config oder "ohne Shop-Filter".
+- Hat die Property mehr als eine Zeile je Stream und Hostname: die Tabelle der letzten 28 Tage (Sitzungen und Käufe, `im Filter` markiert), je Stream Käufe, Transaktions-IDs und deren Formen, und eine Warnung bei doppelt ankommenden Käufen.
+- Die letzte Zeile bleibt die der Mess-IDs.
 
 ## Fehlerbilder
 

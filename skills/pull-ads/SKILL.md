@@ -52,12 +52,25 @@ Fehlt Freigabe oder Zugang:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ads/scripts/ads_pull.py" \
   --customer-id <kundennummer> --creds "$PTAI_GOOGLE_CREDENTIALS" \
-  --max-history --out "reporting/data/<run-id>"
+  --max-history --config reporting/config.json --out "reporting/data/<run-id>"
 ```
 
+- `--config` an jeden Aufruf, auch an `--check`: mit `shop_hostnames` zählt der Pull nur, was auf diesem Shop landet (nächster Abschnitt).
 - `--login-customer-id` nur beim Zugriff über ein Verwaltungskonto.
 - `--check` prüft Zugang und Währung, ohne Snapshot.
 - Kontobeginn wird **gemessen**: `--max-history` fragt ab 2010 und nimmt den frühesten Tag mit Daten, wie `pull-gsc` und `pull-ga4`.
+
+## Ein Werbekonto für mehrere Stores
+
+Häufig: eine Marke mit mehreren Shopify-Stores (je Markt eine Subdomain) wirbt aus einem Konto. Ohne Filter schriebe der Audit eines Stores ihm die Kampagnen aller zu.
+
+- **Das Merkmal ist die Ziel-Domain, nie das Land.** Am 07.10.2026 an einem echten Konto: die Kampagnen für ein Land landeten fast vollständig auf dem globalen Store, nicht auf dem des Landes. Umgekehrt braucht ein Store, der in viele Länder verkauft, keinen Filter, solange das Konto nur ihn bewirbt.
+- Ob ein Filter nötig ist, misst `audit.scope` (Skill `setup`, Ablauf Schritt 5). Ohne `shop_hostnames` in der Config zieht der Pull das ganze Konto.
+- **Gezählt wird, was auf dem Shop landet**, je Kampagne und Monat als Anteil der Kosten auf den Shop-Domains, aus der Ziel-URL-Ansicht (`landing_page_view`). Die Ansicht liefert für jede Kampagne mit Kosten seit Kontobeginn Zeilen; ihre Kosten liegen höchstens rund zwei Prozent neben denen der Kampagnen.
+- Kampagnen mit höchstens zehn Prozent auf dem Shop (`foreign`) fallen ganz heraus, alle anderen zählen mit ihrem Anteil: Kosten, Klicks, Impressionen, Conversions und Umsatz. Der Impression Share bleibt, er ist ein Anteil.
+- **Anzeigengruppen und Suchbegriffe** lassen sich nicht nach Ziel-Domain aufteilen. Sie enthalten die gezählten Kampagnen ganz; ihre Summen sind deshalb nicht gegen `by_month` zu halten.
+- Bei `--max-history` beginnen `history_from` und `period.start` mit der ersten Kampagne dieses Shops, nicht mit dem Konto.
+- **`scope.cost_to_other_stores` ist ein Befund:** Kampagnen dieses Shops schicken einen Teil der Klicks auf andere Stores, meist über einzelne Anzeigen oder Sitelinks mit der falschen Domain. Am echten Konto lag das bei den Markenkampagnen je Land bei gut 15 Prozent.
 
 ## Snapshot-Schema
 
@@ -79,7 +92,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ads/scripts/ads_pull.py" \
                   "cost", "conversions", "conversions_value", "roas"}],
   "summary_search_terms": {"search_terms_total", "terms_without_conversion",
                             "cost_without_conversion", "cost_total"},
-  "search_terms_without_conversion": [{"term", "campaign", "cost", "clicks", "impressions"}]
+  "search_terms_without_conversion": [{"term", "campaign", "cost", "clicks", "impressions"}],
+  "scope": {"shop_hostnames", "cost_on_shop", "cost_to_other_stores", "foreign_cost",
+            "campaigns": [{"campaign_id", "name", "assignment", "shop_share", "cost",
+                           "cost_on_shop", "hosts"}]},
+  "filters": {"shop_hostnames"}
 }
 ```
 

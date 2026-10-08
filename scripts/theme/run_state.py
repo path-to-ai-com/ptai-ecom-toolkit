@@ -15,6 +15,15 @@ Aufruf:
     python3 -m theme.run_state phase --run-id <id> --phase <phase> --status <status>
     python3 -m theme.run_state gate --run-id <id> --gate <gate> --decided-by <name> [--note <text>]
     python3 -m theme.run_state set --run-id <id> --key <key> --value <value>
+    python3 -m theme.run_state log --run-id <id> --kind <kind> --text <text> [--phase <phase>]
+
+Neben `state.json` liegt `journal.jsonl`: eine Zeile je Ereignis mit Zeitstempel.
+`phase`, `gate` und `set` schreiben ihr Ereignis selbst, `log` hält fest, was
+sonst nur im Gespräch stünde: jede Frage an das Team, jede Wartezeit auf einen
+Menschen, jeden Fehler, jede Handarbeit. Der Stand sagt, wo ein Lauf steht, das
+Journal, wie er dorthin kam und wo er Zeit verloren hat. Eingeführt im Oktober
+2026, als sich aus Stand und Commits nicht ablesen ließ, warum ein Lauf acht
+Stunden in Phase 2 stand.
 """
 import argparse
 import json
@@ -41,6 +50,9 @@ GATES = {
 # Werte, die neben Phasen und Gates im Stand stehen dürfen.
 KEYS = ("live_theme_id", "draft_theme_id", "snapshot", "last_sync", "freeze_from",
         "freeze_until", "published_at")
+
+# Arten eines Journal-Eintrags über `log`.
+LOG_KINDS = ("question", "answer", "wait", "manual", "error", "note")
 
 
 class StateError(Exception):
@@ -119,6 +131,28 @@ class MigrationState:
             "values": self._data["values"],
         }
 
+    def log(self, kind: str, text: str, phase: str | None = None, now: datetime | None = None,
+            **extra) -> dict:
+        """Hängt ein Ereignis an `journal.jsonl` an. Nie umschreiben, nur anhängen."""
+        if kind not in LOG_KINDS + ("phase", "gate", "set"):
+            raise StateError(f"unbekannte Art: {kind!r}, erlaubt sind {LOG_KINDS}")
+        if phase is not None and phase not in PHASES:
+            raise StateError(f"unbekannte Phase: {phase!r}")
+        entry = {"at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds"), "kind": kind,
+                 "phase": phase or self.current_phase(), "text": text, **extra}
+        path = journal_path(self.workspace, self.run_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return entry
+
+    def current_phase(self) -> str | None:
+        """Die laufende Phase, sonst die nächste offene."""
+        for phase in PHASES:
+            if self._data["phases"][phase] == "running":
+                return phase
+        return self.next_phase()
+
     def save(self) -> Path:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.parent / (self.path.name + ".tmp")
@@ -129,6 +163,10 @@ class MigrationState:
 
 def state_path(workspace: Path, run_id: str) -> Path:
     return Path(workspace) / "reporting" / "runs" / run_id / "state.json"
+
+
+def journal_path(workspace: Path, run_id: str) -> Path:
+    return Path(workspace) / "reporting" / "runs" / run_id / "journal.jsonl"
 
 
 def default_run_id(today: date | None = None) -> str:
@@ -170,7 +208,7 @@ def latest_run_id(workspace: Path) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="theme.run_state")
-    parser.add_argument("command", choices=("show", "init", "phase", "gate", "set"))
+    parser.add_argument("command", choices=("show", "init", "phase", "gate", "set", "log"))
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--run-id")
     parser.add_argument("--phase")
@@ -180,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--note", default="")
     parser.add_argument("--key")
     parser.add_argument("--value")
+    parser.add_argument("--kind")
+    parser.add_argument("--text", default="")
     args = parser.parse_args(argv)
     workspace = Path(args.workspace)
     try:
@@ -189,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise StateError(f"Stand für {run_id} existiert schon, weiter mit show.")
             state = new(workspace, run_id)
             state.save()
+            state.log("phase", "init")
         else:
             run_id = args.run_id or latest_run_id(workspace)
             if not run_id:
@@ -197,12 +238,21 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "phase":
                 state.set_phase(args.phase, args.status)
                 state.save()
+                state.log("phase", args.status, phase=args.phase)
             elif args.command == "gate":
                 state.decide_gate(args.gate, args.decided_by, args.note)
                 state.save()
+                state.log("gate", args.note, gate=args.gate, decided_by=args.decided_by)
             elif args.command == "set":
                 state.set_value(args.key, args.value)
                 state.save()
+                state.log("set", f"{args.key}={args.value}")
+            elif args.command == "log":
+                if args.kind not in LOG_KINDS:
+                    raise StateError(f"--kind muss eines von {LOG_KINDS} sein")
+                if not args.text.strip():
+                    raise StateError("--text fehlt")
+                state.log(args.kind, args.text, phase=args.phase)
     except (StateError, FileNotFoundError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))
         return 2

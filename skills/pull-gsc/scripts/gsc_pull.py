@@ -7,7 +7,7 @@ Aufruf:
               [--pulse]
   gsc_pull.py --site <siteUrl> --creds <sa.json> --max-history --out <dir> [--end YYYY-MM-DD]
               [--inspect-urls URL[,URL...]]
-  gsc_pull.py --site <siteUrl> --creds <sa.json> --check
+  gsc_pull.py --site <siteUrl> --creds <sa.json> --check [--config reporting/config.json | --domain <host>]
 
 Schreibt <out>/gsc.json (bzw. gsc-pulse.json bei --pulse, gsc-max-history.json bei
 --max-history) mit period, totals, top_queries, top_pages, top_countries, devices,
@@ -15,6 +15,10 @@ search_types, daily, sitemaps, index_sample und optional comparison. --max-histo
 ermittelt --start selbst: gemessen statt angenommen, weil die API für Tage außerhalb
 der vorgehaltenen Historie schlicht keine Zeile liefert. Das Ergebnis landet
 zusätzlich als history_from im Snapshot.
+Mit --config oder --domain prüft das Skript zuerst, ob die Property die
+Shop-Domain abdeckt (audit.gsc_scope). Tut sie es nicht, zieht es nichts, und
+--check endet nach der Erreichbarkeitszeile mit Exit 1: eine lesbare Property
+für einen anderen Host liefert sonst still dessen Zahlen.
 Nur Stdlib plus google-auth (über den geteilten Token-Helfer), kein requests.
 """
 import argparse
@@ -30,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 from api_common import describe_error  # noqa: E402
 from google_token import get_access_token  # noqa: E402
+from audit import gsc_scope  # noqa: E402
 
 # {site} muss komplett URL-encodiert sein (quote mit safe=""), sonst zerlegen
 # Doppelpunkt und Slashes von sc-domain:- und URL-Properties den Pfad.
@@ -366,6 +371,11 @@ def main():
                              "sowie history_from im Snapshot")
     parser.add_argument("--check", action="store_true",
                         help="Nur Auth plus Mini-Query testen, Exit 0/1")
+    parser.add_argument("--config",
+                        help="Pfad zu reporting/config.json; liest daraus domain und prüft, "
+                             "ob die Property den Shop abdeckt")
+    parser.add_argument("--domain",
+                        help="Shop-Domain für dieselbe Prüfung ohne Config, z. B. eu.example.de")
     args = parser.parse_args()
 
     if not args.check:
@@ -391,6 +401,16 @@ def main():
     site = args.site
     site_enc = urllib.parse.quote(site, safe="")
 
+    domain = args.domain
+    if args.config and not domain:
+        try:
+            domain = json.loads(Path(args.config).read_text(encoding="utf-8")).get("domain")
+        except (OSError, ValueError, AttributeError) as exc:
+            sys.exit(f"Fehler beim Lesen von {args.config}: {exc}")
+    scope_problem = gsc_scope.mismatch(site, domain)
+    if scope_problem and not args.check:
+        sys.exit(f"Fehler: {scope_problem} Nichts gezogen.")
+
     try:
         token = get_access_token(args.creds, "webmasters")
     except Exception as exc:
@@ -398,6 +418,8 @@ def main():
 
     if args.check:
         check(site, site_enc, token)
+        if scope_problem:
+            sys.exit(f"Fehler: {scope_problem}")
         return
 
     inspect_list = [u.strip() for chunk in args.inspect_urls

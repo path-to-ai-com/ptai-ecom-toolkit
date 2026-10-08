@@ -15,16 +15,24 @@ in der SKILL.md ist abgearbeitet.
 Beträge kommen als Micros und werden umgerechnet. Die Währung steht in
 `customer.currency_code` und geht mit in den Snapshot: ein Euro-Betrag aus einem
 Konto in Franken wäre eine falsche Zahl, die niemandem auffällt.
+
+Mit `--config` und `shop_hostnames` zählt der Pull je Kampagne und Monat nur
+den Anteil, der auf den Domains des Shops landet (siehe assign_campaigns). Ein
+Werbekonto für mehrere Stores einer Marke ist häufig, und ohne Filter
+schriebe der Audit eines Stores ihm die Kampagnen aller zu.
 """
 import argparse
 import json
 import sys
+import urllib.parse
 from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
 import ads_client  # noqa: E402
+from audit import config as run_config  # noqa: E402
+from audit.shop_hosts import classify_campaigns, is_shop_host  # noqa: E402
 from google_token import get_access_token  # noqa: E402
 
 MAX_TERMS = 300
@@ -54,7 +62,33 @@ def detail_period(today: date) -> tuple[str, str]:
     return date(year, month, 1).isoformat(), end.isoformat()
 
 
-def query_campaigns(start: str, end: str) -> str:
+def campaign_condition(campaign_ids) -> str:
+    """Die GAQL-Bedingung für die Kampagnen des Shops, leer ohne Filter.
+
+    `campaign_ids` None heißt kein Filter; eine leere Liste kommt hier nie an,
+    main() fragt dann gar nicht erst.
+    """
+    if campaign_ids is None:
+        return ""
+    return f" AND campaign.id IN ({', '.join(str(int(i)) for i in campaign_ids)})"
+
+
+def query_landing_pages(start: str, end: str) -> str:
+    """Ziel-URL je Kampagne über den Zeitraum, für die Zuordnung zum Shop.
+
+    Am 07.10.2026 an einem echten Konto geprüft: die Ansicht liefert für
+    jede Kampagne mit Kosten in jedem Jahr seit Kontobeginn Zeilen, ihre
+    Kosten liegen höchstens rund zwei Prozent neben denen der Kampagnen.
+    """
+    return (
+        "SELECT campaign.id, campaign.name, segments.month, "
+        "landing_page_view.unexpanded_final_url, "
+        "metrics.clicks, metrics.cost_micros, metrics.conversions, "
+        "metrics.conversions_value FROM landing_page_view "
+        f"WHERE segments.date BETWEEN '{start}' AND '{end}' AND metrics.impressions > 0")
+
+
+def query_campaigns(start: str, end: str, campaign_ids=None) -> str:
     return (
         "SELECT campaign.id, campaign.name, campaign.status, "
         "campaign.advertising_channel_type, segments.date, "
@@ -63,23 +97,26 @@ def query_campaigns(start: str, end: str) -> str:
         "metrics.search_impression_share, "
         "metrics.search_budget_lost_impression_share, "
         "metrics.search_rank_lost_impression_share "
-        f"FROM campaign WHERE segments.date BETWEEN '{start}' AND '{end}'")
+        f"FROM campaign WHERE segments.date BETWEEN '{start}' AND '{end}'"
+        + campaign_condition(campaign_ids))
 
 
-def query_ad_groups(start: str, end: str) -> str:
+def query_ad_groups(start: str, end: str, campaign_ids=None) -> str:
     return (
         "SELECT campaign.name, ad_group.id, ad_group.name, ad_group.status, "
         "metrics.impressions, metrics.clicks, metrics.cost_micros, "
         "metrics.conversions, metrics.conversions_value "
-        f"FROM ad_group WHERE segments.date BETWEEN '{start}' AND '{end}'")
+        f"FROM ad_group WHERE segments.date BETWEEN '{start}' AND '{end}'"
+        + campaign_condition(campaign_ids))
 
 
-def query_search_terms(start: str, end: str) -> str:
+def query_search_terms(start: str, end: str, campaign_ids=None) -> str:
     return (
         "SELECT search_term_view.search_term, campaign.name, "
         "metrics.impressions, metrics.clicks, metrics.cost_micros, "
         "metrics.conversions, metrics.conversions_value "
-        f"FROM search_term_view WHERE segments.date BETWEEN '{start}' AND '{end}'")
+        f"FROM search_term_view WHERE segments.date BETWEEN '{start}' AND '{end}'"
+        + campaign_condition(campaign_ids))
 
 
 def query_history() -> str:
@@ -249,6 +286,100 @@ def shape_search_terms(rows: list) -> dict:
         "search_terms_truncated": len(wasted) > MAX_TERMS}
 
 
+#: Additive Kennzahlen einer Kampagnenzeile, die apply_shares anteilig
+#: kürzt. Die Impression-Share-Werte sind Anteile und bleiben stehen.
+SCALED_METRICS = ("impressions", "clicks", "costMicros", "conversions", "conversionsValue")
+
+
+def assign_campaigns(rows: list, shop_hostnames: list) -> dict:
+    """Welcher Anteil jeder Kampagne zu diesem Shop gehört, aus den Zeilen von
+    query_landing_pages.
+
+    **Gezählt wird, was auf dem Shop landet**, je Kampagne und Monat als
+    Anteil der Kosten auf den Shop-Domains. Eine Kampagne gehört nicht
+    entweder ganz oder gar nicht dazu. Am 07.10.2026 an einem echten Konto:
+    die Markenkampagnen je Land landeten zu gut 80 Prozent auf dem Shop und
+    zum Rest auf anderen Stores derselben Marke, über einzelne Anzeigen und
+    Sitelinks mit der falschen Domain. Mit einer Schwelle von neunzig
+    Prozent wären sie ganz herausgefallen, mit einer niedrigeren ganz
+    hineingezählt worden.
+
+    - `foreign`, höchstens zehn Prozent auf dem Shop: fällt ganz heraus. Das
+      sind die Kampagnen anderer Stores mit einzelnen verirrten Klicks.
+    - `own` und `mixed`: zählen mit ihrem Anteil. Bei `mixed` ist der Rest,
+      der auf andere Stores geht, ein Befund für die SEA-Analyse.
+
+    Das Land einer Kampagne spielt keine Rolle: am selben Konto landeten die
+    Kampagnen für ein Land fast vollständig auf dem globalen Store.
+    """
+    campaigns = classify_campaigns(rows, shop_hostnames)
+    included = {c["campaign_id"] for c in campaigns if c["assignment"] != "foreign"}
+
+    month_cost: dict = {}
+    for row in rows:
+        campaign_id = (row.get("campaign") or {}).get("id")
+        if campaign_id not in included:
+            continue
+        month = ((row.get("segments") or {}).get("month") or "")[:7]
+        url = (row.get("landingPageView") or {}).get("unexpandedFinalUrl") or ""
+        host = urllib.parse.urlsplit(url).hostname or ""
+        cost = _number(_metric(row, "costMicros", 0))
+        bucket = month_cost.setdefault(campaign_id, {}).setdefault(month, [0.0, 0.0])
+        bucket[1] += cost
+        if is_shop_host(host, shop_hostnames):
+            bucket[0] += cost
+    shares = {}
+    for c in campaigns:
+        if c["campaign_id"] not in included:
+            continue
+        months = {m: round(shop / total, 4)
+                  for m, (shop, total) in month_cost.get(c["campaign_id"], {}).items() if total}
+        shares[c["campaign_id"]] = {"overall": c["shop_share"], "months": months}
+
+    def shop_cost(c: dict) -> float:
+        return sum(h["cost"] for host, h in c["hosts"].items() if is_shop_host(host, shop_hostnames))
+
+    def summary(c: dict) -> dict:
+        return {"campaign_id": c["campaign_id"], "name": c["name"],
+                "assignment": c["assignment"], "shop_share": c["shop_share"],
+                "cost": c["cost"], "cost_on_shop": round(shop_cost(c), 2),
+                "hosts": dict(list(c["hosts"].items())[:3])}
+
+    counted = [c for c in campaigns if c["campaign_id"] in included]
+    return {
+        "shop_hostnames": list(shop_hostnames),
+        "shares": shares,
+        "cost_on_shop": round(sum(shop_cost(c) for c in counted), 2),
+        "cost_to_other_stores": round(sum(c["cost"] - shop_cost(c) for c in counted), 2),
+        "foreign_cost": round(sum(c["cost"] for c in campaigns
+                                  if c["campaign_id"] not in included), 2),
+        "campaigns": [summary(c) for c in campaigns],
+    }
+
+
+def apply_shares(rows: list, shares: dict) -> list:
+    """Kampagnenzeilen auf den Anteil des Shops gekürzt, je Kampagne und Monat.
+
+    Ein Monat ohne Zeile in der Ziel-URL-Ansicht nimmt den Anteil der
+    Kampagne über den ganzen Zeitraum. Kampagnen ohne Anteil fallen heraus.
+    """
+    out = []
+    for row in rows:
+        share = shares.get((row.get("campaign") or {}).get("id"))
+        if not share:
+            continue
+        month = ((row.get("segments") or {}).get("date") or "")[:7]
+        factor = share["months"].get(month, share["overall"])
+        if factor is None:
+            continue
+        metrics = dict(row.get("metrics") or {})
+        for name in SCALED_METRICS:
+            if name in metrics:
+                metrics[name] = _number(metrics[name]) * factor
+        out.append(dict(row, metrics=metrics))
+    return out
+
+
 def history_start(rows: list):
     """Der früheste Tag mit Daten, gemessen statt angenommen."""
     days = [(row.get("segments") or {}).get("date") for row in rows]
@@ -279,7 +410,18 @@ def main() -> None:
                         help=f"Google-Ads-API-Version (Default {ads_client.DEFAULT_VERSION})")
     parser.add_argument("--check", action="store_true",
                         help="nur Zugang und Währung prüfen, Exit 0/1")
+    parser.add_argument("--config",
+                        help="Pfad zu reporting/config.json; mit shop_hostnames nur die "
+                             "Kampagnen, die auf den Domains des Shops landen")
     args = parser.parse_args()
+
+    shop_hostnames = []
+    if args.config:
+        try:
+            shop_hostnames = run_config.shop_hostnames(
+                json.loads(Path(args.config).read_text(encoding="utf-8")))
+        except (OSError, ValueError, AttributeError) as exc:
+            sys.exit(f"Fehler beim Lesen von {args.config}: {exc}")
 
     if not args.check and not args.out:
         parser.error("ohne --check ist --out erforderlich")
@@ -296,7 +438,9 @@ def main() -> None:
     currency = info.get("currencyCode")
     if args.check:
         print(f"OK: Google-Ads-Konto {args.customer_id} erreichbar "
-              f"({info.get('descriptiveName')}, Währung {currency})")
+              f"({info.get('descriptiveName')}, Währung {currency}"
+              + (f", nur Kampagnen auf {', '.join(shop_hostnames)})" if shop_hostnames
+                 else ", ohne Shop-Filter)"))
         return
 
     start, end = args.start, args.end
@@ -316,15 +460,38 @@ def main() -> None:
                      "time_zone": info.get("timeZone")},
         "api_version": args.api_version,
     }
-    if history_from:
-        snapshot["history_from"] = history_from
+
+    # Die Zuordnung zum Shop ist so fatal wie die Kampagnen selbst: ohne sie
+    # stünden die Kampagnen aller Stores im Snapshot, als gehörten sie diesem.
+    campaign_ids = None
+    if shop_hostnames:
+        try:
+            scope = assign_campaigns(client.search(query_landing_pages(start, end)),
+                                     shop_hostnames)
+        except ads_client.AdsError as exc:
+            sys.exit(f"Fehler: Ziel-URLs der Kampagnen nicht abrufbar: {exc}")
+        shares = scope.pop("shares")
+        campaign_ids = list(shares)
+        snapshot["scope"] = scope
+        snapshot["filters"] = {"shop_hostnames": shop_hostnames}
 
     # Nur die Kampagnen sind fatal: ohne sie gibt es keine SEA-Baseline. Die
     # übrigen Blöcke scheitern isoliert, wie sitemaps in gsc_pull.py.
-    try:
-        campaign_rows = client.search(query_campaigns(start, end))
-    except ads_client.AdsError as exc:
-        sys.exit(f"Fehler: Kampagnen nicht abrufbar: {exc}")
+    campaign_rows = []
+    if campaign_ids != []:
+        try:
+            campaign_rows = client.search(query_campaigns(start, end, campaign_ids))
+        except ads_client.AdsError as exc:
+            sys.exit(f"Fehler: Kampagnen nicht abrufbar: {exc}")
+    if shop_hostnames:
+        campaign_rows = apply_shares(campaign_rows, shares)
+    if shop_hostnames and history_from:
+        # Der Beginn dieses Shops im Konto, nicht der des Kontos: ein anderer
+        # Store kann Jahre früher geworben haben.
+        history_from = history_start(campaign_rows) or history_from
+        snapshot["period"]["start"] = history_from
+    if history_from:
+        snapshot["history_from"] = history_from
     snapshot["by_month"] = by_month(campaign_rows)
 
     # Struktur und Suchbegriffe über den Detailzeitraum, siehe DETAIL_MONTHS.
@@ -335,8 +502,12 @@ def main() -> None:
         [row for row in campaign_rows
          if detail_start <= (row.get("segments") or {}).get("date", "") <= detail_end]))
 
-    for key, query in (("ad_groups", query_ad_groups(detail_start, detail_end)),
-                        ("search_terms", query_search_terms(detail_start, detail_end))):
+    for key, query in (("ad_groups", query_ad_groups(detail_start, detail_end, campaign_ids)),
+                        ("search_terms",
+                         query_search_terms(detail_start, detail_end, campaign_ids))):
+        if campaign_ids == []:
+            snapshot.update(shape_search_terms([]) if key == "search_terms" else {key: []})
+            continue
         try:
             rows = client.search(query)
         except ads_client.AdsError as exc:
@@ -355,6 +526,18 @@ def main() -> None:
     spend = sum(m["cost"] for m in snapshot["by_month"])
     print(f"Geschrieben: {path} ({len(snapshot['by_month'])} Monate, "
           f"{round(spend, 2)} {currency} Ausgaben)")
+    scope = snapshot.get("scope")
+    if scope:
+        mixed = [c for c in scope["campaigns"] if c["assignment"] == "mixed"]
+        print(f"Shop-Filter: {', '.join(shop_hostnames)}; gezählt {scope['cost_on_shop']} "
+              f"{currency} auf dem Shop, ohne {scope['foreign_cost']} {currency} aus "
+              "Kampagnen anderer Stores")
+        if scope["cost_to_other_stores"]:
+            print(f"Befund: {scope['cost_to_other_stores']} {currency} aus Kampagnen dieses Shops "
+                  f"landeten auf anderen Stores, davon {len(mixed)} Kampagnen zu mehr als "
+                  "zehn Prozent (scope.campaigns)")
+        if not scope["cost_on_shop"]:
+            print("Warnung: keine Kampagne landet auf den Domains dieses Shops")
 
 
 if __name__ == "__main__":

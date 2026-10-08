@@ -1,7 +1,7 @@
 {
   "name": "ptai-ecom",
   "displayName": "PtAI E-Com",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Claude-Code-Plugin für Shopify-Shops: Audit, audit-light, Monats-Report, Wochen-Puls, Datenabfragen aus Shopify, GA4, Search Console, PageSpeed, DataForSEO, Google Ads und AI-Suche sowie Theme-Migration auf ein aktuelles Theme wie Horizon.",
   "author": {
     "name": "Yves Schleich",

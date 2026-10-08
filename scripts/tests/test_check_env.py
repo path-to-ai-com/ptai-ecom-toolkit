@@ -4,6 +4,7 @@ Kein Aufruf nach außen: CHECK_ENV_OFFLINE=1. Die Tests vergleichen Workspaces
 miteinander statt absolute Exit-Codes zu prüfen, weil Chrome, jq und Shopify
 CLI je Rechner verschieden sind.
 """
+import http.server
 import json
 import os
 import re
@@ -11,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -354,6 +356,168 @@ class TestTiers(CheckEnvCase):
         rc_none, out = self.run_check(ws, self.central("none.env"))
         self.assertEqual(rc_key, rc_none, out)
         self.assertIn("GEO-Keys", self.closing(out, "Offen, empfohlen:"), out)
+
+
+class TestGscScope(CheckEnvCase):
+    """Eine lesbare Search-Console-Property für einen anderen Host (audit.gsc_scope).
+
+    Der Test-Call ist dafür grün, deshalb prüft der Check die Abdeckung selbst
+    und ohne Netz.
+    """
+
+    def test_a_property_of_another_host_is_broken_and_counts(self):
+        rc_ok, _ = self.run_check(self.workspace("covers"), self.central())
+        ws = self.workspace("other-host", domain="https://eu.beispielshop.example",
+                            gsc_site="https://beispielshop.example/")
+        rc, out = self.run_check(ws, self.central())
+        self.assertTrue(any("Search Console: Die Search-Console-Property https://beispielshop.example/ "
+                            "deckt den Shop eu.beispielshop.example nicht ab" in l
+                            for l in out.splitlines()), out)
+        self.assertNotIn("GSC-Test-Call", out)
+        self.assertIn("Google Search Console", next(
+            (l for l in out.splitlines() if l.startswith("Pflicht offen:")), ""), out)
+        self.assertEqual(rc, rc_ok + 1, out)
+
+    def test_a_parent_domain_property_covers_the_subdomain(self):
+        ws = self.workspace(domain="https://eu.beispielshop.example",
+                            gsc_site="sc-domain:beispielshop.example")
+        _, out = self.run_check(ws, self.central())
+        self.assertNotIn("deckt den Shop", out)
+        self.assertIn("GSC-Test-Call: ausgelassen", out)
+
+
+class _FakePortal(http.server.BaseHTTPRequestHandler):
+    """Das Cockpit für einen Test: beantwortet nur die Shopify-Abfrage."""
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(length)
+        status, payload = self.server.answer
+        if self.headers.get("Authorization") != f"Bearer {PORTAL_TOKEN}":
+            status, payload = 401, {"error": "unauthorized"}
+        elif self.path != "/api/plugin/beispielmarke/eu/shopify":
+            status, payload = 404, {"error": "not found"}
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+PORTAL_TOKEN = "cockpit-token-im-test"
+PORTAL_REF = "portal:beispielmarke/eu"
+
+
+class TestPortal(CheckEnvCase):
+    """Shop aus dem Cockpit (setup --from-portal, audit.portal).
+
+    Bis 07.10.2026 verlangte der Check eine Store-Auth der CLI, machte aus dem
+    Verweis portal:<brand>/<shop> einen Dateipfad im Workspace und ließ die
+    Google-Test-Calls aus, während jeder Pull lief.
+    """
+
+    def portal_workspace(self, name="portal", sources=None, **overrides):
+        return self.workspace(name, env_lines=[f"PTAI_GOOGLE_CREDENTIALS={PORTAL_REF}"],
+                              sources=sources, portal={"brand": "beispielmarke", "shop": "eu"},
+                              **{"google_ads_customer_id": "1234567890", **overrides})
+
+    def portal_central(self, url="https://cockpit.example"):
+        return self.central("portal.env", PTAI_PORTAL_URL=url, PTAI_PORTAL_TOKEN=PORTAL_TOKEN)
+
+    def test_the_reference_is_not_a_file_and_required_is_complete(self):
+        rc_file, _ = self.run_check(self.workspace("file"), self.central(),
+                                    path_prefix=self.shopify_stub())
+        rc, out = self.run_check(self.portal_workspace(), self.portal_central())
+        self.assertNotIn("die Datei existiert nicht", out)
+        self.assertNotIn("Creds-Datei", out)
+        self.assertNotIn("Auth für", out)
+        self.assertIn(f"Zugang über das Cockpit ({PORTAL_REF})", out)
+        self.assertIn("Cockpit: PTAI_PORTAL_URL und PTAI_PORTAL_TOKEN gefunden (zentral)", out)
+        for call in ("Shopify-Test-Call über das Cockpit", "GA4-Test-Call", "GSC-Test-Call",
+                     "Google-Ads-Test-Call"):
+            with self.subTest(call=call):
+                self.assertIn(f"{call}: ausgelassen", out)
+        self.assertIn("Pflicht vollständig.", out)
+        self.assertEqual(rc, rc_file, out)
+        self.assertNotIn(PORTAL_TOKEN, out)
+
+    def test_a_source_not_connected_in_the_cockpit_says_so(self):
+        # merge_config() setzt nur den eigenen Schalter der Quelle auf false,
+        # bei Shopify also nicht catalogue und shop_tech.
+        ws = self.portal_workspace(sources={"shopify": False, "gsc": False, "ads": False})
+        _, out = self.run_check(ws, self.portal_central())
+        lines = out.splitlines()
+        for label in ("Shopify", "Google Search Console", "Google Ads"):
+            with self.subTest(label=label):
+                self.assertTrue(any(f"{label}: im Cockpit nicht verbunden" in l for l in lines), out)
+        self.assertNotIn("in der Config abgeschaltet", out)
+        self.assertNotIn("Shopify-Test-Call", out)
+        required_open = next((l for l in lines if l.startswith("Pflicht offen:")), "")
+        self.assertIn("Shopify", required_open, out)
+        self.assertIn("Google Search Console", required_open, out)
+        self.assertIn("- Shopify: im Cockpit verbinden.", out)
+        self.assertNotIn("- Google Ads: im Cockpit verbinden.", out)
+
+    def test_a_source_switched_off_by_setup_names_its_reason(self):
+        # Verbunden, aber falsch: setup schaltet die Search Console ab und
+        # schreibt den Grund. "nicht verbunden" schickte den Kunden in die
+        # falsche Richtung.
+        reason = "Die Search-Console-Property https://beispielshop.example/ deckt den Shop nicht ab."
+        ws = self.portal_workspace(sources={"gsc": False}, source_off_reasons={"gsc": reason})
+        _, out = self.run_check(ws, self.portal_central())
+        self.assertIn(f"Google Search Console: abgeschaltet. {reason}", out)
+        self.assertIn(f"- Google Search Console: im Cockpit neu verbinden. {reason}", out)
+        self.assertNotIn("Google Search Console: im Cockpit nicht verbunden", out)
+
+    def test_a_missing_cockpit_login_counts_once(self):
+        rc_ready, _ = self.run_check(self.portal_workspace("ready"), self.portal_central())
+        rc, out = self.run_check(self.portal_workspace("no-login"), self.central("leer.env"))
+        self.assertIn("Cockpit: PTAI_PORTAL_URL und PTAI_PORTAL_TOKEN nicht gefunden", out)
+        self.assertIn("GA4-Test-Call: nicht möglich (Anmeldung beim Cockpit fehlt", out)
+        self.assertIn("Shopify über das Cockpit: nicht prüfbar (Anmeldung beim Cockpit fehlt", out)
+        self.assertEqual(rc, rc_ready + 1, out)
+
+    def test_no_service_account_request_without_a_service_account(self):
+        ws = self.portal_workspace(drop=("google_ads_customer_id",))
+        _, out = self.run_check(ws, self.portal_central())
+        self.assertIn("Google Ads: google_ads_customer_id fehlt in der Config. Kennt das Cockpit", out)
+        self.assertNotIn("Dienstkonto mit der Zugriffsebene", out)
+
+    def run_against(self, answer, **overrides):
+        # Online gegen ein Cockpit auf 127.0.0.1. GA4, Search Console und Ads
+        # stehen auf nicht verbunden und die zentrale Datei hält keinen anderen
+        # Schlüssel, damit kein Aufruf den Rechner verlässt.
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _FakePortal)
+        server.answer = answer
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        ws = self.portal_workspace(sources={"ga4": False, "gsc": False, "ads": False}, **overrides)
+        central = self.portal_central(f"http://127.0.0.1:{server.server_port}")
+        _, out = self.run_check(ws, central, extra_env={
+            "CHECK_ENV_OFFLINE": "0", "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"})
+        self.assertNotIn(PORTAL_TOKEN, out)
+        return out
+
+    def test_shopify_is_checked_through_the_cockpit(self):
+        out = self.run_against((200, {"data": {"shop": {"myshopifyDomain": "beispielshop.myshopify.com"}}}))
+        self.assertIn("Shopify: Abfrage über das Cockpit beantwortet (beispielshop.myshopify.com)", out)
+
+    def test_a_different_shop_in_the_cockpit_is_broken(self):
+        out = self.run_against((200, {"data": {"shop": {"myshopifyDomain": "beispielshop-at.myshopify.com"}}}))
+        self.assertIn("das Cockpit antwortet für beispielshop-at.myshopify.com, "
+                      "die Config nennt beispielshop.myshopify.com", out)
+
+    def test_shopify_not_connected_in_the_cockpit_asks_the_customer(self):
+        out = self.run_against((409, {"error": "not_connected", "status": "disconnected"}))
+        self.assertIn("Shopify über das Cockpit: fehlgeschlagen", out)
+        self.assertIn("nicht verbunden", out)
+        self.assertIn("- Shopify: im Cockpit verbinden.", out)
 
 
 class TestBrowser(CheckEnvCase):

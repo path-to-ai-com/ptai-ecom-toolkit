@@ -65,7 +65,7 @@ Absender ist ein Befund.**
 | Einbindungsart | Überlebt | Handlung im neuen Theme |
 |---|---|---|
 | App-Block | nein | neu platzieren, nur auf lebenden Templates, Section mit `@app` |
-| App-Embed | nein, je Theme aktiviert | im Theme-Editor des neuen Themes aktivieren, danach `settings_data.json` prüfen |
+| App-Embed | nein, je Theme aktiviert | `build-theme` übernimmt den Block mit Zustand in `settings_data.json` des Ziels; nach dem Upload zurücklesen |
 | Theme-Code | nein | bevorzugt durch Embed oder Block der App ersetzen, sonst als eigene Datei mit Präfix portieren oder streichen |
 | Skript-Tag | ja | läuft weiter, endet aber zur Frist; Nachfolger einplanen, meist ein Embed. Wird gestrichen, die App deinstallieren, sonst lädt sie weiter |
 | Web Pixel, Checkout, Functions, Rabatte, Backend | ja | nur aufnehmen; Doppelmessung gegen neue Theme-Einbindungen prüfen |
@@ -103,8 +103,9 @@ per Asset-API ins Theme geschrieben hat, bleibt liegen.
 1. Reihenfolge: erst was Umsatz trägt (Suche, Bewertungen, Warenkorb), dann Consent, dann der Rest.
 2. Je Einbindung festhalten: wiederhergestellt, auf welchem Seitentyp geprüft, mit welchem Ergebnis
    (`verified_draft`).
-3. App-Embeds werden im Theme-Editor des Entwurfs aktiviert. Eine App kann ein Embed nicht selbst
-   einschalten, nur per Deep Link anbieten.
+3. App-Embeds kommen per Upload in den Entwurf: der Block aus `settings_data.json` des Live-Themes,
+   unverändert, im selben Shop. Eine App kann ein Embed nicht selbst einschalten; den Editor braucht es
+   nur, wenn Shopify einen Block verworfen hat.
 4. App-Blöcke, die leer rendern (ein Produkt ohne passende Daten), werden ausgeblendet, nicht
    übernommen, nur weil live dasselbe steht.
 

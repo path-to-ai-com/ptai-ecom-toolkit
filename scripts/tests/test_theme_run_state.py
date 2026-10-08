@@ -83,3 +83,40 @@ class RunStateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JournalTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ws = str(Path(tmp.name))
+
+    def run_cli(self, *args) -> int:
+        with contextlib.redirect_stdout(io.StringIO()):
+            return run_state.main([*args, "--workspace", self.ws])
+
+    def journal(self) -> list[dict]:
+        path = run_state.journal_path(Path(self.ws), "2026-01-01-migration")
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+    def test_phase_gate_und_set_schreiben_ihr_ereignis_selbst(self):
+        self.run_cli("init", "--run-id", "2026-01-01-migration")
+        self.run_cli("phase", "--phase", "0-setup", "--status", "running")
+        self.run_cli("gate", "--gate", "G1-decisions", "--decided-by", "Beispielperson", "--note", "alles so")
+        self.run_cli("set", "--key", "live_theme_id", "--value", "000000000000")
+        kinds = [entry["kind"] for entry in self.journal()]
+        self.assertEqual(kinds, ["phase", "phase", "gate", "set"])
+        self.assertEqual(self.journal()[2]["decided_by"], "Beispielperson")
+
+    def test_log_haengt_an_und_nimmt_die_laufende_phase(self):
+        self.run_cli("init", "--run-id", "2026-01-01-migration")
+        self.run_cli("phase", "--phase", "0-setup", "--status", "running")
+        self.assertEqual(self.run_cli("log", "--kind", "question", "--text", "Wie lautet die Shop-Adresse?"), 0)
+        entry = self.journal()[-1]
+        self.assertEqual((entry["kind"], entry["phase"]), ("question", "0-setup"))
+
+    def test_log_ohne_text_oder_mit_fremder_art_ist_ein_fehler(self):
+        self.run_cli("init", "--run-id", "2026-01-01-migration")
+        self.assertEqual(self.run_cli("log", "--kind", "question"), 2)
+        self.assertEqual(self.run_cli("log", "--kind", "phase", "--text", "x"), 2)
+

@@ -193,5 +193,69 @@ class TestCampaigns(unittest.TestCase):
         self.assertEqual(ads_pull.shape_campaigns(rows)["campaigns"][0]["name"], "gross")
 
 
+def landing(campaign_id, name, url, clicks, cost_micros, month="2026-01-01"):
+    return {"campaign": {"id": campaign_id, "name": name}, "segments": {"month": month},
+            "landingPageView": {"unexpandedFinalUrl": url},
+            "metrics": {"clicks": str(clicks), "costMicros": str(cost_micros),
+                        "conversions": 0, "conversionsValue": 0}}
+
+
+class TestShopFilter(unittest.TestCase):
+    """Ein Werbekonto für mehrere Stores: nur die Kampagnen dieses Shops.
+
+    Das Merkmal ist die Ziel-Domain, nicht das Land. Am 07.10.2026 an einem
+    echten Konto: die Kampagnen für ein Land landeten auf einem anderen Store.
+    """
+
+    SHOP = ["eu.beispielshop.test"]
+
+    def test_without_filter_the_queries_are_unchanged(self):
+        self.assertNotIn("campaign.id IN", ads_pull.query_campaigns("2026-01-01", "2026-01-31"))
+        self.assertEqual(ads_pull.campaign_condition(None), "")
+
+    def test_every_query_carries_the_campaign_filter(self):
+        for query in (ads_pull.query_campaigns("2026-01-01", "2026-01-31", ["11", "12"]),
+                      ads_pull.query_ad_groups("2026-01-01", "2026-01-31", ["11", "12"]),
+                      ads_pull.query_search_terms("2026-01-01", "2026-01-31", ["11", "12"])):
+            with self.subTest(query=query[:40]):
+                self.assertTrue(query.endswith(" AND campaign.id IN (11, 12)"))
+
+    def test_campaign_ids_must_be_numbers(self):
+        with self.assertRaises(ValueError):
+            ads_pull.campaign_condition(["11) OR (1=1"])
+
+    def test_campaigns_count_with_the_share_that_lands_on_the_shop(self):
+        rows = [landing("11", "DE Shopping", "https://eu.beispielshop.test/p", 100, 50_000_000),
+                landing("12", "UK PMax", "https://beispielshop.test/p", 95, 40_000_000),
+                landing("12", "UK PMax", "https://eu.beispielshop.test/p", 5, 2_000_000),
+                landing("13", "Brand DE", "https://eu.beispielshop.test/", 80, 8_000_000),
+                landing("13", "Brand DE", "https://beispielshop.test/all", 20, 2_000_000)]
+        scope = ads_pull.assign_campaigns(rows, self.SHOP)
+        self.assertEqual(set(scope["shares"]), {"11", "13"})
+        self.assertEqual(scope["shares"]["13"]["months"], {"2026-01": 0.8})
+        self.assertEqual(scope["cost_on_shop"], 58.0)
+        self.assertEqual(scope["cost_to_other_stores"], 2.0)
+        self.assertEqual(scope["foreign_cost"], 42.0)
+        self.assertEqual({c["campaign_id"]: c["assignment"] for c in scope["campaigns"]},
+                         {"11": "own", "12": "foreign", "13": "mixed"})
+
+    def test_shares_cut_the_daily_rows_per_month(self):
+        shares = {"1": {"overall": 0.5, "months": {"2026-01": 0.8}}}
+        rows = [row("2026-01-15", 10_000_000, conversions=2.0, value=100.0),
+                row("2026-02-15", 10_000_000, conversions=2.0, value=100.0)]
+        cut = ads_pull.apply_shares(rows, shares)
+        self.assertEqual([r["metrics"]["costMicros"] for r in cut], [8_000_000, 5_000_000])
+        self.assertEqual(cut[0]["metrics"]["conversionsValue"], 80.0)
+        self.assertEqual(cut[0]["metrics"]["searchImpressionShare"], 0.7)
+        months = ads_pull.by_month(cut)
+        self.assertEqual([m["cost"] for m in months], [8.0, 5.0])
+        self.assertEqual(ads_pull.apply_shares(rows, {}), [])
+
+    def test_www_belongs_to_the_shop(self):
+        rows = [landing("11", "Brand", "https://www.beispielshop.test/", 10, 1_000_000)]
+        self.assertEqual(list(ads_pull.assign_campaigns(rows, ["beispielshop.test"])["shares"]),
+                         ["11"])
+
+
 if __name__ == "__main__":
     unittest.main()

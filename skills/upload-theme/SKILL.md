@@ -158,14 +158,20 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.translations registe
   Übersetzung aus.
 - **Store-Übersetzungen nie ändern.** Produkte, Seiten und Menüs gehören beiden Themes.
 
-### Was ein Mensch im Entwurf tun muss
+### App-Embeds prüfen
 
-App-Embeds lassen sich weder per Upload noch von der App selbst einschalten.
+Die App-Embeds kommen mit `config/settings_data.json` aus `build-theme` in den Entwurf, kein Mensch schaltet
+sie im Editor ein. Belegt in einer Migration im September 2026: die Embeds standen im ersten Neubau und
+liefen im Entwurf.
 
-1. Aus `apps.json` jedes Embed mit `decision: keep` auflisten, das im Theme-Editor des Entwurfs unter den
-   App-Einbettungen eingeschaltet werden muss.
-2. Nach dem Einschalten `config/settings_data.json` des Entwurfs prüfen.
-3. Die Datei ins Ziel-Repo zurückholen, damit der nächste Upload die Aktivierung nicht überschreibt.
+1. Nach dem Zurücklesen jedes Embed aus dem Report von `build-theme` mit `carried: true` in der
+   zurückgelesenen `settings_data.json` suchen.
+2. Fehlt eines, hat Shopify den Block verworfen, meist weil die App nicht installiert ist oder die
+   Erweiterung eine neue ID hat. Nur dann braucht es einen Menschen: App installieren oder im Editor
+   einschalten. Danach die Datei ins Ziel-Repo zurückholen, damit der nächste Upload die Aktivierung
+   nicht überschreibt.
+3. Eine App, die nicht über ein Embed läuft (etwa eine Neuinstallation wie Analyzify), ist keine Aufgabe
+   für den Entwurf, sondern eine Entscheidung aus G1. Sie steht nicht in der Meldung an das Team.
 
 ## Ergebnis
 
@@ -173,7 +179,7 @@ App-Embeds lassen sich weder per Upload noch von der App selbst einschalten.
   registriert, Live-Theme nachweislich unverändert.
 - Die Testansicht als Link: `https://<domain>/?preview_theme_id=<draft-theme-id>`.
 - Eine Meldung mit ID, Zahl der Dateien, Abweichungen, registrierten Übersetzungen und den Embeds, die
-  ein Mensch einschalten muss.
+  Shopify verworfen hat (im Normalfall keines).
 
 ## Fehlerbilder
 

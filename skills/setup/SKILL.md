@@ -24,8 +24,10 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal check --brand
 - `check` zeigt je Quelle den Stand im Cockpit und holt jeden Zugang einmal, ohne einen Wert auszugeben.
 - Anmeldung mit `PTAI_PORTAL_URL` und `PTAI_PORTAL_TOKEN` aus `~/.config/ptai-ecom/.env`. Fehlen sie, bricht der Befehl ab.
 - Kein Rückfall: Eine im Cockpit nicht verbundene Quelle steht in der Config auf `false`; ein Pull darauf bricht ab, statt ein Dienstkonto zu verwenden.
+- **Verbunden heißt nicht passend.** Deckt die Search-Console-Property die Shop-Domain nicht ab (Regel im GSC-Abschnitt), führt das Cockpit sie seit 07.10.2026 als `domain_mismatch`; ältere Verbindungen können noch "connected" heißen. In beiden Fällen schreibt `setup` die Config trotzdem, setzt aber `sources.gsc` auf `false`, legt den Grund unter `source_off_reasons.gsc` ab und warnt. `check` meldet denselben Satz und endet mit Exit 1. Lösung: im Cockpit die passende Property wählen und `setup` erneut laufen lassen; dann ist Search Console wieder an und der Grund verschwindet. Typischer Fall: ein Shop auf einer Subdomain, dessen Google-Konto nur die URL-Präfix-Property der Hauptdomain sieht.
 - Kein Zugang aus dem Cockpit wird in `reporting/` gespeichert.
 - Was das Cockpit nicht kennt (`cwv_urls`, `account_slug`, `drive_path`, `market`), fragt der Wizard normal ab; dafür beginnt der Ablauf unten beim Check.
+- Der Check erkennt den Fall: Shopify prüft er mit einer Abfrage über das Cockpit statt über CLI und Store-Auth, GA4, Search Console und Google Ads mit dem Verweis statt einer Datei. Eine Quelle, die das Cockpit nicht als verbunden führt, steht dort als "im Cockpit nicht verbunden".
 
 ## Ablauf
 
@@ -86,7 +88,19 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal check --brand
    - Platzhalter `<betreiber-mail>`, `<dienstkonto-mail>`, `<shop-domain>` und `<datum>` füllen; die eigene Mailadresse beim Betreiber erfragen.
    - Den Text als Entwurf an den Nutzer geben. Nichts senden.
 
-5. **Abschluss-Angebot:** "Ersten Lauf jetzt starten?" (Skill `report` oder `audit`).
+5. **Scope-Check: enthält jede Quelle genau diesen Shop?** Sobald GA4, Google Ads oder Search Console angeschlossen sind:
+
+   ```bash
+   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.scope
+   ```
+
+   - Misst über die letzten 28 Tage, schreibt nichts: Domains und Länder des Stores aus Shopify, GA4 je Stream und Hostname samt Transaktionen, die Vergleichs-Properties, Hostnamen über die ganze GA4-Historie, die Ads-Konten, die laut GA4 Traffic bringen, jede Kampagne mit ihren Ziel-Domains, die Search Console je Host.
+   - Am Ende: "kein Filter nötig" oder "Filter nötig" mit Gründen, Warnungen und einem Vorschlag für `shop_hostnames` und `ga4_stream_ids`. Den Vorschlag mit dem Nutzer durchgehen und dann in die Config übernehmen.
+   - **Das Merkmal ist die Domain, nie das Land.** Ein Store, der in viele Länder verkauft, braucht keinen Filter, auch nicht bei Kampagnen in mehreren Ländern; ein Filter ist nur nötig, wenn eine Quelle andere Stores enthält.
+   - Jede Warnung ist eine Frage an den Nutzer, nicht an den Kunden: Käufe ohne Hostnamen (ein Filter löschte sie), ein still gewordener Host in der Historie (frühere Domain oder anderer Shop), ein zweiter Absender, ein Ads-Konto außerhalb der Config, verschiedene Währungen.
+   - Stand 07.10.2026: der Filter wirkt in `pull-ga4` und `pull-ads`. Die Search Console zeigt der Check, gefiltert wird sie noch nicht.
+
+6. **Abschluss-Angebot:** "Ersten Lauf jetzt starten?" (Skill `report` oder `audit`).
    - Offene empfohlene Quellen blockieren nichts; sie erscheinen als "nicht verfügbar (Grund)", der Rest läuft.
    - Fehlt eine Pflichtquelle, fragt der Audit vor dem Start selbst noch einmal nach.
 
@@ -101,6 +115,8 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal check --brand
   "shopify_store": "beispielshop-de.myshopify.com",
   "ga4_property_id": "000000000",
   "ga4_compare_properties": [],
+  "shop_hostnames": [],
+  "ga4_stream_ids": [],
   "gsc_site": "sc-domain:beispielshop.de",
   "cwv_urls": ["https://beispielshop.de/", "https://beispielshop.de/products/BELIEBIG"],
   "account_slug": "beispielshop",
@@ -144,6 +160,14 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.portal check --brand
 - Der Audit zieht `ga4_property_id` vollständig und von jeder Property hier nur eine Monatsreihe aus Sitzungen, Käufen und Umsatz, um zu erkennen, welche zum Shop passt.
 - Im Zweifel eintragen. Ohne den Vergleich ist keine Aussage über fehlende oder doppelt gezählte Käufe zuverlässig, und ein falscher Befund dazu steht auf der ersten Seite.
 - Lädt der Shop mehr als eine `G-...`-Mess-ID im Quelltext, gibt es eine zweite Property.
+
+**`shop_hostnames` und `ga4_stream_ids`:** grenzen die Quellen auf diesen Shop ein. Beide optional, leer heißt kein Filter, beide zusammen gelten mit UND. Setzen nach dem Scope-Check (Ablauf, Schritt 5), nie auf Verdacht.
+- Gebraucht, wenn eine Property mehrere Shops sammelt, typisch je Markt eine Subdomain mit eigenem Shopify-Store. Ohne Filter hält der Audit den Umsatz dieses Stores gegen die GA4-Zahlen aller Stores, und die Datenqualität meldet auf der ersten Seite eine Abweichung, die es nicht gibt.
+- `shop_hostnames`: nackte Hostnamen ohne Schema und Pfad, etwa `["eu.beispielshop.de"]`. Alle Domains des Stores, auch die der Märkte und eine frühere Domain, deren Historie in die Baseline gehört.
+- Der Hostnamen-Filter nimmt Ereignisse ohne Hostnamen heraus (`(not set)` oder leer, typisch für serverseitige Kauf-Connectoren). Am 07.10.2026 lagen in einer Connector-Property alle Käufe so; ein Filter hätte jeden gelöscht. Gehören sie zum Shop, `"(not set)"` mit in die Liste, es deckt beide Formen ab.
+- `ga4_stream_ids`: numerische Stream-IDs, nicht die Mess-IDs `G-...`. Gebraucht, wenn der Shop die Tags zweier Streams derselben Property lädt: GA4 entdoppelt dann die Sitzungen, die Käufe nicht. Eingetragen wird der vollständige Stream, erkennbar an Käufen und Transaktions-IDs je Stream, nicht an seinem Namen.
+- Nachprüfen nach dem Setzen mit dem `--check` aus dem GA4-Abschnitt unten, mit `--config`: er zeigt Sitzungen und Käufe je Stream und Hostname der letzten 28 Tage, Käufe gegen Transaktions-IDs je Stream samt deren Formen, und warnt bei doppelt ankommenden Käufen.
+- Zwei Formen der Transaktions-ID im selben Stream (etwa Bestellnummer und numerische Bestell-ID) sind ein zweiter Absender. Den behebt kein Filter, nur der Kunde in seinem Tracking-Setup; die Datenqualität weist ihn aus.
 
 **`gsc_site`:** exakt die Property-Form aus der Search Console (Unterscheidung im GSC-Abschnitt unten).
 
@@ -338,10 +362,12 @@ Eigene Durchleitung nach denselben Regeln.
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
-     --property <ga4_property_id> --creds secrets/google-sa.json --check
+     --property <ga4_property_id> --creds secrets/google-sa.json --check \
+     --config reporting/config.json
    ```
 
    - Pfad aus Schritt 1 des Service-Account-Abschnitts, oder der Pfad aus `PTAI_GOOGLE_CREDENTIALS` in der `.env`, falls abweichend.
+   - Die OK-Zeile nennt den Shop-Filter. Listet die Ausgabe mehr als einen Shop-Hostnamen mit Käufen oder mehr als einen Stream auf dem Shop-Host, `shop_hostnames` und `ga4_stream_ids` setzen (Config-Vorlage oben) und den Check wiederholen.
    - Fehlerbilder (403, google-auth): Skill `pull-ga4`.
    - Meldet `check_env.sh` zusätzlich einen fehlenden GA4-Tag auf der Live-Site: Hinweis an den Kunden. Ohne Tag misst GA4 nichts; das klärt der Kunde.
 
@@ -359,12 +385,16 @@ Eigene Durchleitung nach denselben Regeln:
 3. "Nutzer und Berechtigungen" (englisch "Users and permissions"), Button "Nutzer hinzufügen".
 4. Dienstkonto-Mail einfügen, Berechtigung "Uneingeschränkt" (englisch "Full"), damit auch die URL-Inspektion funktioniert, hinzufügen.
 5. Der Wizard trägt `gsc_site` in die Config ein, mit der richtigen Property-Form: Domain-Property `sc-domain:example.de`, URL-Präfix-Property `https://example.de/` (mit Schema und Slash).
-6. Nachprüfen:
+   - **Die Property muss die Shop-Domain abdecken:** eine URL-Präfix-Property mit `https://`, genau dem Host des Shops und ohne Pfad (`www.` zählt als derselbe Host) oder eine Domain-Property für den Host oder eine übergeordnete Domain. Für `eu.example.de` passen `https://eu.example.de/` und `sc-domain:example.de`, nicht `https://example.de/`: deren Zahlen gehören zu einem anderen Host.
+   - Eine unpassende Property ist ein Fehler beim Anschluss, kein Messbefund. `config.validate()` lehnt die Config ab, solange Search Console an ist, und der Audit startet nicht. Entweder die passende Property eintragen (im Zweifel als Domain-Property anlegen lassen) oder `sources.gsc` bewusst auf `false` setzen.
+6. Nachprüfen, mit `--config`, damit auch die Abdeckung geprüft wird:
 
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-gsc/scripts/gsc_pull.py" \
-     --site <gsc_site> --creds secrets/google-sa.json --check
+     --site <gsc_site> --creds secrets/google-sa.json --check --config reporting/config.json
    ```
+
+   Deckt die Property die `domain` aus der Config nicht ab, folgt auf die Zeile "erreichbar" ein Fehler und Exit 1. "Erreichbar" allein sagt nichts über den Host.
 
    Pfad aus Schritt 1 des Service-Account-Abschnitts, oder der Pfad aus `PTAI_GOOGLE_CREDENTIALS` in der `.env`, falls abweichend.
 

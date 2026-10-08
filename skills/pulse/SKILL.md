@@ -81,6 +81,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
   --start 2026-08-03 --end 2026-08-09 \
   --compare-start 2026-07-27 --compare-end 2026-08-02 \
   --out "reporting/data/$(date +%F)" \
+  --config reporting/config.json \
   --pulse
 ```
 

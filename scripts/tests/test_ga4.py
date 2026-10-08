@@ -645,5 +645,165 @@ class TestStreams(unittest.TestCase):
                           {"stream_id": "78", "measurement_id": None}])
 
 
+
+class TestScopeFilter(unittest.TestCase):
+    """Eine Property kann mehrere Shops sammeln, ein Shop zwei Streams laden.
+
+    Am 07.10.2026 an einer echten Property: mehrere Märkte in einer
+    Property, und auf dem Host eines Markts kam ein Teil der Käufe in zwei
+    Streams an. Ohne Filter hält der Audit fremde Märkte und doppelte Käufe
+    gegen den Umsatz eines einzelnen Stores.
+    """
+
+    def test_without_lists_there_is_no_filter(self):
+        self.assertIsNone(ga4_pull.scope_filter([], []))
+        self.assertIsNone(ga4_pull.scope_filter([]))
+
+    def test_hostnames_alone(self):
+        flt = ga4_pull.scope_filter(["eu.beispielshop.test"])
+        self.assertEqual(filter_values(flt), [("hostName", ("eu.beispielshop.test",))])
+
+    def test_not_set_also_matches_an_empty_hostname(self):
+        flt = ga4_pull.scope_filter(["eu.beispielshop.test", "(not set)"])
+        self.assertEqual(filter_values(flt),
+                         [("hostName", ("eu.beispielshop.test", "(not set)", ""))])
+
+    def test_hostnames_and_streams_are_combined_with_and(self):
+        flt = ga4_pull.scope_filter(["eu.beispielshop.test"], ["111"])
+        self.assertEqual(len(flt["andGroup"]["expressions"]), 2)
+        self.assertEqual(sorted(filter_values(flt)),
+                         [("hostName", ("eu.beispielshop.test",)), ("streamId", ("111",))])
+
+    def test_the_shop_filter_reaches_every_view(self):
+        base = ga4_pull.merge_filters(ga4_pull.scope_filter(["eu.beispielshop.test"], ["111"]),
+                                      {"filter": {"fieldName": "country",
+                                                  "inListFilter": {"values": ["X"]}}})
+        for name, body in ga4_pull.block_bodies([RANGE], base).items():
+            with self.subTest(view=name):
+                values = filter_values(body["dimensionFilter"])
+                self.assertIn(("hostName", ("eu.beispielshop.test",)), values)
+                self.assertIn(("streamId", ("111",)), values)
+
+    def test_the_history_is_measured_for_this_shop(self):
+        calls = []
+        def run_report(prop, token, body):
+            calls.append(body)
+            return {"rows": [{"dimensionValues": [{"value": "20240105"}]}]}
+        with mock.patch.object(ga4_pull, "run_report", run_report):
+            start = ga4_pull.measure_history_start(
+                "1", "t", "2026-03-30", ga4_pull.scope_filter(["eu.beispielshop.test"]))
+        self.assertEqual(start, "2024-01-05")
+        self.assertEqual(filter_values(calls[0]["dimensionFilter"]),
+                         [("hostName", ("eu.beispielshop.test",))])
+
+
+class TestTransactions(unittest.TestCase):
+    """Nur verschiedene Transaktions-IDs sind gegen Shopify-Bestellungen zu halten."""
+
+    ROWS = [(["A", "111"], {"ecommercePurchases": 1}),
+            (["A", "222"], {"ecommercePurchases": 1}),
+            (["B", "111"], {"ecommercePurchases": 1}),
+            (["C", "111"], {"ecommercePurchases": 2}),
+            (["(not set)", "222"], {"ecommercePurchases": 3})]
+
+    def test_purchases_in_two_streams_are_one_transaction(self):
+        tx = ga4_pull.summarize_transactions(self.ROWS, [])
+        self.assertEqual(tx["purchases"], 5)
+        self.assertEqual(tx["transactions"], 3)
+        self.assertEqual(tx["in_multiple_streams"], 1)
+        self.assertEqual(tx["counted_more_than_once"], 2)
+        self.assertEqual(tx["purchases_without_transaction_id"], 3)
+
+    def test_by_stream_shows_which_stream_is_complete(self):
+        tx = ga4_pull.summarize_transactions(self.ROWS, [])
+        self.assertEqual([(st["stream_id"], st["purchases"], st["transactions"])
+                          for st in tx["by_stream"]], [("111", 4, 3), ("222", 1, 1)])
+
+    def test_two_senders_with_different_ids_show_as_two_formats(self):
+        rows = ([([f"#BSP-{1000 + n}", "111"], {"ecommercePurchases": 1}) for n in range(20)]
+                + [([str(500000 + n), "111"], {"ecommercePurchases": 1}) for n in range(10)]
+                + [([str(500000 + n), "222"], {"ecommercePurchases": 1}) for n in range(10)])
+        tx = ga4_pull.summarize_transactions(rows, ["111"])
+        stream = tx["by_stream"][0]
+        self.assertEqual(stream["id_formats"], [{"format": "#BSP-9", "transactions": 20},
+                                                {"format": "9", "transactions": 10}])
+        self.assertTrue(stream["multiple_id_formats"])
+        self.assertTrue(tx["in_scope"]["multiple_id_formats"])
+        self.assertFalse(tx["by_stream"][1]["multiple_id_formats"])
+        reasons = ga4_pull.duplicate_purchases(tx)
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("zweiter Absender", reasons[0])
+
+    def test_a_single_odd_id_is_not_a_second_sender(self):
+        rows = ([([f"#{1000 + n}", "111"], {"ecommercePurchases": 1}) for n in range(100)]
+                + [(["test-1", "111"], {"ecommercePurchases": 1})])
+        tx = ga4_pull.summarize_transactions(rows, [])
+        self.assertFalse(tx["multiple_id_formats"])
+
+    def test_one_repeated_purchase_in_hundreds_is_noise(self):
+        rows = ([([f"#{1000 + n}", "111"], {"ecommercePurchases": 1}) for n in range(200)]
+                + [(["#1000", "111"], {"ecommercePurchases": 1})])
+        tx = ga4_pull.summarize_transactions(rows, [])
+        self.assertEqual(tx["counted_more_than_once"], 1)
+        self.assertEqual(ga4_pull.duplicate_purchases(tx), [])
+        self.assertEqual(ga4_pull.duplicate_purchases(None), [])
+
+    def test_in_scope_counts_only_the_chosen_stream(self):
+        tx = ga4_pull.summarize_transactions(self.ROWS, ["111"])
+        self.assertEqual((tx["in_scope"]["purchases"], tx["in_scope"]["transactions"]), (4, 3))
+        other = ga4_pull.summarize_transactions(self.ROWS, ["222"])["in_scope"]
+        self.assertEqual((other["purchases"], other["transactions"]), (1, 1))
+
+
+class TestReadScope(unittest.TestCase):
+    def fake(self):
+        return FakeGA4({
+            ("streamId", "streamName", "hostName"): lambda body: response(
+                ["streamId", "streamName", "hostName"],
+                ["sessions", "ecommercePurchases", "purchaseRevenue"],
+                [(["111", "Shop ", "eu.beispielshop.test"], [100, 10, 1000.5]),
+                 (["222", "Shop EU", "eu.beispielshop.test"], [60, 4, 400]),
+                 (["111", "Shop ", "beispielshop.test"], [80, 8, 800])]),
+            ("transactionId", "streamId"): lambda body: response(
+                ["transactionId", "streamId"], ["ecommercePurchases"],
+                [(["A", "111"], [1]), (["A", "222"], [1]), (["B", "111"], [1])]),
+        })
+
+    def read(self, fake, hostnames, stream_ids):
+        streams = [{"stream_id": "111", "measurement_id": "G-A"}]
+        with mock.patch.object(ga4_pull, "run_report", fake):
+            return ga4_pull.read_scope("1", "t", RANGE, None, hostnames, stream_ids, streams)
+
+    def test_rows_show_what_the_filter_leaves_out(self):
+        section = self.read(self.fake(), ["eu.beispielshop.test"], ["111"])
+        self.assertEqual([(r["stream_id"], r["host_name"], r["included"]) for r in section["rows"]],
+                         [("111", "eu.beispielshop.test", True),
+                          ("111", "beispielshop.test", False),
+                          ("222", "eu.beispielshop.test", False)])
+        self.assertEqual(section["rows"][0]["measurement_id"], "G-A")
+        self.assertEqual(section["rows"][0]["stream_name"], "Shop")
+
+    def test_rows_are_queried_without_the_shop_filter(self):
+        fake = self.fake()
+        self.read(fake, ["eu.beispielshop.test"], ["111"])
+        self.assertNotIn("dimensionFilter", fake.calls_with("streamId", "streamName", "hostName")[0])
+
+    def test_transactions_keep_the_host_but_not_the_stream_filter(self):
+        fake = self.fake()
+        section = self.read(fake, ["eu.beispielshop.test"], ["111"])
+        values = filter_values(fake.calls_with("transactionId", "streamId")[0]["dimensionFilter"])
+        self.assertEqual(values, [("hostName", ("eu.beispielshop.test",))])
+        self.assertEqual(section["transactions"]["in_multiple_streams"], 1)
+        scope = section["transactions"]["in_scope"]
+        self.assertEqual((scope["purchases"], scope["transactions"]), (2, 2))
+
+    def test_a_failed_query_is_a_note(self):
+        def broken(prop, token, body):
+            raise RuntimeError("kaputt")
+        section = self.read(broken, [], [])
+        self.assertIn("kaputt", section["note"])
+        self.assertEqual(section["rows"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

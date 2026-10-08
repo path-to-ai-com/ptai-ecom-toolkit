@@ -27,6 +27,24 @@ Fehlt eine Datei, weil die Quelle im Lauf als nicht verfügbar gemeldet wurde: d
 
 ## Kernfragen
 
+0. **Misst der Snapshot genau diesen Shop?** Vor jeder anderen Kernfrage, denn jede vergleicht GA4 mit diesem einen Store.
+
+   ```bash
+   jq '{filters, scope: (.scope | {filter, note, rows: [.rows[] | select(.sessions >= 100)],
+       transactions: (.transactions // {} | {purchases, transactions, counted_more_than_once,
+         in_multiple_streams, purchases_without_transaction_id, multiple_id_formats,
+         by_stream, in_scope})})}' reporting/data/<run-id>/ga4.json
+   ```
+
+   - **Mehrere Shop-Hostnamen mit Käufen in `scope.rows` und kein `filters.shop_hostnames`:** die Property sammelt mehrere Shops, jede GA4-Summe im Snapshot gehört zu allen. Kernfragen 1, 3 und 5 sind dann blockiert, mit `shop_hostnames` in der Config als fehlender Eingabe. Nie die Summe gegen den Store halten und die Differenz als Messlücke ausweisen.
+   - **Mit Filter:** die Zeilen mit `included: false` nennen, was draußen bleibt. Käufe unter `(not set)` sind meist ein serverseitiger Connector dieses Shops; liegen dort nennenswert Käufe, ist die Lücke aus Kernfrage 1 teilweise der Filter, nicht die Messung.
+   - **Doppelt ankommende Käufe**, drei Formen, jede ein eigener Befund mit `severity: "hoch"`:
+     - `in_scope.purchases` deutlich über `in_scope.transactions`: dieselbe Transaktions-ID mehrfach.
+     - `in_multiple_streams` über null und kein `filters.ga4_stream_ids`: der Shop lädt die Tags zweier Streams derselben Property. Welcher vollständig ist, zeigt `by_stream` (Käufe und Transaktionen), nie der Name des Streams. Maßnahme: einen Tag entfernen; bis dahin `ga4_stream_ids` auf den vollständigen Stream.
+     - `in_scope.multiple_id_formats`: zwei Absender im selben Stream mit verschiedener Transaktions-ID, etwa Bestellnummer und numerische Bestell-ID. **Das gilt auch, wenn `senders` keinen zweiten Absender findet**; die Absenderprüfung trennt nur nach Hostname und `app_name`, und haben beide Absender dieselben Merkmale, sieht sie nichts. Am 07.10.2026 an einer echten Property genau so gewesen.
+   - **Die Käufe für Kernfrage 1 kommen dann von hier.** Bei mehreren Formen die Transaktionen der größten Form aus `in_scope.id_formats` gegen `shopify.json > totals.orders` halten, sonst `in_scope.transactions`; `funnel.purchase.events` daneben, mit dem Faktor. Welche Form zu Shopify passt, zeigt der Vergleich, nicht die Form selbst.
+   - Fehlt `scope` (Snapshot vor dem 07.10.2026) oder ist `scope.note` gesetzt: Kernfrage als nicht geprüft ausweisen, mit dem Grund. Die übrigen Kernfragen laufen dann mit dem Vorbehalt, dass die Property mehr als diesen Shop enthalten kann.
+
 1. **Zuordnungslücke Shopify gegen GA4.**
    - `shopify.json > totals.orders` gegen `ga4.json > funnel.purchase.events` und `ga4.json > totals.purchase_revenue`.
    - `shopify.json > orders_by_source` prüfen: Haben praktisch alle Bestellungen `source_name: "web"`, ist die Lücke ein Zuordnungsverlust der Analytics-Kette, kein anderer Bestellweg.

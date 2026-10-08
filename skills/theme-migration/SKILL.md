@@ -1,6 +1,6 @@
 ---
 name: theme-migration
-description: Führt eine Shopify-Theme-Migration von Setup bis Nachsorge, von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Phasen 0 bis 10 (Setup, Sicherung, Bestandsaufnahme, Zuordnung, Neubau, Upload, Prüfung, Abgleich, Abnahme, Launch, Nachsorge) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme, test-round und launch-check. Speichert Phasen, Gates und Theme-IDs in reporting/runs/<date>-migration/state.json, ist wiederaufnehmbar und fragt vor jedem der Gates G1 bis G5. Veröffentlicht nie; das macht ein Mensch. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "Relaunch auf neuem Theme", "wo stehen wir in der Migration", "Launch vorbereiten", "Nachsorge nach dem Launch". Nicht verwenden für ein neues Design ohne Theme-Wechsel und nicht für den Audit (ptai-ecom:audit), der vorab laufen kann. Liest reporting/config.json im Kunden-Workspace.
+description: Führt eine Shopify-Theme-Migration von Setup bis Nachsorge, von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Phasen 0 bis 10 (Setup, Sicherung, Bestandsaufnahme, Zuordnung, Neubau, Upload, Prüfung, Abgleich, Abnahme, Launch, Nachsorge) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme, test-round und launch-check. Speichert Phasen, Gates und Theme-IDs in reporting/runs/<date>-migration/state.json, ist wiederaufnehmbar und fragt vor jedem der Gates G1 bis G5. Veröffentlicht nie; das macht ein Mensch. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "Relaunch auf neuem Theme", "wo stehen wir in der Migration", "Launch vorbereiten", "Nachsorge nach dem Launch", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel und nicht für den Audit (ptai-ecom:audit), der vorab laufen kann. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # theme-migration: die Migration führen
@@ -39,9 +39,12 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
 - **Bilder im Kundenordner**, nie im Workspace.
 - **Jeden Befund an der Ursache beheben**, im Mapping oder in der Generator-Regel, nie nur in der
   erzeugten Datei.
-- **Nach jeder abgeschlossenen Phase committen und pushen**, im Workspace und, ab Phase 4, im
-  Ziel-Repo, wenn ein Remote eingerichtet ist. Die Person muss das nicht anstoßen. Commit-Botschaft
-  englisch, etwa `migration: phase 1 snapshot done`.
+- **Nach jeder abgeschlossenen Phase und jedem Gate committen und pushen**, im Workspace und, ab
+  Phase 4, im Ziel-Repo, wenn ein Remote eingerichtet ist. Vorher die Transkripte ablegen (Abschnitt
+  "Journal und Transkripte"). Die Person muss das nicht anstoßen. Commit-Botschaft englisch, etwa
+  `migration: phase 1 snapshot done`.
+- **Jede Frage an das Team ins Journal**, ebenso jede Wartezeit auf einen Menschen, jede Handarbeit
+  und jeden Fehler, der Zeit kostet: `run_state log`. Ohne Journal lässt sich ein Lauf nicht auswerten.
 
 ## Voraussetzungen
 
@@ -122,6 +125,29 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.run_state set --key 
 - **Werte** für `set`: `live_theme_id`, `draft_theme_id`, `snapshot`, `last_sync`, `freeze_from`,
   `freeze_until`, `published_at`.
 
+### Journal und Transkripte
+
+```bash
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.run_state log --kind <kind> --text "<text>"
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.sessions archive
+```
+
+- `journal.jsonl` neben `state.json`. `phase`, `gate` und `set` schreiben ihr Ereignis selbst.
+- `log` mit `--kind`:
+  - `question`: jede Frage an das Team, im Wortlaut, auch an einem Gate
+  - `answer`: die Antwort in einem Satz, mit Name
+  - `wait`: Warten auf einen Menschen, etwa Anmeldung im Browser oder fehlender Zugang
+  - `manual`: Arbeit, die ein Mensch statt Claude macht, mit Grund
+  - `error`: ein Fehler, der einen zweiten Anlauf oder einen Umweg gekostet hat
+  - `note`: alles andere, das für die Auswertung zählt, etwa wie viele Subagents parallel liefen
+- `sessions archive` legt alle Claude-Sessions dieses Workspaces und seines `-horizon`-Repos
+  bereinigt unter `reporting/runs/<run-id>/sessions/` ab, Subagents eingeschlossen, mit
+  `index.json`. Token und Schlüssel werden vorher geschwärzt. Es läuft vor jedem Commit nach einer
+  Phase oder einem Gate und auf Zuruf ("Transkript ablegen"). Danach committen und pushen:
+  `migration: sessions archived`.
+- Eine Session ist erst vollständig, wenn sie beendet ist. Deshalb am Ende eines Arbeitstags noch
+  einmal ablegen lassen.
+
 ### Einstieg und Wiederaufnahme
 
 1. `show` aufrufen. Kein Lauf: `init`, dann Phase 0. Lauf vorhanden: bei `next_phase` fortsetzen.
@@ -137,6 +163,9 @@ Schritt 0 läuft vor dem ersten `run_state`-Aufruf, weil es den Workspace erst h
 
 0. **Rechner und Ordner einrichten.** Jeden Punkt prüfen und nur Fehlendes einrichten, jede
    Installation vorher in einem Satz ankündigen:
+   - **Fragen gebündelt:** Alles, was Phase 0 von der Person braucht, in einer Nachricht. Danach
+     nur noch Aktionen im Browser (Anmeldungen), keine Einzelfragen. Jede Frage als `question` ins
+     Journal, sobald der Lauf existiert.
    - Programme: Node.js ab 22.12, Git, GitHub CLI (`gh`), Shopify CLI (`npm install -g @shopify/cli@latest`), `uv`. Fehlt
      etwas, mit dem Paketweg des Betriebssystems installieren (Mac: Homebrew, sonst offizieller
      Installer; Windows: WinGet).
@@ -173,10 +202,10 @@ Schritt 0 läuft vor dem ersten `run_state`-Aufruf, weil es den Workspace erst h
 5. **Ziel-Theme und Version:** das Ziel-Repo jetzt nach `build-theme`, Abschnitt "Ziel-Repo aufsetzen",
    anlegen; dieser Schritt schreibt nichts in den Shop. Aktuelle Version: Commit-Titel und
    `theme_info.theme_version`. Ab Horizon 4.0.0 gibt es `color_palette` statt Farbschemata.
-6. **Plattform-Fristen** vorab beim Team erfragen: Kundenkonten klassisch oder neu, Skript-Tags im
-   ausgelieferten HTML, Reste von Shopify Scripts und Additional Scripts
-   (`${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/platform-deadlines.md`). Vollständige Erhebung in
-   Phase 2.
+6. **Plattform-Fristen** nicht erfragen: Kundenkonten, Skript-Tags, Reste von Shopify Scripts und
+   Additional Scripts erhebt Phase 2 aus dem Shop
+   (`${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/platform-deadlines.md`). Was sich dort nicht lesen
+   lässt, steht als Zeile in der Entscheidungsliste für G1.
 7. **GitHub-Anbindung prüfen:** die Theme-Karte im Admin zeigt Repo und Branch, falls das Live-Theme mit
    GitHub verbunden ist. Dann wird jede Editor-Änderung ein Commit auf diesem Branch; das Team muss
    diesen Branch vom Ziel-Repo unterscheiden.
@@ -268,8 +297,8 @@ Theme-Übersetzungen. Danach:
 PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.run_state set --key draft_theme_id --value <draft-theme-id>
 ```
 
-Die Liste der Embeds, die ein Mensch im Theme-Editor des Entwurfs einschalten muss, an den Betreiber
-geben. `phase --phase 5-upload --status done`.
+Die App-Embeds sind mit dem Upload im Entwurf. Nur ein Embed, das Shopify verworfen hat, geht als
+Aufgabe an das Team. `phase --phase 5-upload --status done`.
 
 ## Phase 6: Prüfung
 

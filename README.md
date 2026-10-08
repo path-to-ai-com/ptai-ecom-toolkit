@@ -134,7 +134,7 @@ Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änder
 
 5. **Zeitpunkt.** Montag bis Donnerstag, kein Feiertag am Tag und am Folgetag, nicht ab vier Wochen vor Black Friday. Keine große Kampagne, kein laufender Preis- oder A/B-Test, Ansprechpartner auf beiden Seiten erreichbar.
 6. **Vergleichswerte ziehen.** `pull-gsc`, `pull-ga4`, `pull-cwv` und `crawl-site`, von heute oder gestern. Nach dem Launch wird gegen genau diese Werte verglichen.
-7. **`launch-check`.** Schneidet beide Themes im Browser mit und vergleicht sie: Tracking je Seite, App-Embeds, Übersetzungen, `robots.txt`, Statuscodes, Canonicals. Was fehlt, wird behoben, dann läuft er erneut. Ein Punkt, der bewusst anders ist, etwa eine gestrichene App, wird mit Grund festgehalten, nicht übergangen.
+7. **`launch-check`.** Schneidet beide Themes im Browser bis zum Seitenende mit und vergleicht sie: Tracking je Seite, Pagination und Zahl der Analyse-Ereignisse je Seitentyp, App-Embeds, Übersetzungen, `robots.txt`, Statuscodes, Canonicals. Was fehlt, wird behoben, dann läuft er erneut. Ein Punkt, der bewusst anders ist, etwa eine gestrichene App, steht mit Person und Grund in der Entscheidungsliste (`decisions.json`); dann zählt er als erfüllt, nicht als Lücke.
 8. **Go/No-Go.** Ein Mensch entscheidet und wird mit Namen festgehalten, in einer Migration als Gate G5.
 9. **Schlussprüfung.** Unmittelbar vor dem Klick: `updatedAt` des Live-Themes und die Template-Zuweisungen sind seit dem Abgleich unverändert. Jede Änderung hält den Launch an.
 
@@ -144,7 +144,7 @@ Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änder
 
 **Direkt danach**
 
-11. **`launch-check --after`.** Das erwartete Theme ist live, `robots.txt` wie vorher, Statuscodes, `noindex` und Canonicals der Top-Seiten stimmen, Tracking je Seite wie vorher, jede Sprache läuft.
+11. **`launch-check --after`.** Das erwartete Theme ist live, `robots.txt` wie vorher und für alle Crawler und Googlebot offen, Statuscodes, `noindex` und Canonicals der Top-Seiten wie im alten Theme, Tracking und Analyse-Ereignisse je Seite wie vorher, jede Sprache läuft. Shopifys eigene Vorgaben (etwa `noindex` als Header auf der Suche, die Sperre einzelner Crawler) stehen als Hinweis, nicht als Fehler.
 12. **Testbestellung,** nur nach Freigabe des Teams und mit Ankündigung ans Lager: Pixel, Kasse, Dankeseite, Ereignisse in Analyse und Werbekonten. Danach stornieren und erstatten.
 13. **Sitemap** in der Search Console neu einreichen.
 14. **Nachsorge** nach `post-launch.md`: die ersten 48 Stunden Umsatz, Conversion Rate, Fehlerseiten und Kaufabbrüche eng, Woche 1 täglich 404 und Crawl, Woche 2 Conversion je Seitentyp und Gerät, Woche 4 der erste Vergleich gegen die Werte aus Schritt 6, Tag 28 Core Web Vitals im Feld. Das alte Theme wird erst nach der Stabilisierung und mit Freigabe gelöscht.

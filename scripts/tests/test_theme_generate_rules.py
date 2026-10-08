@@ -346,9 +346,31 @@ class SettingsData(unittest.TestCase):
     def test_presets_come_from_the_target(self):
         self.assertEqual(list(self.data["presets"]), ["Zielthema"])
 
-    def test_app_embeds_are_reported_not_written(self):
-        self.assertNotIn("blocks", self.data["current"])
-        self.assertEqual(len(self.generator.report["app_embeds"]), 1)
+    def test_app_embeds_are_carried_with_their_state(self):
+        # In einer echten Migration hat Shopify die per Upload gesetzten Embeds angenommen.
+        block = self.data["current"]["blocks"]["1234567890"]
+        self.assertEqual(block["type"], "shopify://apps/beispiel-app/blocks/embed/00000000-0000-0000-0000-000000000000")
+        self.assertIs(block["disabled"], False)
+        self.assertTrue(self.generator.report["app_embeds"][0]["carried"])
+
+    def test_an_embed_decided_drop_in_g1_stays_out(self):
+        apps = {"services": [{"service_id": "app:beispiel-app", "decision": "drop"}],
+                "integrations": [{"service_id": "app:beispiel-app", "integration_type": "app_embed",
+                                  "location": {"block_ids": ["1234567890"]}}]}
+        generator = generate.Generator(fixture_mapping(), None, SOURCE, TARGET, apps)
+        generator.run()
+        self.assertNotIn("blocks", generator.documents["config/settings_data.json"]["current"])
+        self.assertEqual(generator.report["app_embeds"][0]["decision"], "drop")
+        self.assertFalse(generator.report["app_embeds"][0]["carried"])
+
+    def test_an_embed_decided_keep_is_carried(self):
+        apps = {"services": [{"service_id": "app:beispiel-app", "decision": "keep"}],
+                "integrations": [{"service_id": "app:beispiel-app",
+                                  "location": {"type": "shopify://apps/beispiel-app/blocks/embed/"
+                                                       "00000000-0000-0000-0000-000000000000"}}]}
+        generator = generate.Generator(fixture_mapping(), None, SOURCE, TARGET, apps)
+        generator.run()
+        self.assertIn("1234567890", generator.documents["config/settings_data.json"]["current"]["blocks"])
 
     def test_current_as_preset_name_is_resolved(self):
         source, target = copy_themes(self)

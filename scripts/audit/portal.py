@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from audit import env
+from audit import env, gsc_scope
 
 ENV_NAMES = ("PTAI_PORTAL_URL", "PTAI_PORTAL_TOKEN")
 
@@ -50,6 +50,10 @@ PREFIX = "portal:"
 
 #: Scope-Schlüssel aus `google_token.py` zur Quelle im Cockpit.
 SCOPE_SOURCES = {"analytics": "ga4", "webmasters": "gsc", "adwords": "google_ads"}
+
+#: Stand, unter dem das Cockpit eine lesbare, aber für die Shop-Domain
+#: unpassende Search-Console-Property führt (seit 07.10.2026).
+GSC_DOMAIN_MISMATCH = "domain_mismatch"
 
 #: Quelle im Cockpit zum Schlüssel unter `sources` in der Config.
 CONFIG_SOURCES = {"shopify": "shopify", "ga4": "ga4", "gsc": "gsc", "google_ads": "ads"}
@@ -194,6 +198,18 @@ def merge_config(config: dict, settings: dict) -> dict:
     Store, Properties, Werbekonto und die Schalter der vier Quellen. Eine im
     Cockpit nicht verbundene Quelle steht danach auf `false`; ein Lauf, der sie
     trotzdem anfragt, bräche ohnehin ab.
+
+    `shop_hostnames` und `ga4_stream_ids` gehören nicht dem Cockpit und bleiben
+    unberührt. Ob ein Shop sie braucht, misst `audit.scope`, nicht die Form
+    der Domain: auch eine Hauptdomain kann eine Property mit anderen Stores
+    teilen.
+
+    Deckt die Search-Console-Property die Domain nicht ab, steht
+    `sources.gsc` auf `false` und der Grund unter `source_off_reasons.gsc`,
+    obwohl das Cockpit "connected" meldet. Sonst fröre der Audit Zahlen
+    eines anderen Hosts als Baseline ein (`gsc_scope`). Ein späteres Setup
+    nach der Korrektur im Cockpit schaltet die Quelle wieder an und nimmt den
+    Grund heraus.
     """
     merged = dict(config)
     merged["portal"] = {"brand": settings["brand"], "shop": settings["shop"]}
@@ -208,8 +224,37 @@ def merge_config(config: dict, settings: dict) -> dict:
     connected = settings.get("sources") or {}
     for portal_source, config_source in CONFIG_SOURCES.items():
         sources[config_source] = connected.get(portal_source) == "connected"
+    reasons = dict(merged.get("source_off_reasons") or {})
+    reasons.pop("gsc", None)
+    problem = gsc_problem(settings) if connected.get("gsc") == GSC_DOMAIN_MISMATCH else None
+    if sources.get("gsc"):
+        problem = gsc_scope.mismatch(merged.get("gsc_site"), merged.get("domain"))
+    if problem:
+        sources["gsc"] = False
+        reasons["gsc"] = problem
     merged["sources"] = sources
+    if reasons:
+        merged["source_off_reasons"] = reasons
+    else:
+        merged.pop("source_off_reasons", None)
     return merged
+
+
+def gsc_problem(settings: dict) -> str | None:
+    """Warum die Search Console aus dem Cockpit nicht zum Shop passt, oder `None`.
+
+    Zwei Wege zum selben Befund: das Cockpit führt die Property schon als
+    `domain_mismatch`, oder es meldet "connected" für eine Property, die die
+    Domain nicht abdeckt (Cockpit-Stand vor der Prüfung beim Speichern).
+    """
+    state = (settings.get("sources") or {}).get("gsc")
+    if state not in ("connected", GSC_DOMAIN_MISMATCH):
+        return None
+    problem = gsc_scope.mismatch(settings.get("gsc_site"), settings.get("domain"))
+    if problem is None and state == GSC_DOMAIN_MISMATCH:
+        problem = (f"Das Cockpit führt die Search-Console-Property als unpassend für "
+                   f"{settings.get('domain') or 'die Shop-Domain'} ({GSC_DOMAIN_MISMATCH}).")
+    return problem
 
 
 def _set_env_line(path: Path, name: str, value: str) -> None:
@@ -277,6 +322,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "setup":
             path = setup(args.brand, args.shop, args.workspace)
             print(f"{path} aus dem Cockpit geschrieben, PTAI_GOOGLE_CREDENTIALS zeigt aufs Cockpit.")
+            written = json.loads(path.read_text(encoding="utf-8"))
+            gsc_reason = (written.get("source_off_reasons") or {}).get("gsc")
+            if gsc_reason:
+                print(f"Warnung: {gsc_reason} Search Console ist deshalb abgeschaltet "
+                      "(sources.gsc: false); erst im Cockpit die passende Property wählen, "
+                      "dann setup erneut laufen lassen.", file=sys.stderr)
+            print("Als Nächstes: python3 -m audit.scope prüft, ob GA4, Google Ads und Search "
+                  "Console mehr als diesen Shop enthalten, und schlägt shop_hostnames vor.")
         elif args.command == "status":
             result = report_status(args.brand, args.shop, args.status, args.due, args.run_id, args.workspace)
             print(f"Stand gemeldet: {result.get('status')}, Termin {result.get('due_date') or 'keiner'}.")
@@ -291,6 +344,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{settings.get('name')} ({settings.get('domain') or 'ohne Domain'})")
             for source, state in sorted((settings.get("sources") or {}).items()):
                 print(f"  {source:<12} {state}")
+            scope_problem = gsc_problem(settings)
             for scope_key, source in SCOPE_SOURCES.items():
                 if (settings.get("sources") or {}).get(source) == "connected":
                     google_token(args.brand, args.shop, scope_key, "audit.portal check", args.workspace)
@@ -299,6 +353,12 @@ def main(argv: list[str] | None = None) -> int:
                 shopify_execute(args.brand, args.shop, "query { shop { name } }", None, "audit.portal check",
                                 args.workspace)
                 print(f"  {'shopify':<12} Abfrage über das Cockpit beantwortet")
+            if scope_problem:
+                # Verbunden und lesbar, aber für den falschen Host: ein Fehler beim
+                # Anschluss, kein Messbefund. Deshalb Exit 1 trotz aller Zugänge.
+                print(f"Fehler: {scope_problem} Im Cockpit die passende Property wählen.",
+                      file=sys.stderr)
+                return 1
     except PortalError as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1

@@ -51,6 +51,25 @@ def network(base: str, theme: str, pages: dict, consent: str = "declined", html:
     return {"base_url": base, "theme_id": theme, "consent_mode": consent, "runs": runs}
 
 
+def write_capture(ws: Path, side: str, theme: str, runs: list, consent: str = "declined") -> None:
+    """Ein Mitschnitt unter capture/<side>-<consent>/ aus fertigen Durchläufen."""
+    folder = ws / "reporting" / "runs" / "2026-10-06-launch-check" / "capture" / f"{side}-{consent}"
+    folder.mkdir(parents=True, exist_ok=True)
+    data = {"base_url": "https://beispielshop.example", "theme_id": theme, "consent_mode": consent, "runs": runs}
+    (folder / "network.json").write_text(json.dumps(data))
+
+
+def capture_run(page_id: str, path: str, urls: list, *, device: str = "desktop", run: int = 1,
+                final_url: str | None = None) -> dict:
+    return {"page_id": page_id, "path": path, "template": page_id, "device": device, "run": run,
+            "consent": "declined", "state": "ok", "status": 200,
+            "final_url": final_url or "https://beispielshop.example" + path,
+            "requests": [{"url": u, "method": "GET"} for u in urls]}
+
+
+GA4 = "https://region1.google-analytics.com/g/collect?v=2"
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.ws = fake.temp_workspace(self, draft_theme_id="111111111111")
@@ -237,6 +256,122 @@ class TestVorDemLaunch(Base):
         self.assertTrue(headings[0].startswith("## Fehlt"))
         self.assertNotRegex(text, r"[\u2013\u2014]")
 
+    def test_gestrichener_dienst_ist_erfuellt_mit_der_entscheidung_als_beleg(self):
+        vwo = "https://dev.visualwebsiteoptimizer.com/j.php"
+        write_capture(self.ws, "old", "000000000000", [capture_run("home", "/", [vwo])])
+        write_capture(self.ws, "new", "111111111111", [capture_run("home", "/", [])])
+        _, report = self.run_check()
+        self.assertEqual(self.by_id(report)["tracking-hosts"]["status"], lc.MISSING)
+        mapping = self.ws / "migration" / "mapping"
+        mapping.mkdir(parents=True)
+        entries = [{"id": "D-1", "subject": "VWO", "kind": "app", "decision": "drop",
+                    "reason": "Test beendet", "decided_by": "Beispiel Person", "decided_at": "2026-10-01"}]
+        (mapping / "decisions.json").write_text(json.dumps({"decisions": entries}))
+        _, report = self.run_check()
+        check = self.by_id(report)["tracking-hosts"]
+        self.assertEqual(check["status"], lc.OK)
+        self.assertIn("bewusst entfallen: VWO: drop laut decisions.json, Beispiel Person", check["evidence"])
+        self.assertIn("Test beendet", check["evidence"])
+        entries.append({"id": "D-2", "subject": "VWO", "kind": "app", "decision": "keep",
+                        "decided_by": "Beispiel Person"})
+        (mapping / "decisions.json").write_text(json.dumps({"decisions": entries}))
+        _, report = self.run_check()
+        self.assertEqual(self.by_id(report)["tracking-hosts"]["status"], lc.MISSING, "der jüngste Eintrag gilt")
+
+    def test_embed_gestrichen_laut_decisions_json_ueber_den_dienstnamen(self):
+        self.shop.touch(fake.LIVE_ID, "config/settings_data.json", settings_with({"a": ("sterne", False)}))
+        self.shop.touch(fake.DRAFT_ID, "config/settings_data.json", settings_with({}))
+        mapping = self.ws / "migration" / "mapping"
+        mapping.mkdir(parents=True)
+        (mapping / "decisions.json").write_text(json.dumps([
+            {"subject": "beispiel-bewertungen", "kind": "app", "decision": "drop", "decided_by": "Beispiel Person"}]))
+        _, report = self.run_check()
+        check = self.by_id(report)["app-embeds"]
+        self.assertEqual(check["status"], lc.OK)
+        self.assertIn("bewusst entfallen", check["evidence"])
+
+    def test_eigene_subdomain_eines_dienstes_ist_kein_eigener_host(self):
+        endpoint = "https://t.beispielshop.example/collect"
+        fallback = "https://api.segment.io/v1/t"
+        write_capture(self.ws, "old", "000000000000", [capture_run("home", "/", [endpoint])])
+        write_capture(self.ws, "new", "111111111111", [capture_run("home", "/", [fallback])])
+        _, report = self.run_check()
+        check = self.by_id(report)["tracking-hosts"]
+        self.assertEqual(check["status"], lc.MISSING, "die Subdomain fehlt im neuen Theme, das ist sichtbar")
+        self.assertIn("t.beispielshop.example", check["evidence"])
+        inventory = self.ws / "migration" / "inventory"
+        inventory.mkdir(parents=True)
+        (inventory / "apps.json").write_text(json.dumps({"integrations": [
+            {"service_id": "segment", "hosts": ["t.beispielshop.example"], "decision": "keep"}]}))
+        _, report = self.run_check()
+        check = self.by_id(report)["tracking-hosts"]
+        self.assertEqual(check["status"], lc.OK, "Subdomain und Ausweich-Endpunkt sind derselbe Dienst")
+        self.assertEqual(check["details"]["added"], [])
+
+    def test_pagination_mit_vervielfachten_ereignissen_fehlt(self):
+        own = "https://t.beispielshop.example/collect"
+        write_capture(self.ws, "old", "000000000000", [
+            capture_run("search", "/search?q=ring", [GA4] * 3 + [own] * 2, run=1),
+            capture_run("search", "/search?q=ring", [GA4] * 4 + [own] * 2, run=2),
+            capture_run("home", "/", [GA4] * 3)])
+        write_capture(self.ws, "new", "111111111111", [
+            capture_run("search", "/search?q=ring", [GA4] * 9 + [own] * 8, run=1,
+                        final_url="https://beispielshop.example/search?q=ring&page=8"),
+            capture_run("search", "/search?q=ring", [GA4] * 10 + [own] * 8, run=2,
+                        final_url="https://beispielshop.example/search?q=ring&page=8"),
+            capture_run("home", "/", [GA4] * 4)])
+        _, report = self.run_check()
+        check = self.by_id(report)["pagination"]
+        self.assertEqual(check["status"], lc.MISSING)
+        self.assertIn("search (desktop): lädt beim Scrollen nach bis page=8", check["evidence"])
+        self.assertIn("Google Analytics 4 9 statt 4 Anfragen", check["evidence"], "Minimum neu gegen Maximum alt")
+        self.assertIn("t.beispielshop.example 8 statt 2", check["evidence"])
+        self.assertNotIn("home", check["evidence"].split("mehr Analyse-Ereignisse")[1])
+        self.assertTrue(any("search?q=ring&preview_theme_id=111111111111" in l["url"] for l in check["links"]))
+
+    def test_pagination_anders_ohne_mehr_ereignisse_ist_eine_frage(self):
+        write_capture(self.ws, "old", "000000000000", [capture_run("collection", "/collections/ringe", [GA4] * 3)])
+        write_capture(self.ws, "new", "111111111111", [capture_run(
+            "collection", "/collections/ringe", [GA4] * 3, final_url="https://beispielshop.example/collections/ringe?page=3")])
+        _, report = self.run_check()
+        check = self.by_id(report)["pagination"]
+        self.assertEqual(check["status"], lc.MANUAL)
+        self.assertTrue(check["question"])
+
+    def test_pagination_gleich_und_ohne_mitschnitt(self):
+        _, report = self.run_check()
+        self.assertEqual(self.by_id(report)["pagination"]["status"], lc.BLOCKED)
+        write_capture(self.ws, "old", "000000000000", [capture_run("home", "/", [GA4] * 3)])
+        write_capture(self.ws, "new", "111111111111", [capture_run("home", "/", [GA4] * 5)])
+        _, report = self.run_check()
+        self.assertEqual(self.by_id(report)["pagination"]["status"], lc.OK, "2 mehr liegt unter der Schwelle")
+
+    def test_gestrichener_host_streicht_nicht_seine_ganze_domain(self):
+        catalog = lc.apps.HostCatalog.load()
+        keys = lc.subject_keys("ajax.googleapis.com", catalog)
+        self.assertIn("google_hosted_libraries", keys)
+        self.assertNotIn("googleapis.com", keys)
+        self.assertIn("beispiel-cdn.example", lc.subject_keys("static.beispiel-cdn.example", catalog),
+                      "ein unbekannter Host zählt über seine Domain, wie im Tracking")
+
+
+class TestRobots(unittest.TestCase):
+    def test_sperre_gilt_je_gruppe(self):
+        shopify = ("# we use Shopify as our ecommerce platform\nUser-agent: *\nDisallow: /admin\nDisallow: /cart\n\n"
+                   "User-agent: adsbot-google\nDisallow: /checkouts/\n\nUser-agent: Nutch\nDisallow: /\n")
+        self.assertEqual(lc.blocked_agents(shopify), ([], ["nutch"]))
+        self.assertEqual(lc.blocked_agents("User-agent: *\nDisallow: /\n"), (["*", "googlebot"], []))
+        own_group = "User-agent: *\nDisallow: /\n\nUser-agent: Googlebot\nAllow: /\n"
+        self.assertEqual(lc.blocked_agents(own_group), (["*"], []), "Googlebot folgt seiner eigenen Gruppe")
+        self.assertEqual(lc.blocked_agents("User-agent: *\nDisallow: /\nAllow: /\n"), ([], []))
+        self.assertEqual(lc.blocked_agents("Disallow: /\n"), ([], []), "Regel ohne Gruppe gilt für niemanden")
+
+    def test_seitenzahl_aus_der_adresse(self):
+        self.assertEqual(lc.page_number("https://x.example/search?q=a&page=14"), 14)
+        self.assertEqual(lc.page_number("/search?q=a"), 1)
+        self.assertEqual(lc.page_number(None), 1)
+
+
 
 class TestEmpfehlung(unittest.TestCase):
     def test_fehlt_schlaegt_offen_schlaegt_go(self):
@@ -268,10 +403,50 @@ class TestNachDemLaunch(Base):
         self.assertEqual(checks["test-order"]["status"], lc.MANUAL)
         self.assertFalse([c for c in self.shop.calls if c[2]], "keine Mutation")
 
-    def test_noindex_live_ist_ein_befund(self):
+    def test_noindex_im_html_live_ist_ein_befund_wenn_das_alte_theme_es_nicht_hatte(self):
+        self.fetch = lambda url: (200, {}, '<meta name="robots" content="noindex">')
+        _, report = self.run_check("--after", "--live-theme-id", "000000000000")
+        check = self.by_id(report)["pages-after"]
+        self.assertEqual(check["status"], lc.MISSING)
+        self.assertIn("ohne Mitschnitt des alten Themes", check["evidence"])
+
+    def test_noindex_wie_im_alten_theme_ist_kein_befund(self):
+        folder = self.ws / "reporting" / "runs" / "2026-10-06-launch-check" / "capture" / "old-declined"
+        data = network("https://beispielshop.example", "000000000000", {"home": ("/", [])},
+                       html={"home": '<head><meta name="robots" content="noindex"></head>'}, folder=folder)
+        (folder / "network.json").write_text(json.dumps(data))
+        self.fetch = lambda url: (200, {}, '<meta name="robots" content="noindex">')
+        _, report = self.run_check("--after", "--live-theme-id", "000000000000")
+        check = self.by_id(report)["pages-after"]
+        self.assertEqual(check["status"], lc.OK)
+        self.assertIn("wie im alten Theme", check["evidence"])
+
+    def test_noindex_als_header_kommt_von_shopify_und_ist_kein_befund(self):
         self.fetch = lambda url: (200, {"x-robots-tag": "noindex"}, "")
         _, report = self.run_check("--after", "--live-theme-id", "000000000000")
-        self.assertEqual(self.by_id(report)["pages-after"]["status"], lc.MISSING)
+        check = self.by_id(report)["pages-after"]
+        self.assertEqual(check["status"], lc.OK)
+        self.assertIn("X-Robots-Tag von Shopify", check["evidence"])
+
+    def test_robots_sperre_fuer_einen_einzelnen_crawler_ist_shopify_standard(self):
+        robots = "User-agent: *\nDisallow: /cart\n\nUser-agent: Nutch\nDisallow: /\n"
+        self.fetch = lambda url: (200, {}, robots if url.endswith("/robots.txt") else "")
+        _, report = self.run_check("--after", "--live-theme-id", "000000000000")
+        check = self.by_id(report)["robots-after"]
+        self.assertEqual(check["status"], lc.MANUAL, "kein Stand von vorher, aber keine Sperre")
+        self.assertIn("Disallow: / nur für nutch", check["evidence"])
+        robots = "User-agent: Nutch\nUser-agent: *\nDisallow: /\n"
+        _, report = self.run_check("--after", "--live-theme-id", "000000000000")
+        check = self.by_id(report)["robots-after"]
+        self.assertEqual(check["status"], lc.MISSING)
+        self.assertIn("alle Crawler (*) und Googlebot", check["evidence"])
+
+    def test_pagination_nach_dem_launch_gegen_den_mitschnitt_von_vorher(self):
+        write_capture(self.ws, "old", "000000000000", [capture_run("search", "/search?q=ring", [GA4] * 3)])
+        write_capture(self.ws, "after", "111111111111", [capture_run(
+            "search", "/search?q=ring", [GA4] * 12, final_url="https://beispielshop.example/search?q=ring&page=6")])
+        _, report = self.run_check("--after", "--live-theme-id", "000000000000")
+        self.assertEqual(self.by_id(report)["pagination"]["status"], lc.MISSING)
 
     def test_alte_id_unbekannt_wenn_sie_schon_auf_das_neue_zeigt(self):
         _, report = self.run_check("--after", "--live-theme-id", "111111111111")

@@ -457,6 +457,92 @@ if [[ "$CONFIG_OK" -eq 1 ]]; then
   CFG_DRIVE_PATH="$(jq -r '.drive_path // empty' "$CONFIG" 2>/dev/null || true)"
 fi
 
+# --- Shop aus dem Cockpit (setup --from-portal) ----------------------------
+# Zwei Weichen, getrennt wie in den Pulls. Shopify läuft über das Cockpit,
+# sobald die Config einen Block `portal` hat: pull-shopify entscheidet daran,
+# und `audit.portal shopify-execute` liest Brand und Shop von dort
+# (config_target). Google läuft über das Cockpit, sobald
+# PTAI_GOOGLE_CREDENTIALS mit portal: beginnt (google_token.get_access_token).
+# Bis 07.10.2026 kannte der Check beides nicht: er verlangte eine Store-Auth
+# der CLI, machte aus dem Verweis einen Dateipfad und ließ alle drei
+# Google-Test-Calls aus, obwohl jeder Pull lief.
+PORTAL_MODE=0
+if [[ "$CONFIG_OK" -eq 1 ]]; then
+  cfg_portal_brand="$(jq -r '(.portal | objects | .brand | strings) // empty' "$CONFIG" 2>/dev/null || true)"
+  cfg_portal_shop="$(jq -r '(.portal | objects | .shop | strings) // empty' "$CONFIG" 2>/dev/null || true)"
+  if [[ -n "$cfg_portal_brand" && -n "$cfg_portal_shop" ]]; then
+    PORTAL_MODE=1
+  fi
+fi
+GOOGLE_PORTAL=0
+if [[ "$(env_get PTAI_GOOGLE_CREDENTIALS)" == portal:* ]]; then
+  GOOGLE_PORTAL=1
+fi
+
+# Anmeldung beim Cockpit wie audit.portal._credentials(): URL und Token aus
+# derselben Ebene (env.get_together), maßgeblich ist die Ebene der URL. Das
+# Token wird nur auf "gesetzt" geprüft und nie ausgegeben.
+PORTAL_LOGIN_OK=0
+portal_origin=""
+if [[ "$PORTAL_MODE" -eq 1 || "$GOOGLE_PORTAL" -eq 1 ]]; then
+  portal_origin="$(env_origin PTAI_PORTAL_URL)"
+  case "$portal_origin" in
+    Umgebung)  portal_token_set="${PTAI_PORTAL_TOKEN:-}" ;;
+    Workspace) portal_token_set="$(env_file_get "$ENV_FILE" PTAI_PORTAL_TOKEN)" ;;
+    zentral)   portal_token_set="$(env_file_get "$CENTRAL_ENV" PTAI_PORTAL_TOKEN)" ;;
+    *)         portal_token_set="" ;;
+  esac
+  if [[ -n "$portal_token_set" ]]; then
+    PORTAL_LOGIN_OK=1
+  fi
+  portal_token_set=""
+fi
+
+# Ob das Cockpit eine Quelle nicht als verbunden führt. merge_config() schreibt
+# das als false unter den Schlüssel der Quelle in `sources`; für shopify, ga4,
+# gsc und ads ist das derselbe Name wie der Schlüssel in tiers.py. Anders als
+# switched_off() zählt hier nur dieser eine Schalter: das Cockpit setzt
+# catalogue und shop_tech nie.
+portal_disconnected() {
+  if [[ "$PORTAL_MODE" -ne 1 ]]; then
+    return 1
+  fi
+  [[ "$(jq -r --arg k "$1" '(.sources // {})[$k] | tostring' "$CONFIG" 2>/dev/null)" == "false" ]]
+}
+
+# Eine Zeile statt aller übrigen Zeilen der Quelle. Verbinden kann nur der
+# Kunde; für eine optionale Quelle wie Google Ads keine Anforderung, weil
+# "nicht verbunden" dort auch "keine Suchanzeigen" heißen kann.
+#
+# Hat setup die Quelle selbst abgeschaltet, steht der Grund unter
+# `source_off_reasons` (seit 07.10.2026 für eine Search-Console-Property, die
+# den Shop nicht abdeckt). Dann ist die Quelle verbunden, aber falsch, und
+# "nicht verbunden" schickte den Kunden in die falsche Richtung.
+report_portal_disconnected() {
+  local label reason
+  label="$(tier_field "$1" 4)"
+  reason="$(off_reason "$1")"
+  if [[ -n "$reason" ]]; then
+    missing "${label:-$1}: abgeschaltet. ${reason}"
+    if counts; then
+      customer_ask "${label:-$1}: im Cockpit neu verbinden. ${reason}"
+    fi
+    return 0
+  fi
+  missing "${label:-$1}: im Cockpit nicht verbunden. Verbindet der Kunde die Quelle dort, trägt /ptai-ecom:setup --from-portal sie in die Config ein"
+  if counts; then
+    customer_ask "${label:-$1}: im Cockpit verbinden."
+  fi
+}
+
+# Grund unter `source_off_reasons` in der Config, sonst leer.
+off_reason() {
+  if [[ "$CONFIG_OK" -ne 1 ]]; then
+    return 0
+  fi
+  jq -r --arg k "$1" '((.source_off_reasons | objects)[$k] | strings) // empty' "$CONFIG" 2>/dev/null || true
+}
+
 # Ob eine Quelle des Kunden in der Config abgeschaltet ist: alle ihre
 # run_sources stehen auf false. Ein fehlender Schlüssel heißt an. Quellen des
 # Betreibers kennen das nicht (Spec 2026-09-11, Abschnitt 6.1).
@@ -483,7 +569,11 @@ switched_off() {
 }
 
 # Eine Zeile statt aller übrigen Zeilen der Quelle.
-report_switched_off() { missing "$(tier_field "$1" 4): in der Config abgeschaltet"; }
+report_switched_off() {
+  local reason
+  reason="$(off_reason "$1")"
+  missing "$(tier_field "$1" 4): in der Config abgeschaltet${reason:+. ${reason}}"
+}
 
 # --- Rechner: Shopify CLI -------------------------------------------------
 # Steht hinter der Config, weil es auf sie ankommt: ist Shopify dort
@@ -498,6 +588,8 @@ if command -v shopify >/dev/null 2>&1; then
   SHOPIFY_OK=1
 elif switched_off shopify; then
   hint "Shopify: CLI fehlt (npm install -g @shopify/cli@latest). Zählt nicht, solange die Config Shopify nicht nutzt"
+elif [[ "$PORTAL_MODE" -eq 1 ]]; then
+  hint "Shopify: CLI fehlt. Zählt nicht, Shopify läuft für diesen Kunden über das Cockpit"
 else
   missing "Shopify: CLI fehlt (npm install -g @shopify/cli@latest)"
 fi
@@ -560,8 +652,62 @@ fi
 # --- Pflicht: Shopify -----------------------------------------------------
 source_section shopify
 
-if switched_off shopify; then
+# Die Anmeldung beim Cockpit gehört zu keiner einzelnen Quelle, wie das
+# Google-Dienstkonto unten: sie zählt einmal, die Test-Calls dahinter melden
+# nur noch "nicht prüfbar".
+if [[ "$PORTAL_MODE" -eq 1 || "$GOOGLE_PORTAL" -eq 1 ]]; then
+  CURRENT_KEY=""
+  if [[ "$PORTAL_LOGIN_OK" -eq 1 ]]; then
+    ok "Cockpit: PTAI_PORTAL_URL und PTAI_PORTAL_TOKEN gefunden (${portal_origin})"
+  elif [[ -n "$(env_get PTAI_PORTAL_URL)" || -n "$(env_get PTAI_PORTAL_TOKEN)" ]]; then
+    broken "Cockpit: PTAI_PORTAL_URL und PTAI_PORTAL_TOKEN stehen nicht beide an derselben Stelle. audit.portal nimmt beide aus der Ebene der URL"
+  else
+    missing "Cockpit: PTAI_PORTAL_URL und PTAI_PORTAL_TOKEN nicht gefunden, weder im Workspace noch zentral in ${CENTRAL_ENV_SHOWN} (1Password: PTAI Cockpit Plugin Token)"
+  fi
+  CURRENT_KEY="shopify"
+fi
+
+if portal_disconnected shopify; then
+  report_portal_disconnected shopify
+elif switched_off shopify; then
   report_switched_off shopify
+elif [[ "$PORTAL_MODE" -eq 1 ]]; then
+  # Shop aus dem Cockpit: keine CLI, keine Store-Auth (pull-shopify, Abschnitt
+  # "Shop aus dem Cockpit"). Geprüft wird über denselben Weg wie in den Pulls,
+  # mit der kleinsten Abfrage, deren Antwort sich prüfen lässt: die
+  # myshopify-Domain muss die aus der Config sein.
+  if [[ "$PORTAL_LOGIN_OK" -ne 1 ]]; then
+    hint "Shopify über das Cockpit: nicht prüfbar (Anmeldung beim Cockpit fehlt, siehe oben)"
+    mark_open
+  elif [[ "$PY_MODERN" -ne 1 ]]; then
+    hint "Shopify über das Cockpit: nicht prüfbar (Python zu alt oder nicht da, siehe oben)"
+    mark_open
+  elif [[ "$OFFLINE" == "1" ]]; then
+    offline_skip "Shopify-Test-Call über das Cockpit"
+  else
+    shop_status=0
+    shop_out="$(cd "$WORKSPACE" && run_with_timeout "$SHOPIFY_TIMEOUT" \
+      env PYTHONPATH="${PLUGIN_ROOT}/scripts${PYTHONPATH:+:${PYTHONPATH}}" \
+      python3 -m audit.portal shopify-execute --workspace . --purpose check_env \
+      --query '{ shop { myshopifyDomain } }' 2>&1)" || shop_status=$?
+    if [[ "$shop_status" -eq 0 ]]; then
+      shop_domain="$(jq -r '(.shop.myshopifyDomain | strings) // empty' <<<"$shop_out" 2>/dev/null || true)"
+      if [[ -z "$shop_domain" ]]; then
+        broken "Shopify über das Cockpit: Antwort ohne myshopifyDomain ($(last_line "$shop_out"))"
+      elif [[ -z "$CFG_STORE" || "$shop_domain" == "$CFG_STORE" ]]; then
+        ok "Shopify: Abfrage über das Cockpit beantwortet (${shop_domain})"
+      else
+        broken "Shopify: das Cockpit antwortet für ${shop_domain}, die Config nennt ${CFG_STORE}. /ptai-ecom:setup --from-portal erneut laufen lassen"
+      fi
+    elif [[ "$shop_status" -eq 124 || "$shop_status" -eq 143 ]]; then
+      broken "Shopify über das Cockpit: keine Antwort nach ${SHOPIFY_TIMEOUT}s (Timeout)"
+    else
+      broken "Shopify über das Cockpit: fehlgeschlagen ($(last_line "$shop_out"))"
+      if grep -q "nicht verbunden" <<<"$shop_out"; then
+        customer_ask "Shopify: im Cockpit verbinden."
+      fi
+    fi
+  fi
 elif [[ "$SHOPIFY_OK" -eq 1 && -n "$CFG_STORE" ]]; then
   # Das Auth-List-JSON hält nur die nackte Subdomain ({"sessions":[{"subdomain":
   # "beispielshop-de",...}]}), nie die volle myshopify.com-Domain aus der Config.
@@ -622,11 +768,23 @@ if ! switched_off ga4 || ! switched_off gsc; then
   # das Verzeichnis, aus dem er gestartet wurde, und meldete eine vorhandene
   # Datei als fehlend, sobald das nicht der Workspace war. Die Test-Calls unten
   # bekommen denselben absoluten Pfad.
-  if [[ -n "$CREDS_PATH" && "$CREDS_PATH" != /* ]]; then
+  # Ein Verweis aufs Cockpit ist kein Pfad und bleibt, wie er ist.
+  if [[ "$GOOGLE_PORTAL" -ne 1 && -n "$CREDS_PATH" && "$CREDS_PATH" != /* ]]; then
     CREDS_PATH="${WORKSPACE_ABS%/}/${CREDS_PATH}"
   fi
+  # Dieselbe Form wie portal.parse_target(), sonst bricht jeder Pull ab.
+  portal_ref_pattern='^portal:[a-z0-9][a-z0-9-]{0,47}/[a-z0-9][a-z0-9-]{0,47}$'
   if [[ -z "$CREDS_PATH" ]]; then
     missing "Google-Dienstkonto für GA4 und Search Console: PTAI_GOOGLE_CREDENTIALS nicht in der .env des Workspace gesetzt (die Datei hält nur noch diesen Pfad, alle anderen Schlüssel dürfen zentral stehen)"
+  elif [[ "$GOOGLE_PORTAL" -eq 1 ]]; then
+    # Kein Dienstkonto im Workspace, also auch keine Datei, die ignoriert sein
+    # müsste. Ob das Cockpit einen Zugang herausgibt, zeigen die Test-Calls.
+    if [[ "$CREDS_PATH" =~ $portal_ref_pattern ]]; then
+      ok "Google für GA4, Search Console und Google Ads: Zugang über das Cockpit (${CREDS_PATH}), kein Dienstkonto im Workspace"
+      CREDS_OK=1
+    else
+      broken "Google für GA4 und Search Console: PTAI_GOOGLE_CREDENTIALS '${CREDS_PATH}' ist kein lesbarer Verweis aufs Cockpit, erwartet portal:<brand>/<shop>. /ptai-ecom:setup --from-portal schreibt ihn neu"
+    fi
   elif [[ -f "$CREDS_PATH" ]]; then
     if [[ "$JQ_OK" -ne 1 ]] || jq -e '.type == "service_account" and (.client_email | type == "string") and (.private_key | type == "string")' "$CREDS_PATH" >/dev/null 2>&1; then
       ok "Google-Dienstkonto für GA4 und Search Console: Service-Account-JSON vorhanden (${CREDS_PATH})"
@@ -678,12 +836,23 @@ GA4_SCRIPT="${PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py"
 GSC_SCRIPT="${PLUGIN_ROOT}/skills/pull-gsc/scripts/gsc_pull.py"
 
 check_reason=""
-if [[ "$CREDS_OK" -ne 1 ]]; then
+if [[ "$CREDS_OK" -ne 1 && "$GOOGLE_PORTAL" -eq 1 ]]; then
+  check_reason="Verweis aufs Cockpit nicht lesbar"
+elif [[ "$CREDS_OK" -ne 1 ]]; then
   check_reason="Creds-Datei fehlt oder ist ungültig"
 fi
-if [[ "$GAUTH_OK" -ne 1 ]]; then
+if [[ "$GOOGLE_PORTAL" -eq 1 && "$PORTAL_LOGIN_OK" -ne 1 ]]; then
+  check_reason="${check_reason:+${check_reason}, }Anmeldung beim Cockpit fehlt"
+fi
+# Über das Cockpit braucht der Zugang kein google-auth, das Paket lädt nur der
+# Weg über die Datei (google_token.get_access_token).
+if [[ "$GAUTH_OK" -ne 1 && "$GOOGLE_PORTAL" -ne 1 ]]; then
   check_reason="${check_reason:+${check_reason}, }google-auth fehlt"
 fi
+
+# Die Test-Calls laufen im Workspace wie die Pulls. Über das Cockpit liest
+# audit.portal die Anmeldung aus der .env des Arbeitsverzeichnisses; aus einem
+# anderen Verzeichnis gestartet, fände es sie dort nicht.
 if [[ "$PY_MODERN" -ne 1 ]]; then
   check_reason="${check_reason:+${check_reason}, }Python zu alt oder nicht da"
 fi
@@ -691,7 +860,9 @@ fi
 # --- Pflicht: Google Analytics 4 ------------------------------------------
 source_section ga4
 
-if switched_off ga4; then
+if portal_disconnected ga4; then
+  report_portal_disconnected ga4
+elif switched_off ga4; then
   report_switched_off ga4
 else
   # Der Tag ist ein Zustand beim Kunden, kein Zugang: der Betreiber kann ihn im
@@ -719,8 +890,10 @@ else
   if [[ -z "$check_reason" && -n "$CFG_GA4" ]]; then
     if [[ "$OFFLINE" == "1" ]]; then
       offline_skip "GA4-Test-Call"
-    elif check_out="$(python3 "$GA4_SCRIPT" --property "$CFG_GA4" --creds "$CREDS_PATH" --check 2>&1)"; then
+    elif check_out="$(cd "$WORKSPACE" && python3 "$GA4_SCRIPT" --property "$CFG_GA4" --creds "$CREDS_PATH" --check 2>&1)"; then
       ok "GA4-Test-Call: $(last_line "$check_out")"
+    elif [[ "$GOOGLE_PORTAL" -eq 1 ]]; then
+      broken "GA4-Test-Call über das Cockpit: fehlgeschlagen ($(last_line "$check_out")). Verbindung und Property im Cockpit prüfen"
     else
       broken "GA4-Test-Call: fehlgeschlagen ($(last_line "$check_out")). Property-Freigabe für die Service-Account-Mail prüfen"
       customer_ask "Google Analytics 4: das Dienstkonto als Betrachter auf der Property freischalten (Verwaltung, Property-Zugriffsverwaltung). Wer selbst keine Nutzer hinzufügen darf, braucht dafür jemanden mit Administratorrechten auf der Property."
@@ -737,13 +910,34 @@ fi
 # --- Pflicht: Google Search Console ---------------------------------------
 source_section gsc
 
-if switched_off gsc; then
+# Ob die Property den Shop abdeckt, mit derselben Regel wie config.validate(),
+# audit.portal setup und gsc_pull.py --config (audit.gsc_scope).
+gsc_scope_problem=""
+if [[ "$PY_MODERN" -eq 1 && -n "$CFG_GSC" && -n "$CFG_DOMAIN" ]]; then
+  gsc_scope_problem="$(PYTHONPATH="${PLUGIN_ROOT}/scripts" python3 -c \
+    'import sys; from audit import gsc_scope; print(gsc_scope.mismatch(sys.argv[1], sys.argv[2]) or "")' \
+    "$CFG_GSC" "$CFG_DOMAIN" 2>/dev/null || true)"
+fi
+
+if portal_disconnected gsc; then
+  report_portal_disconnected gsc
+elif switched_off gsc; then
   report_switched_off gsc
+elif [[ -n "$gsc_scope_problem" ]]; then
+  # Lesbar, aber für einen anderen Host: der Test-Call wäre grün, und jede
+  # Zahl daraus gehörte zu einem anderen Store (Befund early-rider, 07.10.2026).
+  # Ohne Netz geprüft, deshalb auch unter CHECK_ENV_OFFLINE.
+  broken "Search Console: ${gsc_scope_problem}"
+  if [[ "$PORTAL_MODE" -eq 1 ]]; then
+    customer_ask "Google Search Console: im Cockpit neu verbinden. ${gsc_scope_problem}"
+  fi
 elif [[ -z "$check_reason" && -n "$CFG_GSC" ]]; then
   if [[ "$OFFLINE" == "1" ]]; then
     offline_skip "GSC-Test-Call"
-  elif check_out="$(python3 "$GSC_SCRIPT" --site "$CFG_GSC" --creds "$CREDS_PATH" --check 2>&1)"; then
+  elif check_out="$(cd "$WORKSPACE" && python3 "$GSC_SCRIPT" --site "$CFG_GSC" --creds "$CREDS_PATH" --check 2>&1)"; then
     ok "GSC-Test-Call: $(last_line "$check_out")"
+  elif [[ "$GOOGLE_PORTAL" -eq 1 ]]; then
+    broken "GSC-Test-Call über das Cockpit: fehlgeschlagen ($(last_line "$check_out")). Verbindung und Property im Cockpit prüfen"
   else
     broken "GSC-Test-Call: fehlgeschlagen ($(last_line "$check_out")). Property-Zugriff für die Service-Account-Mail prüfen"
     customer_ask "Google Search Console: das Dienstkonto mit der Berechtigung Uneingeschränkt hinzufügen (Einstellungen, Nutzer und Berechtigungen). Das kann dort ausschließlich ein Eigentümer der Property."
@@ -921,8 +1115,14 @@ source_section ads
 # wessen Seite fehlt (CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION ist unsere).
 ADS_SCRIPT="${PLUGIN_ROOT}/skills/pull-ads/scripts/ads_pull.py"
 ADS_ASK="Google Ads: das Dienstkonto mit der Zugriffsebene Nur Lesen als Nutzer hinzufügen (Tools und Einstellungen, Zugriff und Sicherheit, Nutzer) und die Kundennummer des Werbekontos nennen. Ohne diesen Zugang bleibt der Baseline-Block SEA leer und wird später nachgetragen."
-if switched_off ads; then
+if portal_disconnected ads; then
+  report_portal_disconnected ads
+elif switched_off ads; then
   report_switched_off ads
+elif [[ -z "$CFG_ADS_CUSTOMER" && "$GOOGLE_PORTAL" -eq 1 ]]; then
+  # Die Kundennummer kommt mit setup --from-portal aus dem Cockpit; ein
+  # Dienstkonto, das der Kunde freischalten könnte, gibt es dort nicht.
+  missing "Google Ads: google_ads_customer_id fehlt in der Config. Kennt das Cockpit ein Werbekonto, trägt /ptai-ecom:setup --from-portal es ein"
 elif [[ -z "$CFG_ADS_CUSTOMER" ]]; then
   missing "Google Ads: google_ads_customer_id fehlt in der Config"
   customer_ask "$ADS_ASK"
@@ -932,8 +1132,12 @@ elif [[ -n "$check_reason" ]]; then
   mark_open
 elif [[ "$OFFLINE" == "1" ]]; then
   offline_skip "Google-Ads-Test-Call"
-elif check_out="$(python3 "$ADS_SCRIPT" --customer-id "$CFG_ADS_CUSTOMER" --creds "$CREDS_PATH" --check 2>&1)"; then
+elif check_out="$(cd "$WORKSPACE" && python3 "$ADS_SCRIPT" --customer-id "$CFG_ADS_CUSTOMER" --creds "$CREDS_PATH" --check 2>&1)"; then
   ok "Google-Ads-Test-Call: $(last_line "$check_out")"
+elif [[ "$GOOGLE_PORTAL" -eq 1 ]]; then
+  # Über das Cockpit gibt es kein Dienstkonto, das der Kunde freischalten
+  # könnte; die Meldung des Cockpits sagt, was fehlt.
+  broken "Google-Ads-Test-Call über das Cockpit: fehlgeschlagen ($(last_line "$check_out")). Verbindung und Werbekonto im Cockpit prüfen"
 elif grep -q "CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION\|SERVICE_DISABLED\|has not been used in project" <<<"$check_out"; then
   broken "Google-Ads-Test-Call: fehlgeschlagen ($(last_line "$check_out")). Im Cloud-Projekt des Dienstkontos die Google Ads API aktivieren und mindestens die Zugriffsstufe Explorer beantragen"
 else
@@ -973,7 +1177,13 @@ if git -C "$WORKSPACE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   # Eine versionierte Datei beantwortet check-ignore mit Exit 1, auch wenn die
   # .gitignore sie trifft. Deshalb zuerst ls-files, sonst hieße es "würde
   # committet" über einer Datei, die längst im Repo liegt.
-  for path in ".env" "secrets/google-sa.json"; do
+  # Über das Cockpit liegt kein Dienstkonto im Workspace, und eine Zeile zu
+  # einer Datei, die es nicht gibt und nie geben soll, wäre ein falscher Befund.
+  versioned_secrets=(".env")
+  if [[ "$GOOGLE_PORTAL" -ne 1 ]]; then
+    versioned_secrets+=("secrets/google-sa.json")
+  fi
+  for path in "${versioned_secrets[@]}"; do
     if git -C "$WORKSPACE" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
       broken "Versionierung: ${path} ist bereits versioniert, .gitignore greift nicht mehr (git rm --cached -- ${path}). War der Commit je gepusht, die Schlüssel darin beim Anbieter neu erzeugen"
     elif git -C "$WORKSPACE" check-ignore -q "$path" 2>/dev/null; then
