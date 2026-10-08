@@ -83,6 +83,23 @@ def build(data_dir):
 
     a, v = total(jetzt), total(previous_year)
 
+    # Misst Analytics im Vorjahresfenster nicht jeden Monat voll, gibt es für
+    # Sitzungen und Conversion keinen Vorjahreswert. Ohne diese Prüfung teilte
+    # das Fenster zwölf Monate gegen fünf: im Lauf vom 07.10.2026 stand auf dem
+    # Deckblatt "+168,7 % Sitzungen" und eine Conversion "von 2,69 auf 1,14",
+    # weil die Property erst am 09.05.2025 begann. Der erste Monat zählt nur,
+    # wenn die Historie am Ersten beginnt.
+    sitzungen_ab = None
+    if source == "analytics":
+        history_from = ga4.get("history_from") or ""
+        start = history_from[:7]
+        teilmonat = bool(history_from) and history_from[8:10] not in ("", "01")
+        fehlend = [m for m in previous_year
+                   if m not in gm or (start and (m < start or (m == start and teilmonat)))]
+        if fehlend:
+            sitzungen_ab = start or None
+            v = {**v, "sessions": None, "conversion": None}
+
     # Störungen im Fenster benennen, statt die Zahlen still zu verrechnen.
     stoerung = []
     for m in jetzt:
@@ -109,7 +126,7 @@ def build(data_dir):
     # Rückgang, den es nicht gibt: im ersten echten Lauf wurde aus einem
     # einstelligen Minus bei den Sitzungen so ein doppelt so grosses.
     blase = []
-    for m in (jetzt if source == "analytics" else []):
+    for m in (jetzt if source == "analytics" and not sitzungen_ab else []):
         v_m = f"{int(m[:4])-1}-{m[5:7]}"
         a_s, v_s = sitzungen(m), sitzungen(v_m)
         if v_s and a_s / v_s > 1.35:
@@ -123,7 +140,7 @@ def build(data_dir):
             "label": f"{jetzt[0][5:7]}/{jetzt[0][:4]} bis {jetzt[-1][5:7]}/{jetzt[-1][:4]}",
             "label_vorjahr": f"{previous_year[0][5:7]}/{previous_year[0][:4]} bis {previous_year[-1][5:7]}/{previous_year[-1][:4]}",
             "stoerungen": stoerung, "session_blase": blase,
-            "sessions_quelle": source,
+            "sessions_quelle": source, "sitzungen_ab": sitzungen_ab,
             "delta": {k: delta(k) for k in ("umsatz", "netto", "bestellungen", "sessions",
                                             "ga4_kaeufe", "aov", "conversion")},
             "bereinigt": _adjusted(sitzungen, sm, jetzt, previous_year,

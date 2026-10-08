@@ -201,7 +201,8 @@ def validate(config: dict) -> list[str]:
 
 
 THEME_MIGRATION_KEYS = ("live_theme_id", "source_theme", "target_theme", "target_repo",
-                        "draft_theme_id", "file_prefix", "access", "page_sample", "freeze")
+                        "draft_theme_id", "file_prefix", "access", "page_sample", "freeze",
+                        "report_paths", "acceptance_checklist")
 THEME_ACCESS_READ = ("cli-grant", "portal", "staff")
 THEME_ACCESS_WRITE = ("cli-theme", "admin-api")
 THEME_ARCHITECTURES = ("os2", "vintage")
@@ -255,6 +256,15 @@ def theme_migration_errors(block) -> list[str]:
                           "Schreiben über admin-api braucht den Weg cli-grant")
     elif access is not None:
         errors.append("theme_migration.access muss ein Objekt sein")
+    # Prüfberichte außerhalb des Workspace (launch-check). Ein falscher Typ hieße: der Bericht
+    # wird nie gelesen, und der Launch-Check meldet "kein Bericht" statt der offenen Punkte.
+    paths = block.get("report_paths")
+    if paths is not None and not (isinstance(paths, list) and all(isinstance(p, str) and p.strip() for p in paths)):
+        errors.append("theme_migration.report_paths muss eine Liste von Pfaden sein, etwa "
+                      "[\"{drive_path}/projects/<projekt>\"]")
+    checklist = block.get("acceptance_checklist")
+    if checklist is not None and not (isinstance(checklist, str) and checklist.strip()):
+        errors.append("theme_migration.acceptance_checklist muss ein Pfad zur Prüfliste aus Phase 2 sein")
     return errors
 
 

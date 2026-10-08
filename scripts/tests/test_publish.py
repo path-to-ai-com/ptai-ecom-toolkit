@@ -472,3 +472,21 @@ class TestUpload(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDestinationFromCockpit(unittest.TestCase):
+    """Ein Shop aus dem Cockpit liegt unter dessen Schlüsseln im Bucket."""
+
+    def test_portal_block_sets_brand_and_shop(self):
+        config = {"account_slug": "beispielkunde", "brand": "Beispielshop EU",
+                  "portal": {"brand": "beispielmarke", "shop": "eu"}}
+        self.assertEqual(publish.destination(config), ("beispielmarke", "eu"))
+
+    def test_account_slug_replaces_only_the_brand(self):
+        config = {"account_slug": "beispielkunde", "brand": "Beispielshop EU",
+                  "portal": {"brand": "beispielmarke", "shop": "eu"}}
+        self.assertEqual(publish.destination(config, "portal-test"), ("portal-test", "eu"))
+
+    def test_without_portal_the_shop_comes_from_the_brand(self):
+        config = {"account_slug": "beispielkunde", "brand": "Beispielshop"}
+        self.assertEqual(publish.destination(config), ("beispielkunde", "beispielshop"))

@@ -76,7 +76,9 @@ Checklisten und Regeln: `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`, Übe
   "file_prefix": "beispiel",
   "access": {"read": "cli-grant", "write": "cli-theme"},
   "page_sample": "auto",
-  "freeze": {"from": null, "until": null}
+  "freeze": {"from": null, "until": null},
+  "report_paths": ["{drive_path}/projects/<projekt>"],
+  "acceptance_checklist": "migration/inventory/seo-checklist.md"
 }
 ```
 
@@ -88,6 +90,11 @@ Checklisten und Regeln: `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`, Übe
 - `file_prefix`: Präfix eigener Dateien im Ziel-Theme; kurz, Kleinbuchstaben, kein Bindestrich am Ende.
 - `page_sample`: `auto` bedeutet je zugewiesenem Template eine Beispiel-URL, mit Search Console die
   meistbesuchte.
+- `report_paths`: Prüfberichte außerhalb des Workspace, etwa im Projektordner des Accounts. `launch-check`
+  liest ihre offenen Punkte vor dem Launch; ohne diesen Eintrag sieht er nur `migration/verify/`.
+- `acceptance_checklist`: die Prüfliste "Muss nach dem Umbau wieder da sein" aus Phase 2, Zeilen
+  `- [ ] **P01** ...`. Sie ist die Abnahme der SEO-Ausgabe; `launch-check` wertet jeden offenen Punkt
+  als No-Go.
 - Sprachen und Märkte liest die Skill aus dem Shop, nicht aus der Konfiguration.
 
 Die Skripte lesen die Konfiguration. Der Migrationsstand speichert zusätzlich, welche IDs wann galten.
@@ -279,8 +286,9 @@ dann `phase --phase 3-mapping --status done`.
 
 ## Phase 4: Neubau
 
-`phase --phase 4-build --status running`, dann `build-theme`. Abschluss: Theme Check, Limits und Prüfung
-der Eingriffe ohne Befund. `phase --phase 4-build --status done`.
+`phase --phase 4-build --status running`, dann `build-theme`, bei Horizon mit dem SEO-Grundpaket
+(`seo-parity.md`). Abschluss: Theme Check, Limits, Prüfung der Eingriffe und `theme.horizon_base check`
+ohne Befund. `phase --phase 4-build --status done`.
 
 ### Gate G3: erster Upload
 
@@ -345,7 +353,8 @@ Dieselben Daten in `theme_migration.freeze` der Konfiguration eintragen.
 ### Gate G4: Abnahme
 
 Vorlage: offene Punkte der Testrunde, jede entschiedene Abweichung ("wie heute" oder "anders"), keine
-offenen Befunde `blocker` oder `before_launch`. Frage: "Nehmt ihr den Entwurf so ab?" Nach dem Ja
+offenen Befunde `blocker` oder `before_launch` in einem der Prüfberichte, die Prüfliste aus Phase 2
+abgehakt oder mit Person und Datum verschoben. Frage: "Nehmt ihr den Entwurf so ab?" Nach dem Ja
 `gate --gate G4-acceptance --decided-by "<Name>"`, dann `phase --phase 8-acceptance --status done`.
 
 ## Phase 9: Launch

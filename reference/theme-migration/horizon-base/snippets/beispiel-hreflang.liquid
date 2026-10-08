@@ -1,0 +1,123 @@
+{%- doc -%}
+  hreflang-Verweise im Seitenkopf: je veröffentlichter Sprache ein `link rel="alternate"`, dazu `x-default` auf die
+  Adresse der Hauptsprache. Die Sprachen kommen aus `localization.available_languages`.
+
+  Nur einbinden, wenn Shopify keine hreflang-Tags ausgibt. Shopify setzt sie bei Shopify Markets automatisch über
+  `content_for_header`, sobald einer Sprache ein eigener Unterordner, eine Subdomain oder eine Domain zugeordnet ist,
+  samt `x-default`. Abschalten lässt sich das nur im Admin unter „Online Store > Preferences“, Abschnitt
+  „Social sharing and SEO“, Schalter „Automatic hreflang tags“ (englische Admin-Bezeichnungen). Liquid kann diesen
+  Schalter nicht lesen. Den
+  Inhalt von `content_for_header` zu prüfen meldet Theme Check als ContentForHeaderModification und schaltet das
+  gestreamte HTML ab, deshalb prüft das Snippet das nicht selbst. Die Entscheidung fällt beim Einbau:
+  1. Live-HTML einer Seite auf `hreflang` prüfen.
+  2. Gibt Shopify Tags aus, das Snippet nicht einbinden.
+  3. Sonst den Schalter im Admin ausgeschaltet lassen und das Snippet im Layout rendern.
+  Wird der Schalter später wieder eingeschaltet, muss der Render-Aufruf vorher raus, sonst entstehen zwei Sätze.
+  Quellen: shopify.dev/docs/storefronts/themes/seo/hreflang, help.shopify.com/en/manual/markets/seo.
+
+  Die Adresse jeder Sprache entsteht aus `canonical_url`: Origin und Pfad der Canonical, davon das Präfix der
+  aktuellen Sprache (`request.locale.root_url`) entfernt, davor das Präfix der Zielsprache (`root_url`). Der Eintrag
+  der aktuellen Sprache ist `canonical_url` selbst. So widerspricht hreflang nie der Canonical, `?page=N` bleibt
+  erhalten.
+
+  Keine Ausgabe auf 404, Passwort, Captcha, Geschenkkarte, Warenkorb und Kundenkonto. Zeigt die Canonical einer
+  anderen Seite als der Startseite auf die Startseite (etwa Suche oder 404), entfällt die Ausgabe ebenfalls, damit
+  kein Verweis fälschlich auf die Startseite zeigt.
+
+  Grenzen: Sprachen auf eigener Domain (statt Unterordner) deckt `root_url` nicht ab. Sind Handles übersetzt, zeigt
+  der Verweis auf das Handle der aktuellen Sprache; Shopify leitet dann weiter, statt die Zielseite direkt zu liefern.
+
+  @example
+  {% render 'beispiel-hreflang' %}
+{%- enddoc -%}
+
+{%- liquid
+  assign hreflang_skip = false
+  if canonical_url == blank or localization.available_languages.size < 2
+    assign hreflang_skip = true
+  endif
+  case request.page_type
+    when '404', 'password', 'captcha', 'gift_card', 'cart'
+      assign hreflang_skip = true
+  endcase
+  if request.page_type contains 'customers/'
+    assign hreflang_skip = true
+  endif
+-%}
+
+{%- unless hreflang_skip -%}
+  {%- liquid
+    # Origin und Pfad aus der Canonical lösen.
+    assign hreflang_scheme = canonical_url | split: '://' | first
+    assign hreflang_rest = canonical_url | split: '://' | last
+    assign hreflang_host = hreflang_rest | split: '/' | first | split: '?' | first
+    assign hreflang_origin = hreflang_scheme | append: '://' | append: hreflang_host
+    assign hreflang_path = hreflang_rest | slice: hreflang_host.size, hreflang_rest.size
+    assign hreflang_first_char = hreflang_path | slice: 0
+    if hreflang_path == blank
+      assign hreflang_path = '/'
+    elsif hreflang_first_char == '?'
+      assign hreflang_path = hreflang_path | prepend: '/'
+    endif
+
+    # Präfix der aktuellen Sprache ohne abschließenden Schrägstrich, bei der Hauptsprache leer.
+    assign hreflang_current_prefix = request.locale.root_url
+    assign hreflang_last_char = hreflang_current_prefix | slice: -1
+    if hreflang_last_char == '/'
+      assign hreflang_keep = hreflang_current_prefix.size | minus: 1
+      assign hreflang_current_prefix = hreflang_current_prefix | slice: 0, hreflang_keep
+    endif
+
+    # Pfad ohne Sprachpräfix, nur wenn das Präfix ein ganzes Pfadsegment ist.
+    assign hreflang_base_path = hreflang_path
+    if hreflang_current_prefix != blank
+      assign hreflang_prefix_size = hreflang_current_prefix.size
+      assign hreflang_path_head = hreflang_path | slice: 0, hreflang_prefix_size
+      assign hreflang_path_next = hreflang_path | slice: hreflang_prefix_size
+      if hreflang_path_head == hreflang_current_prefix
+        if hreflang_path_next == blank or hreflang_path_next == '/' or hreflang_path_next == '?'
+          assign hreflang_base_path = hreflang_path | slice: hreflang_prefix_size, hreflang_path.size | prepend: '/' | replace_first: '//', '/'
+        endif
+      endif
+    endif
+
+    # Schutz: eine Canonical, die außerhalb der Startseite auf die Startseite zeigt, bekommt keine Verweise.
+    if hreflang_base_path == '/' and request.page_type != 'index'
+      assign hreflang_skip = true
+    endif
+
+    assign hreflang_default_href = ''
+  -%}
+
+  {%- unless hreflang_skip -%}
+    {%- for language in localization.available_languages -%}
+      {%- liquid
+        if language.iso_code == request.locale.iso_code
+          assign hreflang_href = canonical_url
+        else
+          assign hreflang_prefix = language.root_url
+          assign hreflang_last_char = hreflang_prefix | slice: -1
+          if hreflang_last_char == '/'
+            assign hreflang_keep = hreflang_prefix.size | minus: 1
+            assign hreflang_prefix = hreflang_prefix | slice: 0, hreflang_keep
+          endif
+
+          if hreflang_base_path == '/' and hreflang_prefix != blank
+            assign hreflang_href = hreflang_origin | append: hreflang_prefix
+          else
+            assign hreflang_href = hreflang_origin | append: hreflang_prefix | append: hreflang_base_path
+          endif
+        endif
+
+        if language.primary
+          assign hreflang_default_href = hreflang_href
+        endif
+      -%}
+      <link rel="alternate" hreflang="{{ language.iso_code }}" href="{{ hreflang_href | escape }}">
+    {%- endfor -%}
+
+    {%- if hreflang_default_href != blank -%}
+      <link rel="alternate" hreflang="x-default" href="{{ hreflang_default_href | escape }}">
+    {%- endif -%}
+  {%- endunless -%}
+{%- endunless -%}

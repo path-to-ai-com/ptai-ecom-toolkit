@@ -133,6 +133,13 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
    Dazu die Schutzliste aus Sitemap, Crawl und Search Console (`pull-gsc`, maximaler Zeitraum) und den
    Export der bestehenden Redirects. Ergebnis `seo.json`.
 
+   Daraus entsteht die Prüfliste "Muss nach dem Umbau wieder da sein", je Punkt eine Zeile
+   `- [ ] **P01** ...`. Sie ist die Abnahme der SEO-Ausgabe: ihren Pfad als
+   `theme_migration.acceptance_checklist` in die Config schreiben, sonst steht `launch-check` mit
+   dieser Zeile auf `blocked`. Ein Punkt gilt dort als erledigt, wenn er abgehakt ist, mit Person und
+   Datum verschoben (`verschoben von <Name> am <JJJJ-MM-TT>`) oder durch eine bestandene automatische
+   Prüfung abgedeckt (`seo-parity.md`, Abschnitt Automatisch im Launch-Check).
+
 8. **Kundenkonten** klassisch oder neu (Admin-Einstellung, `templates/customers/*`). Klassische Konten mit
    Frist als Eintrag `customer_accounts` nach `risks.json`. Die Datei vor dem Schreiben frisch lesen und
    nur den eigenen Eintrag ändern, weil `inventory-apps` dort ebenfalls schreibt.
@@ -140,7 +147,10 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 9. **Beispielseiten** `pages.json` aus der Template-Nutzung:
    - bei `page_sample: "auto"` je zugewiesenem Template eine URL
    - mit Search-Console-Snapshot die meistbesuchte, sonst die erste mit Inhalt
-   - dazu je Sprache die Startseite und je Markt-Pfad eine Seite
+   - dazu je veröffentlichter Sprache jeder Seitentyp einmal und je Markt-Pfad eine Seite; der
+     SEO-Vergleich in `launch-check` ist ohne eine Sprache unvollständig und steht dann auf `blocked`.
+     `PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.seo_parity pages --pages <pages.json> --locales de,en`
+     ergänzt die Sprachen (Primärsprache zuerst)
 
    ```json
    {"base_url": "https://beispielshop.example", "pages": [

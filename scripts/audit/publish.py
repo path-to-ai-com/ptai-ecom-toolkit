@@ -64,6 +64,22 @@ def slugify(name: str) -> str:
     return _NON_SLUG_CHARS.sub("-", name.lower()).strip("-")
 
 
+def destination(config: dict, account_slug: str | None = None) -> tuple[str, str]:
+    """Marke und Shop, unter denen ein Lauf im Bucket liegt.
+
+    Kommt der Shop aus dem Cockpit (Block `portal` in der Config), gelten dessen
+    Schlüssel; das Cockpit ordnet Läufe über `public.shops.slug` zu. Bis zum
+    08.10.2026 leitete `publish` den Shop immer aus `brand` ab: aus "Early
+    Rider EU" wurde `early-rider-eu`, im Cockpit hieß der Shop `eu`, und der
+    Lauf wäre als fünfter Shop neben den vier verbundenen erschienen.
+    `account_slug` (etwa die Testmarke) ersetzt nur die Marke.
+    """
+    portal = config.get("portal") or {}
+    brand = account_slug or portal.get("brand") or config["account_slug"]
+    shop = portal.get("shop") or slugify(config.get("brand") or brand)
+    return brand, shop
+
+
 def run_kind(run_id: str, state: dict) -> tuple[str, str | None]:
     """Lauf-Art und Kadenz. Die Lauf-ID traegt sie im Namen (`<datum>-<kadenz>`),
     der Zustand bestaetigt sie."""
@@ -144,8 +160,7 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
     """
     workspace, target = Path(workspace), Path(target)
     config = load_config(workspace)
-    brand = account_slug or config["account_slug"]
-    shop = slugify(config.get("brand") or brand)
+    brand, shop = destination(config, account_slug)
 
     run_dir = workspace / "reporting" / "runs" / run_id
     if not run_dir.is_dir():
@@ -378,7 +393,7 @@ def main(argv=None) -> int:
                   file=sys.stderr)
             return 1
         origin = fetch_manifest(a.target,
-                                a.account_slug or load_config(a.workspace)["account_slug"],
+                                destination(load_config(a.workspace), a.account_slug)[0],
                                 url, key)
         print({"local": "Manifest lag schon im Ziel und bleibt, wie es ist",
                "remote": "Manifest aus dem Bucket übernommen",

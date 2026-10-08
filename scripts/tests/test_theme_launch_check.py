@@ -453,5 +453,125 @@ class TestNachDemLaunch(Base):
         self.assertEqual(self.by_id(report)["rollback-theme"]["status"], lc.BLOCKED)
 
 
+
+SEO_FIXTURES = ROOT / "scripts" / "tests" / "fixtures" / "theme" / "seo"
+SEO_PAGES = {"home": ("/", "home"), "collection": ("/collections/ringe", "collection"),
+             "product": ("/products/beispielring", "product")}
+
+
+def seo_capture(ws: Path, side: str, theme: str, sources: dict) -> None:
+    """Mitschnitt mit HTML aus den SEO-Fixtures: `{page_id: (pfad, fixture-datei)}`."""
+    folder = ws / "reporting" / "runs" / "2026-10-06-launch-check" / "capture" / f"{side}-declined"
+    html = {page_id: (SEO_FIXTURES / name).read_text(encoding="utf-8") for page_id, (_, name) in sources.items()}
+    data = network("https://beispielshop.example", theme, {k: (path, []) for k, (path, _) in sources.items()},
+                   html=html, folder=folder)
+    for run in data["runs"]:
+        run["template"] = {"home": "index"}.get(run["page_id"], run["page_id"].split("-")[0])
+    (folder / "network.json").write_text(json.dumps(data))
+
+
+class TestSeoAusgabe(Base):
+    def live_pages(self, prefix="live"):
+        return {k: (path, f"{prefix}-{name}.html") for k, (path, name) in SEO_PAGES.items()}
+
+    def test_horizon_luecken_sind_no_go(self):
+        seo_capture(self.ws, "old", "000000000000", self.live_pages())
+        seo_capture(self.ws, "new", "111111111111", self.live_pages("draft"))
+        code, report = self.run_check("--launch-date", "2026-10-07")
+        checks = self.by_id(report)
+        self.assertEqual((code, report["recommendation"]), (1, "no_go"))
+        data = checks["seo-structured-data"]
+        self.assertEqual(data["status"], lc.MISSING)
+        self.assertIn("Varianten ohne description", data["evidence"])
+        self.assertIn("aggregateRating", data["evidence"])
+        self.assertIn("WebSite fehlt", data["evidence"])
+        self.assertEqual(checks["seo-hreflang"]["status"], lc.MISSING)
+        self.assertIn("og:type website, live product.group", checks["seo-open-graph"]["evidence"])
+        self.assertEqual(checks["seo-head"]["status"], lc.BLOCKED, "Sprache en fehlt im Mitschnitt")
+        self.assertIn("Sprache nicht im Mitschnitt: en", checks["seo-head"]["evidence"])
+        self.assertTrue(any("preview_theme_id=111111111111" in l["url"] for l in data["links"]))
+
+    def test_gleiche_ausgabe_in_jeder_sprache_ist_erfuellt(self):
+        pages = dict(self.live_pages(), **{"product-en": ("/en/products/beispielring", "live-product.html")})
+        seo_capture(self.ws, "old", "000000000000", pages)
+        seo_capture(self.ws, "new", "111111111111", pages)
+        _, report = self.run_check()
+        checks = self.by_id(report)
+        for key in ("seo-structured-data", "seo-hreflang", "seo-open-graph", "seo-head"):
+            self.assertEqual(checks[key]["status"], lc.OK, (key, checks[key]["evidence"]))
+
+    def test_ohne_mitschnitt_nicht_pruefbar(self):
+        _, report = self.run_check()
+        self.assertEqual(self.by_id(report)["seo-hreflang"]["status"], lc.BLOCKED)
+
+    def test_nach_dem_launch_gegen_den_mitschnitt_von_vorher(self):
+        self.shop.themes[fake.LIVE_ID]["role"] = "UNPUBLISHED"
+        self.shop.themes[fake.DRAFT_ID]["role"] = "MAIN"
+        seo_capture(self.ws, "old", "000000000000", self.live_pages())
+        seo_capture(self.ws, "after", "111111111111", self.live_pages("draft"))
+        _, report = self.run_check("--after", "--live-theme-id", "000000000000")
+        checks = self.by_id(report)
+        self.assertEqual(checks["seo-structured-data-after"]["status"], lc.MISSING)
+        self.assertEqual(checks["seo-hreflang-after"]["status"], lc.MISSING)
+
+
+class TestOffeneBefunde(Base):
+    def set_migration(self, **values):
+        config = json.loads((self.ws / "reporting" / "config.json").read_text())
+        config["theme_migration"].update(values)
+        (self.ws / "reporting" / "config.json").write_text(json.dumps(config))
+
+    def test_ohne_bericht_nicht_pruefbar_statt_frage(self):
+        _, report = self.run_check()
+        check = self.by_id(report)["acceptance-findings"]
+        self.assertEqual(check["status"], lc.BLOCKED)
+        self.assertEqual(check["question"], "")
+        self.assertIn("report_paths nicht gesetzt", check["evidence"])
+
+    def test_bericht_ausserhalb_des_workspace_ueber_report_paths(self):
+        drive = self.ws.parent / (self.ws.name + "-drive") / "projects" / "beispiel"
+        drive.mkdir(parents=True)
+        self.addCleanup(lambda: __import__("shutil").rmtree(drive.parent.parent, ignore_errors=True))
+        (drive / "verify-findings.md").write_text((SEO_FIXTURES / "verify-findings.md").read_text(encoding="utf-8"))
+        (drive / "journal.md").write_text("# Journal\n\n- nichts vor dem Launch\n")
+        config = json.loads((self.ws / "reporting" / "config.json").read_text())
+        config["drive_path"] = str(drive.parent.parent)
+        config["theme_migration"]["report_paths"] = ["{drive_path}/projects/beispiel"]
+        (self.ws / "reporting" / "config.json").write_text(json.dumps(config))
+        code, report = self.run_check()
+        check = self.by_id(report)["acceptance-findings"]
+        self.assertEqual(check["status"], lc.MISSING)
+        self.assertIn("4 offen", check["evidence"])
+        self.assertIn("hreflang fehlt auf allen Seiten", check["evidence"])
+        self.assertIn("von Beispiel Person am 2026-10-20", check["evidence"])
+        self.assertEqual(report["recommendation"], "no_go")
+
+    def test_fehlender_pfad_ist_nicht_pruefbar(self):
+        self.set_migration(report_paths=["../gibt-es-nicht"])
+        _, report = self.run_check()
+        check = self.by_id(report)["acceptance-findings"]
+        self.assertEqual(check["status"], lc.BLOCKED)
+        self.assertIn("nicht gefunden: ../gibt-es-nicht", check["evidence"])
+
+    def test_pruefliste_offen_abgedeckt_verschoben(self):
+        (self.ws / "migration" / "inventory").mkdir(parents=True)
+        (self.ws / "migration" / "inventory" / "checklist.md").write_text((SEO_FIXTURES / "checklist.md").read_text(encoding="utf-8"))
+        self.set_migration(acceptance_checklist="migration/inventory/checklist.md")
+        pages = dict({k: (path, f"live-{name}.html") for k, (path, name) in SEO_PAGES.items()},
+                     **{"product-en": ("/en/products/beispielring", "live-product.html")})
+        seo_capture(self.ws, "old", "000000000000", pages)
+        seo_capture(self.ws, "new", "111111111111", pages)
+        _, report = self.run_check()
+        check = self.by_id(report)["acceptance-checklist"]
+        self.assertEqual(check["status"], lc.MISSING, check["evidence"])
+        self.assertIn("offen: P02", check["evidence"])
+        self.assertIn("P03 (seo-hreflang)", check["evidence"])
+        self.assertIn("P07 (von Beispiel Person am 2026-10-20)", check["evidence"])
+
+    def test_pruefliste_ohne_migrationslauf_trifft_nicht_zu(self):
+        _, report = self.run_check()
+        self.assertEqual(self.by_id(report)["acceptance-checklist"]["status"], lc.NA)
+
+
 if __name__ == "__main__":
     unittest.main()

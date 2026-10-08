@@ -81,3 +81,36 @@ class TestAnalyticsPurchases(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPriorYearCoverage(unittest.TestCase):
+    """Misst Analytics im Vorjahr nicht jeden Monat, fehlt der Vergleich.
+
+    Lauf vom 07.10.2026: die Property begann am 09.05.2025, das Vorjahr reichte
+    bis 09/2024 zurück, und das Deckblatt meldete "+168,7 % Sitzungen"."""
+
+    def test_partial_prior_year_has_no_session_delta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            shop = {"period": {"start": "2024-09-01", "end": "2026-08-31"},
+                    "by_month": [{"month": m, "total_sales": 10_000.0, "net_sales": 8_000.0,
+                                  "orders": 100} for m in MONTHS]}
+            rows = [{"month": m, "sessions": 10_000, "purchases": 100}
+                    for m in MONTHS if m >= "2025-05"]
+            (d / "shopify.json").write_text(json.dumps(shop), encoding="utf-8")
+            (d / "ga4.json").write_text(json.dumps({"by_month": rows, "history_from": "2025-05-09"}),
+                                        encoding="utf-8")
+            f = window.build(d)
+            self.assertEqual(f["sitzungen_ab"], "2025-05")
+            self.assertIsNone(f["delta"]["sessions"])
+            self.assertIsNone(f["delta"]["conversion"])
+            self.assertIsNone(f["vorjahr"]["conversion"])
+            self.assertEqual(f["session_blase"], [])
+            # Umsatz und Bestellungen kommen aus Shopify und bleiben vergleichbar.
+            self.assertIsNotNone(f["delta"]["umsatz"])
+
+    def test_full_prior_year_keeps_session_delta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = build(tmp, lambda m: {"sessions": 10_000, "purchases": 100})
+            self.assertIsNone(f["sitzungen_ab"])
+            self.assertIsNotNone(f["delta"]["sessions"])

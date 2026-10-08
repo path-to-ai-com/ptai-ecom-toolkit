@@ -1,0 +1,36 @@
+{%- doc -%}
+  JSON-LD `WebSite` mit `name`, `url` und `potentialAction` vom Typ `SearchAction`, nur auf der Startseite.
+  Adressen über `request.origin` und `routes`, damit eine Sprache im Unterordner auf ihre eigene Startseite und
+  Suche zeigt.
+
+  Google zeigt das Suchfeld in den Sitelinks seit dem 21.11.2024 nicht mehr an (angekündigt am 21.10.2024);
+  Search Console und Rich Results Test führen das Markup seitdem nicht mehr. Das Markup bleibt gültiges schema.org, erzeugt laut Google weder Probleme noch Fehler in der Search Console
+  und hält die Parität mit dem alten Theme. `WebSite` mit `name` und `url` nutzt Google weiter für den Websitenamen.
+  Quelle: developers.google.com/search/blog/2024/10/sitelinks-search-box.
+
+  @example
+  {% render 'beispiel-website-structured-data' %}
+{%- enddoc -%}
+
+{%- if request.page_type == 'index' -%}
+  {%- liquid
+    assign website_url = request.origin | append: routes.root_url
+    assign website_search_target = request.origin | append: routes.search_url | append: '?q={search_term_string}'
+  -%}
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": {{ shop.name | json }},
+      "url": {{ website_url | json }},
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": {{ website_search_target | json }}
+        },
+        "query-input": "required name=search_term_string"
+      }
+    }
+  </script>
+{%- endif -%}

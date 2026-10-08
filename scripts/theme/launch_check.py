@@ -29,6 +29,13 @@ zieht, je Theme ein Ordner unter `<lauf>/capture/old-<consent>/` und
 ist, "new" der Entwurf, nach dem Launch das veröffentlichte Theme. Nach dem
 Launch (`--after`) ist die Seite live, dann genügt ein HTTP-Abruf.
 
+Die SEO-Ausgabe (strukturierte Daten, hreflang, Open Graph, Kopfdaten) vergleicht
+`seo_parity` aus demselben Mitschnitt; offene Punkte aus Prüfberichten, auch
+außerhalb des Workspace (`theme_migration.report_paths`), und aus der Prüfliste
+der Bestandsaufnahme (`theme_migration.acceptance_checklist`) liest
+`launch_findings`. Beides ist nie eine Frage: offen heißt `missing`, nicht
+auffindbar `blocked`.
+
 Ein Migrationslauf (`run_state`) ist optional: ohne ihn kommen die Theme-IDs aus
 `theme_migration` der Config oder aus `--live-theme-id` und `--draft-theme-id`.
 Antworten auf `manual`-Punkte stehen in `reporting/launch-answers.json` und
@@ -57,7 +64,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from theme import (EXIT_ERROR, EXIT_FINDINGS, EXIT_OK, ConfigError, emit, load_config, migration_config,
                    now_utc, write_json)
-from theme import apps, run_state
+from theme import apps, launch_findings, run_state, seo_parity
 from theme.files import fetch_by_names, list_files, list_themes
 from theme.shopify import ShopifyError, numeric_id, transport_from_config
 from theme.translations import read_resource
@@ -78,9 +85,9 @@ ACCOUNTS_QUERY = """query LaunchCheckAccounts {
 }"""
 
 #: Befunde aus verify-theme, die vor dem Launch erledigt sein müssen.
-LAUNCH_SEVERITIES = ("blocker", "before_launch")
+LAUNCH_SEVERITIES = launch_findings.LAUNCH_SEVERITIES
 #: Status eines Befunds oder Testpunkts, der nichts mehr verlangt.
-CLOSED = ("done", "resolved", "fixed", "closed", "accepted", "wontfix")
+CLOSED = launch_findings.CLOSED
 #: Status eines Testpunkts, an dem noch etwas zu tun ist (test-round).
 OPEN_TEST_STATUS = ("open", "in_progress", "decision")
 #: Vergleichswerte, die direkt vor dem Launch gezogen werden, mit Quelle in `sources`.
@@ -97,8 +104,16 @@ EVENT_CATEGORIES = ("analytics",)
 #: Ab diesem Faktor und dieser Differenz gelten Ereignisse je Seite als vervielfacht.
 EVENT_FACTOR = 1.5
 EVENT_MIN_DELTA = 3
-#: Pause zwischen zwei Abrufen der Storefront; sie verträgt keine Parallelität.
-FETCH_PAUSE = 2.0
+#: Pause zwischen zwei Abrufen der Storefront in Sekunden. Sie verträgt einen Prüfer zur Zeit mit drei
+#: bis fünf Sekunden Abstand; schneller folgen HTTP 429 und eine Bot-Abfrage (seo-parity.md).
+FETCH_PAUSE = 4.0
+#: Je Thema des SEO-Vergleichs eine Zeile: ID, Titel.
+SEO_TOPICS = {
+    "structured_data": ("seo-structured-data", "Strukturierte Daten (JSON-LD)"),
+    "hreflang": ("seo-hreflang", "hreflang"),
+    "open_graph": ("seo-open-graph", "Open Graph"),
+    "head": ("seo-head", "Title, Meta-Description und Canonical vorhanden"),
+}
 USER_AGENT = "ptai-ecom launch-check"
 
 
@@ -593,6 +608,8 @@ def build_context(args, config: dict, workspace: Path, *, transport=None) -> dic
         "old": load_captures(network_old), "new": load_captures(network_new),
         "pages_file": pages_file, "answers": answers, "answers_file": str(answers_file),
         "catalog": catalog, "dropped": dropped, "host_map": host_map, "cache": {},
+        "report_paths": [str(p) for p in block.get("report_paths") or [] if str(p).strip()],
+        "checklist": block.get("acceptance_checklist") or None,
     }
 
 
@@ -707,6 +724,111 @@ def latest_verify_findings(workspace: Path):
     return path, data if isinstance(data, list) else None
 
 
+def check_findings(ctx: dict) -> dict:
+    """Offene Punkte aus allen Prüfberichten: im Workspace und unter `theme_migration.report_paths`.
+
+    Nie eine Frage: ein offener Punkt ist `missing`, kein auffindbarer Bericht
+    `blocked`. Am 07.10.2026 stand hier die Frage, ob alles erledigt sei, und der
+    Bericht mit den offenen Punkten lag außerhalb des Workspace.
+    """
+    group, title = "Abnahme und offene Befunde", "Befunde aus der Prüfung"
+    workspace = ctx["workspace"]
+    sources, unreadable = [], []
+    path, _ = latest_verify_findings(workspace)
+    if path:
+        sources.append(path)
+    files, unresolved = launch_findings.report_files(ctx["report_paths"], workspace, ctx["config"])
+    sources += [f for f in files if f not in sources]
+    items, reports = [], []
+    for source in sources:
+        found = launch_findings.read_report(source)
+        if found is None:
+            unreadable.append(source.name)
+        elif launch_findings.is_report(source, found):
+            reports.append(source.name)
+            items += found
+    gaps = ([f"nicht gefunden: {', '.join(unresolved)}"] if unresolved else []) \
+        + ([f"nicht lesbar: {', '.join(unreadable)}"] if unreadable else [])
+    if not reports:
+        where = "nichts unter migration/verify/*/findings.json"
+        where += (", theme_migration.report_paths: " + ", ".join(ctx["report_paths"]) if ctx["report_paths"]
+                  else ", theme_migration.report_paths nicht gesetzt")
+        if files:
+            where += f"; {len(files)} Dateien gelesen, keine mit einem Abschnitt Vor dem Launch oder Blocker"
+        return make_check("acceptance-findings", group, title, BLOCKED,
+                          "kein Prüfbericht gefunden: " + where + ("; " + "; ".join(gaps) if gaps else ""),
+                          action="verify-theme laufen lassen oder theme_migration.report_paths auf den Ordner des "
+                                 "Prüfberichts setzen (etwa {drive_path}/projects/<projekt>)", owner=OPERATOR)
+    open_items = [i for i in items if i["state"] == "open"]
+    deferred = [i for i in items if i["state"] == "deferred"]
+    done = [i for i in items if i["state"] == "done"]
+    evidence = f"{len(reports)} Berichte ({short_list(reports, 4)}), {len(items)} Punkte vor dem Launch"
+    if open_items:
+        evidence += f"; {len(open_items)} offen: " + short_list([f"{i['source']}, {i['section']}: {i['label']}"
+                                                                 for i in open_items], 8)
+    evidence += f"; {len(done)} erledigt"
+    if deferred:
+        evidence += "; verschoben: " + short_list([f"{i['label'][:60]} (von {i['deferral']['by']} am "
+                                                   f"{i['deferral']['at']})" for i in deferred], 6)
+    if gaps:
+        evidence += "; " + "; ".join(gaps)
+    status = MISSING if open_items else (BLOCKED if gaps else OK)
+    action = ("jeden Punkt beheben und im Bericht als erledigt markieren oder mit Person und Datum verschieben "
+              "(verschoben von <Name> am <JJJJ-MM-TT>)" if open_items
+              else "Pfad prüfen, ob der Ordner eingebunden ist" if gaps else "")
+    check = make_check("acceptance-findings", group, title, status, evidence, action=action,
+                       owner=OPERATOR if status != OK else "")
+    check["details"] = {"open": open_items, "deferred": deferred, "reports": reports}
+    return check
+
+
+def check_checklist(ctx: dict, statuses: dict) -> dict:
+    """Die Prüfliste "Muss nach dem Umbau wieder da sein" aus Phase 2 als Abnahme.
+
+    Jeder Punkt ist abgehakt, mit Person und Datum verschoben oder durch eine
+    bestandene automatische Prüfung dieses Laufs abgedeckt; sonst `missing`.
+    """
+    group, title = "Abnahme und offene Befunde", "Prüfliste aus der Bestandsaufnahme"
+    raw = ctx["checklist"]
+    if not raw:
+        if ctx["state"]:
+            return make_check("acceptance-checklist", group, title, BLOCKED,
+                              "keine Prüfliste konfiguriert (theme_migration.acceptance_checklist), obwohl ein "
+                              "Migrationslauf besteht",
+                              action="Pfad der Prüfliste aus Phase 2 (Zeilen - [ ] **P01** ...) eintragen",
+                              owner=OPERATOR)
+        return make_check("acceptance-checklist", group, title, NA,
+                          "ohne Migrationslauf und ohne theme_migration.acceptance_checklist")
+    path = Path(launch_findings.resolve_path(raw, ctx["workspace"], ctx["config"]))
+    try:
+        items = launch_findings.parse_checklist(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        return make_check("acceptance-checklist", group, title, BLOCKED, f"{raw} nicht lesbar ({type(exc).__name__})",
+                          action="Pfad prüfen, ob der Ordner eingebunden ist", owner=OPERATOR)
+    if not items:
+        return make_check("acceptance-checklist", group, title, BLOCKED,
+                          f"{path.name}: keine Punkte der Form - [ ] **P01** gefunden", owner=OPERATOR)
+    result = launch_findings.evaluate_checklist(items, statuses)
+    evidence = (f"{path.name}: {len(items)} Punkte, {len(result['done'])} abgehakt, "
+                f"{len(result['covered'])} automatisch abgedeckt, {len(result['deferred'])} verschoben, "
+                f"{len(result['open'])} offen")
+    if result["open"]:
+        evidence += "; offen: " + short_list(
+            [i["id"] + (f" ({', '.join(i['failing'])} nicht bestanden)" if i["failing"] else "")
+             for i in result["open"]], 12)
+    if result["covered"]:
+        evidence += "; abgedeckt: " + short_list([f"{i['id']} ({', '.join(i['checks'])})" for i in result["covered"]], 8)
+    if result["deferred"]:
+        evidence += "; verschoben: " + short_list([f"{i['id']} (von {i['deferral']['by']} am {i['deferral']['at']})"
+                                                   for i in result["deferred"]], 6)
+    status = MISSING if result["open"] else OK
+    check = make_check("acceptance-checklist", group, title, status, evidence,
+                       action="jeden offenen Punkt prüfen und abhaken oder mit Person und Datum verschieben"
+                       if result["open"] else "", owner=OPERATOR if result["open"] else "")
+    check["details"] = result
+    return check
+
+
 def latest_test_round(workspace: Path):
     path = newest((workspace / "reporting" / "runs").glob("*-test/test.json"))
     return path, read_json(path) if path else None
@@ -727,24 +849,7 @@ def check_acceptance(ctx: dict) -> list:
         out.append(make_check("acceptance-decision", group, "Abnahme", MANUAL,
                               "kein Migrationslauf im Workspace" + (f" ({ctx['state_error']})" if ctx["state_error"] else ""),
                               question="Hat das Team den Entwurf abgenommen? Wer, an welchem Tag?", owner=TEAM))
-    path, findings = latest_verify_findings(ctx["workspace"])
-    if findings is None:
-        out.append(make_check("acceptance-findings", group, "Befunde aus der Prüfung", MANUAL,
-                              "kein Prüfbericht unter migration/verify/",
-                              question="Sind alle Befunde der Schwere blocker und before_launch erledigt?",
-                              action="verify-theme laufen lassen, wenn es keinen Prüfbericht gibt", owner=OPERATOR))
-    else:
-        open_items = [f for f in findings if isinstance(f, dict) and f.get("severity") in LAUNCH_SEVERITIES
-                      and str(f.get("status", "")).lower() not in CLOSED]
-        rel = path.relative_to(ctx["workspace"]).as_posix()
-        out.append(make_check(
-            "acceptance-findings", group, "Befunde aus der Prüfung", MISSING if open_items else OK,
-            (f"{len(open_items)} offen in {rel}: "
-             + short_list([f"{f.get('severity')}: {str(f.get('description') or f.get('title') or '')[:80]}"
-                           for f in open_items], 4)) if open_items
-            else f"keine offenen Befunde blocker oder before_launch in {rel}",
-            action="an der Ursache beheben, hochladen, betroffene Prüfer erneut" if open_items else "",
-            owner=OPERATOR if open_items else ""))
+    out.append(check_findings(ctx))
     path, test = latest_test_round(ctx["workspace"])
     if not isinstance(test, dict):
         out.append(make_check("acceptance-test-round", group, "Testrunde", NA,
@@ -1075,6 +1180,95 @@ def check_seo_pages(ctx: dict, group: str) -> dict:
     return make_check("seo-pages", group, title, MISSING if problems else OK, evidence,
                       action="Ursache im Entwurf beheben (Mapping oder Generator-Regel)" if problems else "",
                       owner=OPERATOR if problems else "", links=links)
+
+
+def published_locales(ctx: dict) -> tuple:
+    """Primär-Subtags der veröffentlichten Sprachen und die Primärsprache; `(None, None, grund)` ohne Zugang."""
+    locales, error = shop(ctx, "locales", lambda t: t.execute(LOCALES_QUERY).get("shopLocales") or [])
+    if locales is None:
+        return None, None, error
+    published = {seo_parity.primary_subtag(l["locale"]) for l in locales if l.get("published")}
+    primary = next((seo_parity.primary_subtag(l["locale"]) for l in locales if l.get("primary")), None)
+    return published, primary, None
+
+
+def seo_pairs(ctx: dict) -> tuple:
+    """Seitenpaare aus den Mitschnitten: HTML des neuen Themes und, falls vorhanden, des alten."""
+    pairs, blocked = [], []
+    for page_id, entry in sorted(ctx["new"]["pages"].items(), key=lambda kv: str(kv[0])):
+        run = primary_run(entry)
+        html = run_html(run) if run else None
+        if html is None:
+            blocked.append(str(page_id))
+            continue
+        old_entry = ctx["old"]["pages"].get(page_id)
+        old_run = primary_run(old_entry) if old_entry else None
+        pairs.append({"id": page_id, "path": entry.get("path") or "/", "template": entry.get("template"),
+                      "new_html": html, "old_html": run_html(old_run) if old_run else None})
+    return pairs, blocked
+
+
+def check_seo_output(ctx: dict, *, after: bool = False) -> list:
+    """Strukturierte Daten, hreflang, Open Graph und Kopfdaten je Seite, neu gegen alt (seo_parity).
+
+    Was live da ist und im neuen Theme fehlt, ist `missing`; eine ProductGroup mit
+    Varianten ohne description ist es immer. Fehlt im Mitschnitt ein Pflicht-Seitentyp
+    oder eine veröffentlichte Sprache, ist der Vergleich unvollständig und `blocked`,
+    nie `ok`.
+    """
+    group = "SEO am Launch-Tag" if after else "SEO"
+    suffix = "-after" if after else ""
+    titles = {topic: (check_id + suffix, title) for topic, (check_id, title) in SEO_TOPICS.items()}
+    if not ctx["new"]["pages"]:
+        which = "des veröffentlichten Themes (capture/after-declined)" if after else "des Entwurfs (capture/new-declined)"
+        return [make_check(cid, group, title, BLOCKED, f"kein Mitschnitt {which}",
+                           action="capture_network.py mit derselben pages.json mitschneiden", owner=OPERATOR)
+                for cid, title in titles.values()]
+    pairs, without_html = seo_pairs(ctx)
+    if not pairs:
+        return [make_check(cid, group, title, BLOCKED, "kein HTML im Mitschnitt des neuen Themes "
+                           f"(falsches Theme oder Fehler: {short_list(without_html)})", owner=OPERATOR)
+                for cid, title in titles.values()]
+    published, primary, locale_error = published_locales(ctx)
+    result = seo_parity.compare_pages(pairs, published, primary)
+    gaps = []
+    if result["missing_templates"]:
+        gaps.append("Seitentyp nicht im Mitschnitt: " + ", ".join(result["missing_templates"]))
+    if result["missing_languages"]:
+        gaps.append("Sprache nicht im Mitschnitt: " + ", ".join(result["missing_languages"])
+                    + " (seo_parity pages ergänzt die Seitenliste)")
+    if len(result["without_live"]) == len(pairs):
+        gaps.append("kein HTML des alten Themes im Mitschnitt, nur absolute Regeln geprüft")
+    if locale_error:
+        gaps.append(f"Sprachen nicht lesbar ({locale_error[:80]}), Abdeckung je Sprache nicht geprüft")
+    base = (f"{len(pairs)} Seiten verglichen, Seitentypen {', '.join(result['templates'])}"
+            + (f", Sprachen {', '.join(result['languages'])}" if result["languages"] else ""))
+    out = []
+    for topic, (cid, title) in titles.items():
+        found = result["topics"][topic]
+        by_text = {}
+        for problem in found["problems"]:
+            by_text.setdefault(problem["text"], []).append(problem["path"] or "/")
+        evidence = base
+        if by_text:
+            evidence += "; " + short_list([f"{text} ({short_list(paths, 3)})" for text, paths in by_text.items()], 6)
+        if found["notes"]:
+            evidence += "; Hinweis: " + short_list(sorted({n["text"] for n in found["notes"]}), 3)
+        if without_html:
+            evidence += f"; ohne HTML: {short_list(without_html, 4)}"
+        if gaps:
+            evidence += "; " + "; ".join(gaps)
+        status = MISSING if by_text else (BLOCKED if gaps else OK)
+        paths = sorted({p["path"] or "/" for p in found["problems"]})[:4]
+        check = make_check(cid, group, title, status, evidence,
+                           action="im Theme nachbauen, Horizon-Grundpaket (seo-parity.md) prüfen, neu mitschneiden"
+                           if status == MISSING else ("Mitschnitt vervollständigen" if status == BLOCKED else ""),
+                           owner=OPERATOR if status != OK else "", links=[l for p in paths for l in link_pair(ctx, p)])
+        check["details"] = {"problems": found["problems"], "notes": found["notes"],
+                            "missing_templates": result["missing_templates"],
+                            "missing_languages": result["missing_languages"]}
+        out.append(check)
+    return out
 
 
 def check_tracking(ctx: dict, *, after: bool = False) -> list:
@@ -1416,13 +1610,16 @@ def recommend(checks: list) -> str:
 
 def collect(ctx: dict) -> list:
     if ctx["after"]:
-        checks = check_published(ctx) + check_after_seo(ctx) + check_tracking(ctx, after=True) \
-            + check_pagination(ctx) + check_after_languages(ctx) + check_after_rest(ctx)
+        checks = check_published(ctx) + check_after_seo(ctx) + check_seo_output(ctx, after=True) \
+            + check_tracking(ctx, after=True) + check_pagination(ctx) + check_after_languages(ctx) \
+            + check_after_rest(ctx)
     else:
-        checks = (check_timing(ctx) + check_acceptance(ctx) + check_sync(ctx) + check_draft(ctx)
+        seo = [check_seo_robots(ctx, "SEO"), check_seo_pages(ctx, "SEO")] + check_seo_output(ctx)
+        # Die Prüfliste zählt einen Punkt als abgedeckt, wenn die SEO-Prüfung dazu bestanden ist.
+        checklist = check_checklist(ctx, {c["id"]: c["status"] for c in seo})
+        checks = (check_timing(ctx) + check_acceptance(ctx) + [checklist] + check_sync(ctx) + check_draft(ctx)
                   + check_embeds(ctx) + check_translations(ctx) + check_tracking(ctx) + check_pagination(ctx)
-                  + [check_seo_robots(ctx, "SEO"), check_seo_pages(ctx, "SEO")]
-                  + check_baseline(ctx) + check_criteria(ctx) + check_customer_accounts(ctx)
+                  + seo + check_baseline(ctx) + check_criteria(ctx) + check_customer_accounts(ctx)
                   + check_script_tags(ctx))
     apply_answers(checks, ctx["answers"])
     return checks

@@ -1,6 +1,6 @@
 # Launch
 
-Stand 05.10.2026. Gilt für Phase 9. Der Launch ist der Schritt, in dem ein Mensch das neue Theme
+Stand 08.10.2026. Gilt für Phase 9. Der Launch ist der Schritt, in dem ein Mensch das neue Theme
 veröffentlicht. Die Skills bereiten vor, prüfen und beobachten; sie veröffentlichen nie.
 
 Ausführbar ist diese Liste als Skill `launch-check` (seit 06.10.2026): je Punkt ein Status mit Beleg,
@@ -21,33 +21,42 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
 
 ## Vorbereitung, Tage vorher
 
-1. **Abnahme (G4) entschieden**, alle Befunde `blocker` und `before_launch` erledigt.
-2. **Änderungsstopp läuft** (`change-freeze.md`), Termin steht beim Team.
-3. **Abgleich II** (`sync-live-theme`): jede Änderung seit Abgleich I entschieden und im Entwurf.
-4. **Vergleichswerte direkt vorher ziehen:** `pull-gsc`, `pull-ga4`, `pull-cwv`, Crawl des
+1. **Abnahme (G4) entschieden**, alle Befunde `blocker` und `before_launch` erledigt, in jedem
+   Prüfbericht, auch in einem außerhalb des Workspace (`theme_migration.report_paths`). Jeder Punkt
+   ist erledigt oder namentlich mit Datum verschoben. Ein offener Punkt ist ein No-Go, keine Frage.
+2. **Prüfliste aus Phase 2 abgeschlossen** (`theme_migration.acceptance_checklist`): jeder Punkt
+   abgehakt, verschoben mit Person und Datum oder durch eine bestandene automatische Prüfung
+   abgedeckt. Am 07.10.2026 ging ein Shop live, dessen Prüfliste nie abgehakt war.
+3. **SEO-Ausgabe wie live** (`seo-parity.md`): strukturierte Daten, hreflang, Open Graph, Title,
+   Description und Canonical je Seitentyp und je Sprache, im Mitschnitt verglichen. Die bekannten
+   Lücken von Horizon schließt das Grundpaket beim Bau.
+4. **Änderungsstopp läuft** (`change-freeze.md`), Termin steht beim Team.
+5. **Abgleich II** (`sync-live-theme`): jede Änderung seit Abgleich I entschieden und im Entwurf.
+6. **Vergleichswerte direkt vorher ziehen:** `pull-gsc`, `pull-ga4`, `pull-cwv`, Crawl des
    Live-Themes, Rankings, Conversion je Seitentyp und Gerät. Verglichen wird nach dem Launch mit
    diesen Werten, nicht mit einer Baseline von vor Wochen: Saison und Wachstum dazwischen würden
    jeden Vergleich verfälschen.
-5. **App-Embeds im Entwurf aktiviert** und App-Blöcke platziert. Embeds gelten je Theme; was im
+7. **App-Embeds im Entwurf aktiviert** und App-Blöcke platziert. Embeds gelten je Theme; was im
    Entwurf eingeschaltet ist, ist nach dem Veröffentlichen eingeschaltet.
-6. **Theme-Übersetzungen** auf dem Entwurf registriert und nicht `outdated`.
-7. **Tracking und Pagination je Seitentyp wie im alten Theme**, im Mitschnitt bis zum Seitenende:
+8. **Theme-Übersetzungen** auf dem Entwurf registriert und nicht `outdated`.
+9. **Tracking und Pagination je Seitentyp wie im alten Theme**, im Mitschnitt bis zum Seitenende:
    dieselben Dienste (bewusst gestrichene stehen mit Grund in der Entscheidungsliste) und nicht mehr
    Analyse-Ereignisse je Seite. Lädt eine Liste beim Scrollen nach und schreibt dabei `page=N` in die
    Adresse, kann jede nachgeladene Seite als eigener Seitenaufruf oder eigene Suche zählen. Am
    07.10.2026 übersehen: auf einer Suchseite vervielfachte das die Suchereignisse in Analyse und
    Attribution.
-8. **Go/No-Go-Kriterien schriftlich**: was muss stimmen, damit veröffentlicht wird.
-9. **Rückfallkriterien schriftlich** (`rollback.md`): welcher Einbruch über welchen Zeitraum führt zum
+10. **Go/No-Go-Kriterien schriftlich**: was muss stimmen, damit veröffentlicht wird.
+11. **Rückfallkriterien schriftlich** (`rollback.md`): welcher Einbruch über welchen Zeitraum führt zum
    Zurückschalten, wer entscheidet. Im Ernstfall wird nicht diskutiert.
-10. **Liste dessen, was ein Rückfall nicht zurückdreht**, dem Team gezeigt (`rollback.md`).
-11. **Kommunikation:** Termin, Stopp und Rückfallkriterien an alle Beteiligten.
+12. **Liste dessen, was ein Rückfall nicht zurückdreht**, dem Team gezeigt (`rollback.md`).
+13. **Kommunikation:** Termin, Stopp und Rückfallkriterien an alle Beteiligten.
 
 ## Go/No-Go (Gate G5)
 
 Go nur, wenn alles davon stimmt:
 
-- G4 entschieden, keine offenen Befunde `blocker` oder `before_launch`
+- G4 entschieden, keine offenen Befunde `blocker` oder `before_launch` in einem der Prüfberichte
+- Prüfliste aus Phase 2 abgeschlossen, SEO-Ausgabe ohne Lücke gegen live
 - Abgleich II ohne offene Änderung, Schlussprüfung direkt vorher ohne Änderung
 - Vergleichswerte von diesem oder dem Vortag liegen vor
 - Rückfall-Theme liegt in der Theme-Bibliothek, ID notiert
@@ -81,7 +90,8 @@ Direkt nach dem Veröffentlichen, in dieser Reihenfolge:
 2. `robots.txt` wie vorher und für `*` und Googlebot offen; kein `noindex` oder `nofollow`, das im alten
    Theme nicht stand. Shopify sperrt einzelne Crawler ganz (etwa `Nutch`) und setzt auf Suchseiten
    selbst den Header `X-Robots-Tag: noindex`; beides ist Plattform-Standard und unabhängig vom Theme.
-3. Statuscodes und Canonicals der Top-Seiten aus der Schutzliste, Redirects der Top-Seiten.
+3. Statuscodes und Canonicals der Top-Seiten aus der Schutzliste, Redirects der Top-Seiten;
+   strukturierte Daten, hreflang und Open Graph gegen den Mitschnitt von vorher.
 4. Apps, Embeds und Analyse-Ereignisse auf dem veröffentlichten Theme: Mitschnitt je Seitentyp gegen
    den Mitschnitt vorher, weil die Vorschau andere Bedingungen hatte.
 5. Tracking mit einer Testbestellung, **nur nach ausdrücklicher Freigabe durch das Team**: Pixel,

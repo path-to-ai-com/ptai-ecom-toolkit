@@ -21,6 +21,8 @@ diese Regel wörtlich in seinen Auftrag.
 Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 
 - `verify-checklist.md`: Prüfer, Regeln, Schwerestufen, Barrierefreiheit, Performance
+- `storefront-parity.md`: Gleichstand je Element, von den Prüfern Gestaltung und Funktion Zeile für
+  Zeile abgearbeitet
 - `seo-parity.md`: SEO-Liste
 - `apps-and-tracking.md`: Apps und Tracking
 
@@ -65,6 +67,8 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 
    - Prüfer und Gegenstand, die Zeile aus der Prüfer-Tabelle
    - den Pfad zu `CONTEXT.md` und zu `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/verify-checklist.md`
+   - für Gestaltung und Funktion zusätzlich `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/storefront-parity.md`
+     mit dem Auftrag, jede Zeile des eigenen Prüfers mit Ergebnis in `findings.md` zu führen
    - die Eingabedateien (`seo.json`, `design.json`, `functions.json`, `apps.json`, `tracking.json`,
      `translations.json`, `templates.json`, je nach Prüfer)
    - die Werkzeuge: `crawl-site` für SEO, `compare-themes --compare` für Gestaltung,
@@ -149,6 +153,9 @@ Den Migrationsstand schreibt `theme-migration`, weder diese Skill noch ein Prüf
 - **Funktionsliste nicht abgehakt:** der Funktionsprüfer arbeitet `functions.json` Zeile für Zeile ab.
 - **Nur Chromium:** manche Fehler zeigt nur WebKit. WebKit im iPhone-Format ist Pflicht.
 - **Befund nur aus Stil- oder HTML-Messung:** Unsichtbares und Layoutfehler zeigt nur das Bildpaar.
+- **Nur Bildpaare ganzer Seiten:** ein Element, das vorhanden, aber anders gesetzt ist (Menüschrift,
+  Preisgröße, Variantenauswahl), fällt darin nicht auf. `storefront-parity.md` je Zeile abarbeiten; eine
+  Zeile ohne Ergebnis in `findings.md` heißt, der Prüfer ist nicht fertig.
 - **Korrektur in der erzeugten Datei:** der nächste Generatorlauf macht sie rückgängig. Ursache beheben.
 - **Testbestellung ohne Testmodus:** ist eine echte Bestellung. Der Checkout gehört in die Testrunde und
   am Launch-Tag in eine Testbestellung nach Freigabe.

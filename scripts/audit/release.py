@@ -57,8 +57,8 @@ def main(argv=None) -> int:
         return 1
 
     config = publish.load_config(a.workspace)
-    brand = a.account_slug or config["account_slug"]
-    shop = a.shop or publish.slugify(config.get("brand") or brand)
+    brand, shop = publish.destination(config, a.account_slug)
+    shop = a.shop or shop
 
     with tempfile.TemporaryDirectory() as tmp:
         if publish.fetch_manifest(tmp, brand, url, key) != "remote":

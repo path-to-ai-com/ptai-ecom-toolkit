@@ -26,8 +26,9 @@ Richtung, nicht der geprüfte Wortlaut: vor dem Einsatz gegen die aktuelle Doku 
 | `apps-and-tracking.md` | die Quellen für das App-Inventar, das Datenmodell, was einen Theme-Wechsel überlebt, Tracking je Messziel, Consent, Neu-Anbindung | `inventory-apps`, `map-theme`, `verify-theme` |
 | `customizations.md` | Anpassungen gegen das Original: Diff-Regeln, die vier Klassen, Wirkung messen, Entscheidung je Funktion, stille Abweichungen im Ziel-Theme, Verzeichnis der Eingriffe | `inventory-theme`, `map-theme`, `build-theme` |
 | `translations.md` | was am Theme hängt und was am Shop, Translate & Adapt, Langify, Theme-Übersetzungen je Theme-ID, Registrieren mit Digest | `inventory-theme`, `upload-theme`, `verify-theme` |
-| `seo-parity.md` | die SEO-Ausgabe alt gegen neu je Seitentyp, Schutzliste, typische stille Verluste | `inventory-theme`, `verify-theme`, `theme-migration` |
+| `seo-parity.md` | die SEO-Ausgabe alt gegen neu je Seitentyp und Sprache, Schutzliste, bekannte Lücken von Horizon, was `launch-check` automatisch prüft, das Horizon-Grundpaket | `inventory-theme`, `build-theme`, `verify-theme`, `launch-check`, `theme-migration` |
 | `verify-checklist.md` | die Prüfer, ihre Regeln, Schwerestufen, Barrierefreiheit nach WCAG 2.2 und BFSG, Performance | `verify-theme` |
+| `storefront-parity.md` | Gleichstand je Element vor der Testfreigabe: Header, Menü, Kaufbereich, Variantenauswahl, Karten, Filter, Suche, Warenkorb, gemessen am gerenderten Shop | `verify-theme` |
 | `change-freeze.md` | was zwischen den beiden Abgleichen eingefroren ist und was frei bleibt | `sync-live-theme`, `theme-migration` |
 | `launch-checklist.md` | Zeitpunkt, Go/No-Go, Rollouts, Prüfungen am Launch-Tag | `theme-migration`, `launch-check` |
 | `rollback.md` | wann und wie zurückgeschaltet wird, und was ein Rückfall nicht zurückdreht | `theme-migration`, `launch-check` |
@@ -35,11 +36,12 @@ Richtung, nicht der geprüfte Wortlaut: vor dem Einsatz gegen die aktuelle Doku 
 | `platform-deadlines.md` | Fristen der Plattform mit Stand und Quelle: Skript-Tags, Shopify Scripts, Additional Scripts, Kundenkonten | `inventory-apps`, `theme-migration` |
 | `access-write.md` | Schreibzugang ins Theme: Konto mit Themes-Recht, Admin-Weg mit Scopes, die offene Frage der Ausnahme | `theme-migration`, `upload-theme` |
 
-Dazu kommen zwei Datenablagen, die eigene Bausteine des Toolkits pflegen:
+Dazu kommen drei Ablagen, die eigene Bausteine des Toolkits pflegen:
 
 | Ablage | Wofür |
 |---|---|
 | `hosts.json` | Zuordnung von Host zu Anbieter und Zweck für das App-Inventar. Ein Host, der dort fehlt, bleibt `unknown` und wird aufgelöst, bevor Gate G1 durch ist |
+| `horizon-base/` | das Horizon-Grundpaket: vier SEO-Snippets mit Platzhalter-Präfix `beispiel-`, die `theme.horizon_base install` beim Bau ins Ziel-Repo kopiert. Beschreibung und Eingriffe in `seo-parity.md` |
 | `mappings/` | fertige Zuordnungen für verbreitete Quell-Themes auf ein Ziel-Theme, `<source>__<target>.json`, nur Section- und Einstellungsnamen der öffentlichen Themes. Wie eine Bibliothek entsteht und geprüft wird, steht in `mappings/README.md` |
 
 ## Phasen und Gates im Überblick

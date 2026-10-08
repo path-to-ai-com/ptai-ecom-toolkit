@@ -36,6 +36,13 @@ class ThemeMigrationConfigTest(unittest.TestCase):
     def test_ein_praefix_mit_grossbuchstaben_wird_gemeldet(self):
         self.assertTrue(self.errors({"file_prefix": "Beispiel"}))
 
+    def test_berichtspfade_und_pruefliste(self):
+        self.assertEqual(self.errors({"report_paths": ["{drive_path}/projects/beispiel"],
+                                      "acceptance_checklist": "migration/inventory/seo-checklist.md"}), [])
+        self.assertTrue(self.errors({"report_paths": "{drive_path}/projects/beispiel"}))
+        self.assertTrue(self.errors({"report_paths": [""]}))
+        self.assertTrue(self.errors({"acceptance_checklist": 7}))
+
     def test_eine_config_ohne_block_bleibt_unberuehrt(self):
         self.assertFalse(any("theme_migration" in e for e in config.validate({})))
 

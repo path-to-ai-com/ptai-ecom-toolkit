@@ -1,6 +1,6 @@
 ---
 name: build-theme
-description: Baut das neue Shopify-Theme lokal, ohne in den Shop zu schreiben: Ziel-Repo mit dem Upstream (etwa Horizon) als Remote aufsetzen und Version festhalten, Templates, Section-Groups und settings_data.json per Generator aus Sicherung, Inventaren und Mapping erzeugen, zuerst in ein Testverzeichnis und gegen den Repo-Stand gedifft, eigene Funktionen als Dateien mit Präfix bauen, Eingriffe in Dateien des Ziel-Themes verzeichnen, Theme Check und Limits prüfen. Nutzen bei "neues Theme bauen", "Templates erzeugen", "Generator laufen lassen", "Ziel-Repo aufsetzen", "Horizon aufsetzen", "Korrektur einbauen", in Phase 4 einer Theme-Migration und in jeder Runde der Schleife aus Neubau, Upload und Prüfung. Nicht verwenden für das Hochladen (ptai-ecom:upload-theme) und nicht für die Zuordnung selbst (ptai-ecom:map-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
+description: Baut das neue Shopify-Theme lokal, ohne in den Shop zu schreiben: Ziel-Repo mit dem Upstream (etwa Horizon) als Remote aufsetzen und Version festhalten, Templates, Section-Groups und settings_data.json per Generator aus Sicherung, Inventaren und Mapping erzeugen, zuerst in ein Testverzeichnis und gegen den Repo-Stand gedifft, eigene Funktionen als Dateien mit Präfix bauen, bei Horizon das SEO-Grundpaket (Produkt-JSON-LD mit Beschreibung je Variante und Bewertung, hreflang, og:image-Rückfall, og:type der Kategorien, WebSite) einbauen, Eingriffe in Dateien des Ziel-Themes verzeichnen, Theme Check und Limits prüfen. Nutzen bei "neues Theme bauen", "Templates erzeugen", "Generator laufen lassen", "Ziel-Repo aufsetzen", "Horizon aufsetzen", "Korrektur einbauen", in Phase 4 einer Theme-Migration und in jeder Runde der Schleife aus Neubau, Upload und Prüfung. Nicht verwenden für das Hochladen (ptai-ecom:upload-theme) und nicht für die Zuordnung selbst (ptai-ecom:map-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # build-theme: das neue Theme bauen
@@ -114,6 +114,33 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.generate \
   `<file_prefix>:` im Code und eine Zeile in `migration/customizations.md` mit Datei, Änderung, Grund und
   Prüfung nach dem Update.
 
+**Horizon-Grundpaket, bei jedem Ziel-Theme der Horizon-Familie, im ersten Lauf.** Horizon gibt ohne
+Zutun weniger SEO-Ausgabe aus als die meisten älteren Themes: kein hreflang ohne Shopifys automatische
+Tags, kein `og:image` ohne Seitenbild, `og:type website` auf Kategorien, keine Bewertung und keine
+`description` an den Varianten im Produkt-JSON-LD, kein `WebSite`. Am 07.10.2026 ging eine Migration
+mit genau diesen Lücken live. Deshalb kommen sie beim Bau ins Theme, nicht nach der Abnahme:
+
+```bash
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base install --target-repo <target-repo> --prefix <file_prefix>
+```
+
+- Vier Snippets `snippets/<file_prefix>-*.liquid`; eine abweichende vorhandene Datei bleibt ohne
+  `--force` stehen.
+- Die drei Eingriffe in `sections/product-information.liquid`, `snippets/meta-tags.liquid` und
+  `layout/theme.liquid` nach `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/seo-parity.md`, Abschnitt
+  Horizon-Grundpaket, über `shopify-plugin:shopify-liquid` gegen die aktuelle Horizon-Fassung prüfen,
+  je mit Kommentar und Zeile im Verzeichnis.
+- hreflang: entweder Shopifys automatische Tags oder `<file_prefix>-hreflang`, nie beides. Die
+  Entscheidung steht im selben Abschnitt.
+- Prüfen, in Schritt 6 mit:
+
+  ```bash
+  PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base check --target-repo <target-repo> --prefix <file_prefix> [--without-hreflang]
+  ```
+
+- Was das alte Theme darüber hinaus ausgab (eigene Typen, `Organization` mit `sameAs`, Breadcrumbs),
+  steht in `seo.json` und der Prüfliste aus Phase 2 und gehört ebenfalls in diesen Lauf.
+
 ### 5. Übersetzungen vorbereiten
 
 - Aus `migration/inventory/translations.json` und den vom Generator vergebenen Section- und Block-IDs
@@ -137,6 +164,7 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.customizations check
   Liquid, 3.400 Schlüssel je Locale.
 - Prüfung der Eingriffe ohne Befund: jede geänderte Datei des Ziel-Themes steht im Verzeichnis, jede
   Zeile im Verzeichnis hat ihre Änderung.
+- Bei Horizon `theme.horizon_base check` ohne Befund.
 
 ### 7. Committen
 
@@ -163,7 +191,7 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.customizations check
 
 - Ziel-Repo auf `main` mit dem Upstream als Remote, erzeugten Inhalten, eigenen Dateien mit Präfix und
   verzeichneten Eingriffen.
-- Theme Check, Limits und Prüfung der Eingriffe ohne Befund.
+- Theme Check, Limits, Prüfung der Eingriffe und bei Horizon das Grundpaket ohne Befund.
 - `migration/build/sources.lock` und `translations.json` im Workspace.
 - Noch nichts hochgeladen.
 

@@ -1,6 +1,6 @@
 # Prüfung des Entwurfs
 
-Stand 05.10.2026. Gilt für Phase 6 und für die Vorbereitung der Abnahme in Phase 8. Ein Umzug, der
+Stand 08.10.2026. Gilt für Phase 6 und für die Vorbereitung der Abnahme in Phase 8. Ein Umzug, der
 nur den Code betrachtet, sieht erfolgreich aus und ist es nicht: mehrere Risiken eines Theme-Wechsels
 fallen ohne jede Fehlermeldung aus. Deshalb prüfen mehrere Prüfer je Disziplin, gegen das Live-Theme
 und gegen die Bestandsaufnahme.
@@ -12,8 +12,8 @@ und gegen die Bestandsaufnahme.
 | Struktur | Theme Check, Limits, jede Zuweisung hat ihre Datei, Laufzeitprüfung der JSON-Dateien gegen die Schemas | `templates.json` | nein |
 | Inhalt | Texte, Bilder, Links je Beispielseite, Wortzahl | Live-Theme | ja |
 | SEO | Crawl des Entwurfs gegen den des Live-Themes, `seo-parity.md` | `seo.json` | ja |
-| Gestaltung | Bildpaare Desktop (Chromium) und iPhone (WebKit), Stilwerte; "wie heute" gilt für das ganze Element | `design.json` | ja |
-| Funktion | jede Funktion der Liste ausgeführt: Variantenwahl, Warenkorb, Filter, Suche, Formulare, Sonderfunktionen | `functions.json` | ja |
+| Gestaltung | Bildpaare Desktop (Chromium) und iPhone (WebKit), Stilwerte; "wie heute" gilt für das ganze Element; die Zeilen Gestaltung aus `storefront-parity.md` | `design.json` | ja |
+| Funktion | jede Funktion der Liste ausgeführt: Variantenwahl, Warenkorb, Filter, Suche, Formulare, Sonderfunktionen; die Zeilen Funktion aus `storefront-parity.md` | `functions.json` | ja |
 | Apps und Tracking | Mitschnitt Entwurf gegen Live, jede Fremd-Domain da oder bewusst weg, Consent in beiden Zuständen, keine doppelten Events | `apps.json`, `tracking.json` | ja |
 | Performance | Lighthouse dreimal, Median, Startseite, Produkt, Kollektion, mit `pb=0` | Vergleichswerte | ja |
 | Barrierefreiheit | axe und Lighthouse, dazu die manuelle Liste unten | WCAG 2.2 | ja |
@@ -69,6 +69,9 @@ erzeugten Datei. Danach laufen Neubau, Upload und die betroffenen Prüfer erneut
   das Bild.
 - Jedes lebende Template einmal gerendert neben live, nicht nur die beanstandeten.
 - "Wie heute" gilt für das ganze Element: Maße, Schrift, Abstände jedes Teils messen.
+- **Zusätzlich je Element `storefront-parity.md`, Zeile für Zeile.** Das Bildpaar einer ganzen Seite
+  übersieht ein einzelnes Element, das vorhanden, aber anders gesetzt ist. Bei der ersten Migration kamen
+  so rund 30 Korrekturen erst nach der Testfreigabe.
 
 ## Funktion
 

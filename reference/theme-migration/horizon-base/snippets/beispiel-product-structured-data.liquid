@@ -1,0 +1,173 @@
+{%- doc -%}
+  Strukturierte Daten (JSON-LD) der Produktseite. Ersetzt `{{ closest.product | structured_data }}` in
+  `sections/product-information.liquid` und gibt dieselbe Form aus wie Shopifys Filter `structured_data`:
+  bei mehreren Varianten eine `ProductGroup` mit je einem `Product` pro Variante in `hasVariant`, bei nur der
+  Standardvariante ein einzelnes `Product` mit `offers`.
+
+  Ergänzungen gegenüber dem Filter:
+  - `description` an jeder Variante in `hasVariant`. Google meldet in den Händlereinträgen Varianten ohne
+    Beschreibung; der Filter setzt sie nur an die Gruppe.
+  - `aggregateRating` aus den Standard-Metafeldern für Bewertungen `reviews.rating` (Typ rating) und
+    `reviews.rating_count`, nur wenn eine Bewertung vorliegt und die Anzahl größer als 0 ist.
+  - `variesBy` an der Gruppe und `color` beziehungsweise `size` an jeder Variante, sofern ein Optionsname
+    Farbe, Größe oder Länge bedeutet (Liste mehrsprachig, Vergleich in Kleinbuchstaben). Länge zählt als `size`.
+
+  `category` ist die Taxonomie-Kategorie, bei „Nicht kategorisiert“ (`na`) oder ohne Kategorie der Produkttyp.
+
+  Preise: `variant.price` liegt laut Doku immer in der Untereinheit vor, auch bei Währungen ohne Untereinheit
+  (1000 Yen ergeben 100000). Der Preis entsteht deshalb ganzzahlig als „Einheiten.Untereinheit“ mit zwei
+  Nachkommastellen, wie der Filter ihn ausgibt („56.00“). Die Money-Filter formatieren nach Shop-Einstellung
+  (Komma, Tausenderpunkt) und eignen sich nicht; `divided_by: 100.0` liefert eine Gleitkommazahl ohne feste
+  Nachkommastellen („12.0“).
+
+  Grenze: `product.variants` liefert höchstens 250 Varianten; bei mehr Varianten fehlen die übrigen in
+  `hasVariant`.
+
+  @param {product} product - Produkt der Seite
+
+  @example
+  {% render 'beispiel-product-structured-data', product: closest.product %}
+{%- enddoc -%}
+
+{%- if product != blank -%}
+  {%- liquid
+    assign product_path = product.url | split: '?' | first
+    assign product_url = request.origin | append: product_path
+    assign description = product.description | strip_html | strip
+
+    assign category_name = product.type
+    if product.category != blank and product.category.id != 'na'
+      assign category_name = product.category.name
+    endif
+
+    assign rating = product.metafields.reviews.rating.value
+    assign rating_count = product.metafields.reviews.rating_count.value | plus: 0
+    assign has_rating = false
+    if rating != blank and rating_count > 0
+      assign has_rating = true
+    endif
+
+    # Optionsnamen für Farbe und Größe, mehrsprachig und in Kleinbuchstaben.
+    assign color_index = -1
+    assign size_index = -1
+    unless product.has_only_default_variant
+      for option in product.options_with_values
+        assign option_name = option.name | downcase | strip
+        case option_name
+          when 'color', 'colour', 'farbe', 'couleur', 'colore', 'kleur'
+            if color_index < 0
+              assign color_index = forloop.index0
+            endif
+          when 'size', 'größe', 'grösse', 'groesse', 'taille', 'taglia', 'maat', 'length', 'länge', 'laenge'
+            if size_index < 0
+              assign size_index = forloop.index0
+            endif
+        endcase
+      endfor
+    endunless
+  -%}
+
+  <script type="application/ld+json">
+    {
+      "@context": "http://schema.org/",
+      "@id": {{ product_path | append: '#product' | json }},
+      {%- if product.has_only_default_variant -%}
+        "@type": "Product",
+      {%- else -%}
+        "@type": "ProductGroup",
+      {%- endif -%}
+      "brand": {"@type": "Brand", "name": {{ product.vendor | json }}},
+      {%- if category_name != blank -%}
+        "category": {{ category_name | json }},
+      {%- endif -%}
+      {%- if description != blank -%}
+        "description": {{ description | json }},
+      {%- endif -%}
+      {%- if has_rating -%}
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": {{ rating.rating | json }},
+          "ratingCount": {{ rating_count | json }},
+          "bestRating": {{ rating.scale_max | json }},
+          "worstRating": {{ rating.scale_min | json }}
+        },
+      {%- endif -%}
+      {%- if product.has_only_default_variant -%}
+        {%- liquid
+          assign variant = product.variants.first
+          assign variant_price_cents = variant.price | modulo: 100 | plus: 100 | append: '' | slice: 1, 2
+          assign variant_price = variant.price | divided_by: 100 | floor | append: '.' | append: variant_price_cents
+        -%}
+        {%- if product.featured_image != blank -%}
+          "image": {{ product.featured_image | image_url: width: 1920 | prepend: 'https:' | json }},
+        {%- endif -%}
+        {%- if variant.barcode != blank -%}
+          "gtin": {{ variant.barcode | json }},
+        {%- endif -%}
+        {%- if variant.sku != blank -%}
+          "sku": {{ variant.sku | json }},
+        {%- endif -%}
+        "offers": {
+          "@id": {{ variant.url | append: '#offer' | json }},
+          "@type": "Offer",
+          "availability": {% if variant.available %}"http://schema.org/InStock"{% else %}"http://schema.org/OutOfStock"{% endif %},
+          "price": {{ variant_price | json }},
+          "priceCurrency": {{ cart.currency.iso_code | json }},
+          "url": {{ request.origin | append: variant.url | json }}
+        },
+      {%- else -%}
+        "productGroupID": {{ product.id | append: '' | json }},
+        {%- if color_index >= 0 or size_index >= 0 -%}
+          "variesBy": [
+            {%- if color_index >= 0 -%}"https://schema.org/color"{%- endif -%}
+            {%- if color_index >= 0 and size_index >= 0 -%},{%- endif -%}
+            {%- if size_index >= 0 -%}"https://schema.org/size"{%- endif -%}
+          ],
+        {%- endif -%}
+        "hasVariant": [
+          {%- for variant in product.variants -%}
+            {%- liquid
+              assign variant_image = variant.featured_image | default: product.featured_image
+              assign variant_price_cents = variant.price | modulo: 100 | plus: 100 | append: '' | slice: 1, 2
+              assign variant_price = variant.price | divided_by: 100 | floor | append: '.' | append: variant_price_cents
+            -%}
+            {
+              "@id": {{ variant.url | append: '#variant' | json }},
+              "@type": "Product",
+              "name": {{ product.title | append: ' - ' | append: variant.title | json }},
+              {%- if description != blank -%}
+                "description": {{ description | json }},
+              {%- endif -%}
+              {%- if variant_image != blank -%}
+                "image": {{ variant_image | image_url: width: 1920 | prepend: 'https:' | json }},
+              {%- endif -%}
+              {%- if variant.barcode != blank -%}
+                "gtin": {{ variant.barcode | json }},
+              {%- endif -%}
+              {%- if variant.sku != blank -%}
+                "sku": {{ variant.sku | json }},
+              {%- endif -%}
+              {%- if color_index >= 0 -%}
+                "color": {{ variant.options[color_index] | json }},
+              {%- endif -%}
+              {%- if size_index >= 0 -%}
+                "size": {{ variant.options[size_index] | json }},
+              {%- endif -%}
+              "offers": {
+                "@id": {{ variant.url | append: '#offer' | json }},
+                "@type": "Offer",
+                "availability": {% if variant.available %}"http://schema.org/InStock"{% else %}"http://schema.org/OutOfStock"{% endif %},
+                "price": {{ variant_price | json }},
+                "priceCurrency": {{ cart.currency.iso_code | json }},
+                "url": {{ request.origin | append: variant.url | json }}
+              }
+            }
+            {%- unless forloop.last -%},{%- endunless -%}
+          {%- endfor -%}
+        ],
+      {%- endif -%}
+      "name": {{ product.title | json }},
+      "url": {{ product_url | json }}
+    }
+  </script>
+{%- endif -%}

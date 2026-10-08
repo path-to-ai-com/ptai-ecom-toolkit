@@ -1,6 +1,6 @@
 ---
 name: launch-check
-description: Prüft vor einem Livegang alle Launch-Voraussetzungen und gibt aus, was noch fehlt, als wiederholbarer Prüflauf mit Go/No-Go-Empfehlung. Je Punkt der Launch-Checkliste ein Status (ok, missing, blocked, manual, n/a) mit einer Zeile Beleg, Verantwortlichem und Links auf Entwurf und Live: Zeitpunkt (Wochentag, Feiertag, Saisonspitze, Kampagnen, Preis- und A/B-Tests), Abnahme und offene Befunde, Abgleich mit dem Live-Stand, Änderungsstopp, Entwurf und Rückfall-Theme, App-Embeds, Theme-Übersetzungen, Tracking je Seite per Mitschnitt, Pagination und Analyse-Ereignisse je Seitentyp, SEO (robots.txt, noindex, Canonicals, Statuscodes), Vergleichswerte von heute oder gestern, Go/No-Go- und Rückfallkriterien, Kommunikation, Plattform-Fristen. Mit --after die Prüfungen direkt nach dem Veröffentlichen. Führt Phase 9 der Theme-Migration eigenständig aus, auch ohne Migrationslauf und für Launches ohne Theme-Wechsel (größere Theme-Änderung, neuer Shop). Nutzen bei /ptai-ecom:launch-check, "Launch-Check", "sind wir bereit für den Livegang", "was fehlt noch bis zum Launch", "Go/No-Go", "Prüfung nach dem Veröffentlichen", in Phase 9 einer Theme-Migration. Schreibt nichts in den Shop und veröffentlicht nie. Liest reporting/config.json im Kunden-Workspace.
+description: Prüft vor einem Livegang alle Launch-Voraussetzungen und gibt aus, was noch fehlt, als wiederholbarer Prüflauf mit Go/No-Go-Empfehlung. Je Punkt der Launch-Checkliste ein Status (ok, missing, blocked, manual, n/a) mit einer Zeile Beleg, Verantwortlichem und Links auf Entwurf und Live: Zeitpunkt (Wochentag, Feiertag, Saisonspitze, Kampagnen, Preis- und A/B-Tests), Abnahme und offene Befunde aus jedem Prüfbericht (auch außerhalb des Workspace über theme_migration.report_paths), Prüfliste aus Phase 2, Abgleich mit dem Live-Stand, Änderungsstopp, Entwurf und Rückfall-Theme, App-Embeds, Theme-Übersetzungen, Tracking je Seite per Mitschnitt, Pagination und Analyse-Ereignisse je Seitentyp, SEO (robots.txt, noindex, Canonicals, Statuscodes, strukturierte Daten, hreflang, Open Graph, Title und Description je Seitentyp und Sprache gegen live), Vergleichswerte von heute oder gestern, Go/No-Go- und Rückfallkriterien, Kommunikation, Plattform-Fristen. Mit --after die Prüfungen direkt nach dem Veröffentlichen. Führt Phase 9 der Theme-Migration eigenständig aus, auch ohne Migrationslauf und für Launches ohne Theme-Wechsel (größere Theme-Änderung, neuer Shop). Nutzen bei /ptai-ecom:launch-check, "Launch-Check", "sind wir bereit für den Livegang", "was fehlt noch bis zum Launch", "Go/No-Go", "Prüfung nach dem Veröffentlichen", in Phase 9 einer Theme-Migration. Schreibt nichts in den Shop und veröffentlicht nie. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # launch-check: bereit für den Livegang?
@@ -13,6 +13,10 @@ neuen Theme fehlt, ein Termin am Freitag vor einem Feiertag. Diese Skill:
 - prüft automatisch, was automatisch prüfbar ist
 - stellt für den Rest eine klare Frage an die zuständige Person
 - gibt eine Go/No-Go-Empfehlung
+
+Ein offener Befund, ein offener Punkt der Prüfliste und eine Lücke der SEO-Ausgabe sind nie eine
+Frage, sondern `missing`; ein Bericht, der sich nicht finden lässt, ist `blocked`. Am 07.10.2026 ging
+ein Shop live, weil hier stattdessen gefragt wurde, ob alles erledigt sei.
 
 Sie ersetzt `theme-migration` nicht, sondern führt deren Phase 9 als eigenständigen Prüflauf aus:
 beliebig oft, mit oder ohne Migrationslauf, auch für einen Launch ohne Theme-Wechsel.
@@ -36,7 +40,8 @@ Arbeitsverzeichnis: der Kunden-Workspace mit `reporting/`, wie bei jeder Skill d
 - **Die Vorschau eines Entwurfs ist nur im Browser verlässlich.** Ein Abruf ohne Browser liefert den
   Live-Shop. Seiten des Entwurfs deshalb aus einem Mitschnitt lesen, nie per `curl`.
 - **Höchstens zwei Browser gleichzeitig auf der Storefront**, sonst folgen HTTP 429 und eine
-  Bot-Abfrage, und der Bericht sieht trotzdem vollständig aus.
+  Bot-Abfrage, und der Bericht sieht trotzdem vollständig aus. Abrufe ohne Browser (nur mit
+  `--after`) laufen nacheinander mit vier Sekunden Abstand.
 - **Nicht Prüfbares steht als `blocked` mit Grund, nie als `ok`.** Eine Antwort auf eine Frage gilt nur
   mit dem Namen der antwortenden Person.
 
@@ -68,6 +73,24 @@ Ein Mensch entscheidet; die Entscheidung wird mit Namen gespeichert, in einer Mi
   `theme_migration` der Config, über `--live-theme-id` und `--draft-theme-id`. IDs aus der Theme-Liste,
   nie aus dem Gedächtnis.
 - `uv` für Playwright (Mitschnitt).
+- Prüfberichte außerhalb des Workspace und die Prüfliste aus Phase 2 im Block `theme_migration` der
+  Config:
+
+  ```json
+  "report_paths": ["{drive_path}/projects/<projekt>"],
+  "acceptance_checklist": "migration/inventory/seo-checklist.md"
+  ```
+
+  - `report_paths`: Dateien, Ordner (ihre `*.md` und `findings.json`, nicht rekursiv) oder Muster;
+    `~` und `{drive_path}` werden aufgelöst, relative Pfade gelten ab dem Workspace. Gelesen werden in
+    Markdown die Abschnitte "Vor dem Launch" und "Blocker", in `findings.json` die Schweren `blocker`
+    und `before_launch`, dazu immer der jüngste Bericht unter `migration/verify/`.
+  - Erledigt ist ein Punkt mit Statusspalte (`Status` oder `Stand`), die mit `erledigt`, `behoben`,
+    `done` oder ähnlich beginnt, als `- [x]` oder mit `Status: erledigt` im Text. Verschoben nur mit
+    Person und Datum: `verschoben von <Name> am <JJJJ-MM-TT>`, in einer Tabelle auch `verschoben
+    <Datum>` mit dem Namen in der Spalte `Wer`. Alles andere ist offen.
+  - `acceptance_checklist`: die Prüfliste "Muss nach dem Umbau wieder da sein" mit Zeilen
+    `- [ ] **P01** ...`. Fehlt sie bei einem Migrationslauf, steht der Punkt auf `blocked`.
 
 ## Ablauf vor dem Launch
 
@@ -86,6 +109,13 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
    - `migration/inventory/pages.json`, falls vorhanden.
    - Sonst `$RUN/pages.json` anlegen: je Seitentyp eine Seite (Startseite, Kategorie, Produkt, Seite,
      Blogartikel, Suche), mit Search Console die meistbesuchte.
+   - **Jede veröffentlichte Sprache** braucht ihre Seiten, sonst ist der SEO-Vergleich unvollständig
+     und steht auf `blocked`. Ergänzen, Primärsprache zuerst:
+
+     ```bash
+     PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.seo_parity pages --pages "$RUN/pages.json" --locales de,en
+     ```
+
    - Format wie in `capture_network.py`:
      `{"base_url": "https://...", "pages": [{"id", "template", "path"}]}`.
 
@@ -126,7 +156,10 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
 
 6. **Folgeschritte empfehlen, nicht selbst starten:**
    - `live-sync` auf `missing`: `sync-live-theme` (Abgleich II)
-   - offene Befunde: `verify-theme`
+   - offene Befunde: beheben und im Bericht als erledigt markieren oder mit Person und Datum
+     verschieben, dann `verify-theme` für die betroffenen Prüfer
+   - Lücken in `seo-structured-data`, `seo-hreflang`, `seo-open-graph`: Horizon-Grundpaket prüfen
+     (`build-theme`, `seo-parity.md`), hochladen, neu mitschneiden
    - alte Vergleichswerte: `pull-gsc`, `pull-ga4`, `pull-cwv` und `crawl-site` direkt vor dem Launch
 
 7. **Fragen stellen.**
@@ -174,6 +207,8 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
      Lauf davor)
    - `robots.txt` je User-Agent-Gruppe: ein Fehler nur, wenn die Gruppe `*` oder Googlebot alles sperrt;
      ein `Disallow: /` für einen einzelnen anderen Crawler (bei Shopify etwa `Nutch`) steht als Hinweis
+   - strukturierte Daten, hreflang, Open Graph und Kopfdaten des veröffentlichten Themes gegen den
+     Mitschnitt des alten (`seo-*-after`), aus `capture/after-declined` gegen `--network-old`
    - Statuscodes, `noindex` und Canonicals der Seiten live. `noindex` im HTML ist ein Fehler, wenn es im
      Mitschnitt des alten Themes nicht stand. Der Header `X-Robots-Tag` kommt von Shopify, nicht vom Theme
      (etwa auf `/search`), und steht als Hinweis
@@ -193,7 +228,8 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
 |---|---|---|
 | Zeitpunkt | Wochentag, Feiertag, Saisonspitze | aus dem Termin: Montag bis Donnerstag, kein bundesweiter Feiertag am Tag und am Folgetag, nicht ab vier Wochen vor Black Friday bis Jahresende |
 | Zeitpunkt | Kampagnen, Preis- und A/B-Tests, Ansprechpartner | Fragen; ein Testwerkzeug im Mitschnitt steht als Hinweis daneben |
-| Abnahme | G4, Befunde, Testrunde | Gate im Migrationslauf, `migration/verify/*/findings.json` (offen: `blocker`, `before_launch`), `reporting/runs/*-test/test.json` (offen: `open`, `in_progress`, `decision`) |
+| Abnahme | G4, Befunde, Testrunde | Gate im Migrationslauf; jüngstes `migration/verify/*/findings.json` und jeder Bericht unter `theme_migration.report_paths` (offen: `blocker`, `before_launch`, Abschnitte "Vor dem Launch" und "Blocker" ohne Erledigt- oder Verschoben-Vermerk; kein Bericht: `blocked`); `reporting/runs/*-test/test.json` (offen: `open`, `in_progress`, `decision`) |
+| Abnahme | Prüfliste aus Phase 2 | `theme_migration.acceptance_checklist`: jede Zeile `- [ ] **Pnn**` abgehakt, verschoben mit Person und Datum oder durch eine bestandene SEO-Prüfung abgedeckt (`seo-parity.md`) |
 | Abgleich | Live-Theme seit dem letzten Abgleich | `updatedAt` frisch gegen jüngstes `delta.json` oder `manifest.json` unter `migration/` |
 | Abgleich | Änderungsstopp | `freeze_from` und `freeze_until` im Lauf oder `theme_migration.freeze`, deckt den Termin |
 | Entwurf | Entwurf, Rückfall-Theme | Rolle `UNPUBLISHED`, nicht in Verarbeitung; Live-Theme `MAIN`, ID notiert |
@@ -203,6 +239,7 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
 | Tracking | Pagination und Analyse-Ereignisse | je Seitentyp und Gerät: `page=N` in `final_url` (Nachladen beim Scrollen schreibt die Seite in die Adresse) und Anfragen je Analysedienst, Minimum neu gegen Maximum alt; ab 1,5-fach und 3 mehr ein Fehler, geändertes Nachladen allein eine Frage |
 | SEO | robots.txt | `templates/robots.txt.liquid` in beiden Themes, Live-Ausgabe gesichert |
 | SEO | Statuscodes, noindex, Canonicals | aus dem Mitschnitt des Entwurfs gegen den des Live-Themes |
+| SEO | strukturierte Daten, hreflang, Open Graph, Title, Description, Canonical | `theme.seo_parity` je Seite des Mitschnitts: was live da ist und im Entwurf fehlt, ist `missing`; eine `ProductGroup` mit Varianten ohne `description` immer; fehlt ein Seitentyp (Startseite, Kategorie, Produkt) oder eine veröffentlichte Sprache im Mitschnitt, `blocked` |
 | Vergleichswerte | GSC, GA4, CWV, Crawl | jüngste Datei unter `reporting/data/` vom Termin oder Vortag |
 | Go/No-Go | Kriterien, Rückfallgrenzen, Kommunikation | Fragen |
 | Plattform-Fristen | Kundenkonten, Skript-Tags | `customerAccountsV2` und `templates/customers/` im Entwurf; `asyncLoad` im HTML des Live-Themes |
@@ -239,6 +276,13 @@ Es entstehen keine Bilder.
   (Vorschau-Cookie, Weiterleitung). Neu mitschneiden, den Befund nie übergehen.
 - **Hunderte fehlende Hosts:** Mitschnitte mit und ohne Einwilligung vermischt oder verschiedene
   Seitenlisten. Beide Themes mit derselben `pages.json` und demselben Consent-Zustand mitschneiden.
+- **Befunde `blocked`, obwohl es einen Prüfbericht gibt:** er liegt außerhalb des Workspace.
+  `theme_migration.report_paths` auf seinen Ordner setzen; ist der Ordner nicht eingebunden (Drive
+  offline), steht er unter "nicht gefunden".
+- **SEO-Zeilen `blocked` mit "Sprache nicht im Mitschnitt":** die Seitenliste hat keine Seite der
+  Sprache. `theme.seo_parity pages` ergänzen, beide Themes neu mitschneiden.
+- **`seo-hreflang` meldet doppelte Werte:** Shopifys automatische Tags und das Snippet
+  `<prefix>-hreflang` laufen zugleich. Eines davon abschalten (`seo-parity.md`, Horizon-Grundpaket).
 - **Rückfall-Theme `blocked` nach dem Launch:** die Live-Theme-ID zeigt schon auf das neue Theme.
   `--live-theme-id` mit der alten ID aus der Notiz zu G5.
 - **Jemand bittet um Veröffentlichen:** die Skill veröffentlicht nicht, auch nicht auf Wunsch. Sie nennt

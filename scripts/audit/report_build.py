@@ -737,6 +737,12 @@ def key_figures(run: Run) -> dict:
     ses_note = gegen("sessions")
     cr_note = (points(f["jetzt"]["conversion"], f["vorjahr"]["conversion"])
                if f else "kein Vergleichswert aus dem Vorjahr")
+    if f and f.get("sitzungen_ab"):
+        # Ohne den Grund liest sich "kein Vergleichswert" wie eine Lücke im
+        # Lauf; gemeint ist, dass Analytics im Vorjahr noch nicht gemessen hat.
+        ab = f["sitzungen_ab"]
+        grund = f"kein Vergleichswert, Analytics misst erst seit {ab[5:7]}/{ab[:4]}"
+        ses_note, cr_note = grund, grund
 
     # Woher die Sitzungen kommen, steht auf der Kachel. Zählt der Shop selbst,
     # ist die Zahl um den automatisierten Verkehr bereinigt und die Conversion
@@ -831,7 +837,7 @@ def _sixth_tile(run: Run) -> dict:
     bis zum 07.09.2026 stand hier die Zahl der aktiven Produkte, ein
     Bestandsfakt ohne jede Aussage ueber das Geschaeft.
     """
-    shop, cat = run.snap("shopify.json"), run.snap("catalog.json")
+    shop = run.snap("shopify.json")
 
     ct = (shop or {}).get("customer_type")
     if ct:
@@ -846,13 +852,15 @@ def _sixth_tile(run: Run) -> dict:
         return {"__KPI_SIXTH_LABEL__": "Retourenquote",
                 "__KPI_SIXTH__": percent(ret["rate"]),
                 "__KPI_SIXTH_NOTE__": "Anteil des Umsatzes, der zurückgeht"}
-    cs = (cat or {}).get("summary") or {}
-    if cs.get("variants_total") and cs.get("variants_without_cost") is not None:
-        gepflegt = cs["variants_total"] - cs["variants_without_cost"]
-        if gepflegt / cs["variants_total"] > 0.5:
-            return {"__KPI_SIXTH_LABEL__": "Rohertrag",
-                    "__KPI_SIXTH__": "siehe Handel",
-                    "__KPI_SIXTH_NOTE__": "aus Einkaufspreisen und Umsatz gerechnet"}
+    # Kein Rohertrag ohne Zahl. Bis zum 08.10.2026 stand hier "Rohertrag: siehe
+    # Handel", sobald mehr als die Hälfte der Varianten einen Einkaufspreis
+    # trug; gerechnet hat den Rohertrag kein Modul, die Kachel verwies ins
+    # Leere. Er kommt zurück, wenn ein Snapshot ihn als Wert führt.
+    marge = (shop or {}).get("gross_margin")
+    if isinstance(marge, dict) and marge.get("rate") is not None:
+        return {"__KPI_SIXTH_LABEL__": "Rohertrag",
+                "__KPI_SIXTH__": percent(marge["rate"]),
+                "__KPI_SIXTH_NOTE__": "aus Einkaufspreisen und Umsatz gerechnet"}
 
     # Der Grund steht in Kundensprache, nicht im Wortlaut der Schnittstelle.
     # Auf dem Deckblatt hat "ShopifyQL meldet Column Not Found" nichts
