@@ -90,6 +90,51 @@ class RunStateTest(unittest.TestCase):
         self.assertEqual(data["kind"], "migration")
 
 
+
+class VersionTest(unittest.TestCase):
+    """Zu Beginn jeder Sitzung: stammt der Lauf aus einem neueren Plugin als dem installierten?"""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ws = Path(tmp.name)
+
+    def run_version(self, version) -> tuple[int, dict]:
+        state = run_state.new(self.ws, "2026-01-01-migration")
+        state.save()
+        state.data["plugin_version"] = version
+        run_state.state_path(self.ws, state.run_id).write_text(json.dumps(state.data), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch.object(run_state, "plugin_version", return_value="0.3.9"):
+            code = run_state.main(["version", "--workspace", str(self.ws)])
+        return code, json.loads(out.getvalue())
+
+    def test_neuerer_lauf_haelt_an(self):
+        # 0.3.13 ist neuer als 0.3.9, auch wenn der Text kleiner sortiert.
+        code, result = self.run_version("0.3.13")
+        self.assertEqual(code, 1)
+        self.assertTrue(result["plugin_outdated"])
+        self.assertIn("aktualisieren", result["hint"])
+
+    def test_gleicher_oder_aelterer_lauf_geht_weiter(self):
+        for version in ("0.3.9", "0.3.8", "unbekannt", None):
+            with self.subTest(version=version):
+                code, result = self.run_version(version)
+                self.assertEqual(code, 0)
+                self.assertFalse(result["plugin_outdated"])
+
+    def test_version_schreibt_nichts(self):
+        self.run_version("0.3.13")
+        run_dir = self.ws / "reporting" / "runs" / "2026-01-01-migration"
+        self.assertEqual(sorted(p.name for p in run_dir.iterdir()), ["state.json"])
+
+    def test_ohne_lauf_gibt_es_nichts_zu_vergleichen(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = run_state.main(["version", "--workspace", str(self.ws)])
+        self.assertEqual(code, 0)
+        self.assertIsNone(json.loads(out.getvalue())["run_id"])
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -52,6 +52,12 @@ class Workspace(unittest.TestCase):
         write(self.ws / "migration" / "inventory" / "translations.json",
               {"locales": [{"locale": "de", "primary": True, "published": True}]})
 
+    def ask(self, text: str = "Kontaktformular übernehmen?", gate: str = "G1-decisions", **fields) -> dict:
+        """Eine Frage mit allem, was seit 0.3.14 Pflicht ist."""
+        fields = {"context": "Das Formular hat heute drei Zusatzfelder.", "reason": "So bleibt es wie heute.",
+                  "recommendation": "wie heute", "options": ["wie heute", "ohne Zusatzfelder"], **fields}
+        return questions.ask(self.ws, gate, text, **fields)
+
 
 class StepsTest(Workspace):
     def test_ein_neuer_lauf_steht_bei_schritt_eins(self):
@@ -144,29 +150,29 @@ class StepsTest(Workspace):
 class QuestionsTest(Workspace):
     def test_elfte_offene_frage_wird_verweigert(self):
         for n in range(questions.MAX_OPEN_PER_GATE):
-            questions.ask(self.ws, "G1-decisions", f"Frage {n}")
+            self.ask(f"Frage {n}")
         with self.assertRaises(questions.QuestionError):
-            questions.ask(self.ws, "G1-decisions", "eine zu viel")
+            self.ask("eine zu viel")
 
     def test_sammelname_ist_keine_antwort(self):
-        entry = questions.ask(self.ws, "G1-decisions", "Kontaktformular übernehmen?")
+        entry = self.ask()
         with self.assertRaises(questions.QuestionError):
             questions.answer(self.ws, entry["id"], "Beispiel Team", "ja")
 
     def test_vorlaeufig_ist_keine_antwort(self):
-        entry = questions.ask(self.ws, "G1-decisions", "Kontaktformular übernehmen?")
+        entry = self.ask()
         with self.assertRaises(questions.QuestionError):
             questions.answer(self.ws, entry["id"], "Beispielperson", "vorläufig wie heute")
         self.assertEqual(len(questions.open_for(self.ws)), 1)
 
     def test_g1_haelt_an_solange_eine_frage_offen_ist(self):
-        questions.ask(self.ws, "G1-decisions", "Kontaktformular übernehmen?")
+        self.ask()
         state = run_state.new(self.ws, RUN)
         with self.assertRaises(run_state.StateError):
             state.decide_gate("G1-decisions", "Beispielperson")
 
     def test_beantwortete_frage_gibt_g1_frei(self):
-        entry = questions.ask(self.ws, "G1-decisions", "Kontaktformular übernehmen?")
+        entry = self.ask()
         questions.answer(self.ws, entry["id"], "Beispielperson", "ja, wie heute")
         state = run_state.new(self.ws, RUN)
         state.decide_gate("G1-decisions", "Beispielperson")

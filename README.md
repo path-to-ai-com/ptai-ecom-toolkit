@@ -107,7 +107,7 @@ Diese Skills brauchen keine Zugänge.
 
 | Skill | Funktion |
 |---|---|
-| `ptai-ecom:theme-migration` | Führt das Team durch die Schritte Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs und Testrunde. Hält den Stand, die Fragen an das Team und die Vorgaben der Marke fest und schreibt `migration.json` für das Cockpit. Fragt nie nach Termin oder Änderungsstopp. |
+| `ptai-ecom:theme-migration` | Führt das Team durch die Schritte Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs und Testrunde. Prüft beim Start die Version des Plugins, holt den neuesten Stand beider Repos und übernimmt die Antworten des Teams aus dem Cockpit. Entscheidet nach der Regel "wie heute", "wie im Referenz-Store" oder nach den Vorgaben der Marke und fragt nur bei echtem Zielkonflikt, mit Erklärung, Vergleich und Empfehlung. Hält Stand, Fragen, Punkte ohne Frage und die Übergabe jeder Sitzung fest und schreibt `migration.json` für das Cockpit. Fragt nie nach Termin oder Änderungsstopp. |
 | `ptai-ecom:theme-launch` | Für den Betreiber: Vorgaben der Marke anwenden, Testrunde ins Cockpit, Abnahme, Abgleich vor dem Launch, Go/No-Go, Launch und Kontrolle nach dem Launch. |
 | `ptai-ecom:snapshot-theme` | Sichert ein Theme vollständig mit einem Manifest aller Dateien. |
 | `ptai-ecom:inventory-theme` | Erfasst Theme-Typ, genutzte Templates, Anpassungen gegenüber dem Original, Funktionen je Seitentyp, Metafelder, Übersetzungen und SEO-Ausgabe. |
@@ -233,6 +233,9 @@ reporting/
   measures.json, measures.md      Maßnahmen-Backlog über alle Läufe
   dfs-ledger.jsonl                eine Zeile je bezahltem DataForSEO-Aufruf
 migration/                        nur bei einer Theme-Migration
+  questions.json                  Fragen an das Team mit Antworten
+  ruled.json                      ohne Frage entschieden, mit Herkunft
+  next.json                       Übergabe der letzten Sitzung (Jetzt, Danach, Aufgaben des Betreibers)
   snapshots/                      Sicherungen mit manifest.json
   inventory/                      Bestandsaufnahme, Apps, Tracking, Gestaltung
   mapping/                        Zuordnung alt zu neu und Entscheidungen

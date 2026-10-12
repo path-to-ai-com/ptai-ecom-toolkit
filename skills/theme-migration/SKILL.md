@@ -1,6 +1,6 @@
 ---
 name: theme-migration
-description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "bereit für die Testrunde", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Testrunde, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, wendet die Vorgaben der Marke an, ohne nachzufragen, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
+description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "bereit für die Testrunde", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Testrunde, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als ohne Frage entschieden fest, wendet die Vorgaben der Marke an, ohne nachzufragen, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # theme-migration: die Migration führen
@@ -39,10 +39,16 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   zwischen den Phasen nachzufragen. Angehalten wird nur, wenn eine Frage an das Team offen ist, wenn eine
   Person etwas tun muss, das Claude nicht kann (Anmeldung im Browser, fehlender Zugang), oder bei einem
   Fehler, der sich nicht selbst beheben lässt.
-- **Fragen an das Team nur über `questions`**, höchstens zehn je Gate, jede mit Optionen und
-  Empfehlung. Was die Vorgaben der Marke oder feste Regeln entscheiden, wird nicht gefragt. Antworten
-  trägt nur eine Person aus `theme_migration.people` ein; "Team", "vorläufig" oder "später" ist keine
-  Antwort, die Frage bleibt offen. Claude entscheidet nie an Stelle der Person.
+- **Standard statt Frage.** Was zu entscheiden ist, entscheidet zuerst die Regel: wie heute, wie im
+  Referenz-Store der Marke oder nach den Vorgaben der Marke. Gefragt wird nur bei einem echten
+  Zielkonflikt, den keine Regel auflöst. Was eine Regel entscheidet, steht als "Ohne Frage entschieden"
+  im Cockpit (`ruled add`), mit Herkunft; das Team kann dort einen Einwand schreiben.
+- **Fragen an das Team nur über `questions`**, höchstens zehn je Gate, jede mit Erklärung, Vergleich
+  heute und Entwurf, wo es einen sichtbaren Unterschied gibt, und Empfehlung mit Grund (Abschnitt
+  "Fragen an das Team"). Beantwortet werden sie im Cockpit; Claude stellt sie nicht in der Sitzung zur
+  Antwort, sondern verweist auf das Blatt der Migration im Cockpit. Antworten trägt nur eine Person aus
+  `theme_migration.people` ein; "Team", "vorläufig" oder "später" ist keine Antwort, die Frage bleibt
+  offen. Claude entscheidet nie an Stelle der Person.
 - **Die Vorgaben der Marke gelten als entschieden.** `migration/policies.json` legt der Betreiber ins
   Repo (`theme.policies apply`). Sie überholen frühere Entscheidungen des Laufs und öffnen keine Frage an
   das Team; ihre Folgen sind Bau- und Prüfarbeit.
@@ -136,13 +142,19 @@ Die Skripte lesen die Konfiguration. Der Migrationsstand speichert zusätzlich, 
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state set --key <key> --value <value>
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state upgrade
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state claim --force
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state version
 ```
 
 - Datei: `reporting/runs/<date>-migration/state.json`. `init` legt sie an (Lauf-ID standardmäßig
   `<heute>-migration`, sonst `--run-id`). Alle anderen Befehle nehmen ohne `--run-id` den jüngsten
   Migrationslauf.
-- Nach jedem Befehl schreibt `run_state` `migration.json` neben `state.json`: die neun Schritte, die
-  zwei Meilensteine, die offenen Fragen und die Vorgaben. Das Cockpit liest nur diese Datei.
+- Nach jedem Befehl außer `version` schreibt `run_state` `migration.json` neben `state.json`: die neun
+  Schritte, die zwei Meilensteine, die offenen und die beantworteten Fragen, die Punkte ohne Frage
+  (`ruled`), die Übergabe der letzten Sitzung (`now`, `after`, `operator_tasks`), den Namen des
+  Workspace-Repos und die Vorgaben. Das Cockpit liest nur diese Datei. Format:
+  `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/questions-format.md`.
+- `version` liest nur und vergleicht die Version des Plugins im Lauf mit der installierten (Abschnitt
+  "Start der Migration").
 - Ausgabe je Aufruf: eine JSON-Zeile mit `current_step`, `steps`, `ready_for_test_round`,
   `ready_for_launch`, `open_questions`, `next_phase`, `blocked_by`, Phasen, Gates und Werten. Exit 2 mit
   `{"error": ...}` bedeutet Fehler. `upgrade_needed` heißt: Lauf aus einer Version vor 0.3.11, zuerst
@@ -204,18 +216,52 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 ### Fragen an das Team
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" questions ask --gate <G1-decisions|G2-mapping|G4-acceptance> --text "<Frage>" --option "<A>" --option "<B>" --recommendation "<Empfehlung mit Grund>"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" questions ask --gate <G1-decisions|G2-mapping|G4-acceptance> \
+  --text "<Frage>" --context "<worum es geht, was schon feststeht>" \
+  --option "<A>" --option "<B>" [--other "<Option mit Freitext>"] \
+  --recommendation "<A>" --reason "<Grund der Empfehlung>" \
+  [--compare "<Seite>" "<Link heute mit preview_theme_id>" "<Link Entwurf mit preview_theme_id>"] \
+  [--decider "<Name>"]
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" questions ask ... --no-recommendation --reason "<warum keine Empfehlung>"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" questions withdraw --id <Q-001> --source <as_today|as_reference|policy|operator|check> --text "<was gilt>"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" questions import --file <antworten.json>
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions answer --id <Q-001> --by "<Name>" --text "<Antwort>"
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions list --status open
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" ruled add --source <as_today|as_reference|policy|operator|check> --text "<was gilt>"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" ruled revoke --id <R-001> --reason "<Grund, etwa der Einwand>"
 ```
 
-- Datei `migration/questions.json`. Höchstens zehn offene Fragen je Gate.
-- Eine Frage ist eine Entscheidung, die nur die Marke treffen kann. Was Vorgaben oder feste Regeln
-  entscheiden (toter Code, Template ohne Objekt, genutzt und unstrittig), wird nicht gefragt, sondern mit
-  Regel in `decisions.json` eingetragen.
-- Die offenen Fragen stehen in `migration.json` und erscheinen im Cockpit unter Offene Aufgaben. Die
-  Person kann sie dort oder in der Sitzung beantworten; Claude trägt die Antwort mit ihrem Namen ein.
-- Jede Frage zusätzlich als `question` ins Journal, jede Antwort als `answer`.
+- Dateien `migration/questions.json` und `migration/ruled.json`, Format in
+  `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/questions-format.md`. Höchstens zehn offene Fragen je
+  Gate.
+- **Erst die Regel, dann die Frage.** Bevor eine Frage entsteht, prüfen, ob sie entschieden ist:
+  - eine Vorgabe der Marke regelt sie: `ruled add --source policy`
+  - der Referenz-Store der Marke (`reference_shop` der Vorgaben) hat sie gelöst und nichts spricht für
+    diesen Store dagegen: `--source as_reference`
+  - der heutige Shop tut es so, und der Entwurf kann es genauso: `--source as_today`
+  - eine Prüfung im Shop hat es geklärt, etwa ein Pixel, das nichts mehr sendet: `--source check`
+  - der Betreiber hat es festgelegt: `--source operator`
+- Der Text eines Punkts sagt in einem Satz, was gilt, in der Sprache des Kunden, etwa "Kontaktformular
+  mit Betreff, Einwilligung und Captcha wie heute". Was die Generator-Regeln ohnehin entscheiden (toter
+  Code, Template ohne Objekt, genutzt und unstrittig), steht nur in `decisions.json`, nicht hier.
+- **Gefragt wird nur bei echtem Zielkonflikt**: wenn "wie heute" und das Ziel-Theme oder zwei Ziele der
+  Marke nicht zugleich gehen und keine Regel entscheidet. Dann immer mit
+  - `--context`: worum es geht und was schon feststeht, jedes Fachwort erklärt, mit ihr und euch
+  - `--compare` je betroffener Seite: Link heute und Link Entwurf, beide mit `?preview_theme_id=<id>`
+  - `--option` je Antwort, `--other` für eine Antwort mit Freitext, etwa "Eine andere Person"
+  - `--recommendation` mit einer der Optionen und `--reason` mit dem Grund, oder ausdrücklich
+    `--no-recommendation` und in `--reason`, warum keine
+  - `--decider`, wenn nicht jede Person aus `theme_migration.people` entscheiden soll
+- Ist eine gestellte Frage doch durch eine Regel entschieden, `questions withdraw` mit Herkunft und Text:
+  die Frage verschwindet aus dem Cockpit, ihr Ergebnis steht unter "Ohne Frage entschieden" und hält
+  kein Gate an.
+- **Beantwortet wird im Cockpit.** Neue Fragen in der Sitzung nennen und auf das Blatt der Migration im
+  Cockpit verweisen, nicht auf eine Antwort warten; danach committen und pushen. Antwortet die Person
+  trotzdem in der Sitzung, `questions answer` wie bisher, mit ihrem Namen.
+- Antworten aus dem Cockpit übernimmt der Start der Migration (`questions import`). Eine im Repo
+  eingetragene Antwort gilt; eine spätere im Cockpit ändert sie nicht.
+- Jede Frage zusätzlich als `question` ins Journal, jede Antwort als `answer`, mit Name und Herkunft
+  (Cockpit oder Sitzung).
 
 ### Vorgaben der Marke
 
@@ -293,15 +339,82 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 - Eine Session ist erst vollständig, wenn sie beendet ist. Deshalb am Ende eines Arbeitstags noch
   einmal ablegen lassen.
 
+### Start der Migration
+
+Jede Sitzung beginnt so, in dieser Reihenfolge und bevor irgendetwas geschrieben wird. Gibt es noch
+keinen Workspace oder Lauf (erste Sitzung), entfallen die Punkte, die einen voraussetzen; dann weiter mit
+Phase 0.
+
+1. **Version prüfen:** `run_state version`. Exit 1 mit `plugin_outdated: true` heißt, der Lauf stammt
+   aus einer neueren Version des Plugins als der installierten. Anhalten und sagen: "Der Lauf stammt aus
+   ptai-ecom `<run_version>`, installiert ist `<installed_version>`. Bitte zuerst das Plugin
+   aktualisieren und Claude Code neu starten." Nicht weiterarbeiten, auch nicht lesend an einer Phase.
+2. **Neuesten Stand holen** im Workspace und im Ziel-Repo (`theme_migration.target_repo`), je:
+   `git status --porcelain` muss leer sein, dann `git pull --ff-only`. Ungesicherte Änderungen oder ein
+   Pull, der nicht vorspulen kann (Konflikt, abweichende Commits): anhalten und sagen, in welchem Repo
+   und was dort steht. Nie stashen, zurücksetzen oder zusammenführen, ohne dass die Person es sagt. Hat
+   der Pull den Lauf geändert, Schritt 1 wiederholen.
+3. **Verbindung zum Cockpit prüfen:** Gibt es in dieser Sitzung das Werkzeug `get_migration` des
+   Cockpits? Wenn nicht, sagen: "Claude ist nicht mit dem Cockpit verbunden. Verbindet Claude unter
+   `https://portal.path-to-ai.com/<brand>/connections`, damit ich eure Antworten aus dem Cockpit lesen
+   kann." `<brand>` ist `portal.brand` der Config, sonst `account_slug`. Ohne Verbindung geht es nur
+   weiter, wenn keine Frage offen ist (`questions list --status open` leer); sonst anhalten, es sei
+   denn, die Person beantwortet die offenen Fragen hier in der Sitzung (`questions answer`).
+4. **Antworten übernehmen:** `get_migration` mit `brand` aus `portal.brand` und `shop` aus
+   `portal.shop` aufrufen; fehlt einer der beiden, nennt `list_shops` des Cockpits die Slugs. Aus jeder
+   Frage mit `cockpit_answer` einen Eintrag `{"id", "value", "by", "at"}` bilden und alle zusammen
+   eintragen:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions import --file - <<'JSON'
+   [{"id": "Q-004", "value": "Vor der Testrunde", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}]
+   JSON
+   ```
+
+   Ausgabe: `imported` und `skipped` je mit Grund, Exit 1, wenn etwas übersprungen wurde. Eine
+   übersprungene Antwort bleibt offen; den Grund der Person nennen (etwa: Name nicht in
+   `theme_migration.people`). Jede übernommene Antwort als `answer` ins Journal, etwa "Q-004: Vor der
+   Testrunde, Erika Muster, im Cockpit". Danach `run_state show`, damit `migration.json` die Antworten
+   trägt.
+5. **Rückfragen und Einwände aufgreifen:** `get_migration` liefert `cockpit_questions` (Rückfragen zu
+   einer Frage) und `objections` (Einwände gegen einen Punkt ohne Frage), je mit Text, Person und Zeit.
+   Jede in der Sitzung nennen. Eine Rückfrage hier beantworten; danach kann die Person im Cockpit oder
+   gleich in der Sitzung antworten. Einen Einwand prüfen: Bleibt die Regel richtig, sagen warum. Zeigt
+   er, dass es doch ein echter Zielkonflikt ist, `ruled revoke --id <R-…> --reason "Einwand von <Name>:
+   …"` und die Frage stellen.
+6. **Weiterarbeiten:** Einstieg wie unten.
+
 ### Einstieg und Wiederaufnahme
 
 1. `show` aufrufen. Kein Lauf: `init`, dann Phase 0. `upgrade_needed`: `upgrade`, dann weiter. Lauf
    vorhanden: bei `next_phase` fortsetzen.
-2. Zeigt `blocked_by` ein Gate oder `open_questions` eine Zahl, zuerst die Fragen, nicht die Phase.
+2. Zeigt `blocked_by` ein Gate oder `open_questions` eine Zahl, zuerst die Fragen, nicht die Phase:
+   offene Fragen im Cockpit beantworten lassen, und an allem weiterarbeiten, das nicht an ihrem Gate
+   hängt.
 3. Eine Phase mit `running` oder `failed` erneut betreten. Vorhandene Ergebnisse ihrer Fachskill lesen
    statt neu erzeugen, sofern sie nicht veraltet sind.
 4. Zu Beginn jeder Sitzung den Stand in Schritten nennen, etwa "Schritt 5 von 9: Kontrolle des
    Entwurfs, nacharbeiten: 3 von 9 Prüfern gelaufen", dazu offene Fragen und Entwurfs-ID mit Link.
+
+### Ende der Sitzung
+
+Bevor eine Sitzung endet, auch wenn sie an einer offenen Frage anhält:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" handover write --now "<Schritt, an dem es jetzt steht>" \
+  --after "<was danach passiert, für das Team>" [--operator-task "<was der Betreiber vorher tun muss>"]
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state show
+```
+
+- `handover write` schreibt `migration/next.json` neu: `now` für die Zeile "Jetzt" im Cockpit, `after`
+  für "Danach", `operator_tasks` für das, was der Betreiber tun muss, bevor es weitergeht (ohne
+  `--operator-task` nichts). Die Datei trägt den aktuellen Schritt; steht der Lauf später in einem anderen
+  Schritt, gilt sie nicht mehr, und das Cockpit zeigt nur den Namen des Schritts.
+- `after` in der Sprache des Kunden, mit ihr und euch, jedes Fachwort erklärt, etwa: "Beantwortet
+  die zwei Fragen im Cockpit und startet die Migration danach neu. Claude baut den Entwurf dann um und
+  prüft ihn. Findet die Prüfung nichts, was den Launch verhindert, ist er bereit für die Testrunde."
+- `run_state show` danach schreibt `migration.json` mit der Übergabe neu.
+- Dann Transkripte ablegen, committen und pushen (Abschnitt "Journal und Transkripte").
 
 ## Phase 0: Setup
 
@@ -409,8 +522,11 @@ Entscheidungsliste `migration/inventory/decisions.md` als vollständige Dokument
 
 Kein Host darf `unknown` sein. Jede Zeile trägt, woher ihre Entscheidung kommt: `policy` (Vorgabe der
 Marke), `rule` mit Regel (toter Code `drop`, Template ohne Objekt `drop`, genutzt und unstrittig `keep`)
-oder `question`. Nur die Zeilen `question` gehen als Fragen an das Team, höchstens zehn
-(`questions ask --gate G1-decisions`). Die Liste selbst wird nicht zur Abstimmung vorgelegt.
+oder `question`. `question` wird eine Zeile nur bei echtem Zielkonflikt (Abschnitt "Fragen an das
+Team"); was wie heute, wie im Referenz-Store oder nach einer Vorgabe entschieden ist und ohne diese Regel
+eine Frage gewesen wäre, steht zusätzlich per `ruled add` unter "Ohne Frage entschieden". Nur die Zeilen
+`question` gehen als Fragen an das Team, höchstens zehn (`questions ask --gate G1-decisions`). Die Liste
+selbst wird nicht zur Abstimmung vorgelegt.
 
 Antworten mit Person und Datum nach `migration/mapping/decisions.json` (`source: G1`) und als
 `decision` nach `apps.json`. Sind alle Fragen für G1 beantwortet:
@@ -433,8 +549,10 @@ Dokumentation `migration/mapping/mapping.md`:
 - jedes geänderte Verhalten
 - die im Probelauf verworfenen Einstellungen
 
-Was davon die Marke entscheiden muss, etwa ein geändertes Verhalten an Warenkorb, Filter oder Menü, geht
-als Frage an das Team (`questions ask --gate G2-mapping`), höchstens zehn. Sind sie beantwortet,
+Ein geändertes Verhalten, etwa an Warenkorb, Filter oder Menü, wird gebaut wie heute oder wie im
+Referenz-Store und per `ruled add` festgehalten. Eine Frage an das Team (`questions ask --gate
+G2-mapping`, höchstens zehn) entsteht nur bei echtem Zielkonflikt, etwa wenn das Ziel-Theme das heutige
+Verhalten nur mit einem Eingriff kann, der Updates erschwert. Sind die Fragen beantwortet,
 `gate --gate G2-mapping --decided-by "<Name>"`, dann `phase --phase 3-mapping --status done`.
 
 ## Phase 4: Neubau
@@ -509,8 +627,8 @@ verweigert sonst und nennt, was fehlt. Dann `verify-theme --test-round`:
 - jeder Testpunkt mit `status` kommt in die Liste offener Punkte (`open_items import --kind
   test-round`, Gate G4); entschieden und erledigt wird dort, danach `open_items sync-test-round --path
   <test.json>`
-- was nur die Marke entscheiden kann ("wie heute oder wie Horizon"), als Frage für G4
-  (`questions ask --gate G4-acceptance`)
+- eine Abweichung, die die Testrunde findet, wird wie heute behoben; eine Frage für G4 (`questions ask
+  --gate G4-acceptance`) nur bei echtem Zielkonflikt, mit Vergleich der beiden Seiten
 
 Sind alle Punkte erledigt oder mit Person und Datum verschoben und alle Fragen beantwortet, meldet die
 Skill: "Testrunde abgearbeitet. Abnahme, Termin und Launch übernimmt der Betreiber." G4 entscheidet der
@@ -520,13 +638,22 @@ Betreiber mit der Person der Marke in `theme-launch`.
 
 - Ein Entwurf, bereit für die Testrunde, danach die abgearbeitete Testrunde.
 - Im Workspace: Sicherungen, Inventare, Zuordnung mit allen Entscheidungen und ihrer Herkunft, die
-  beantworteten Fragen, Prüfberichte, Abgleiche, die Liste offener Punkte mit Beleg oder Verschiebung je
+  beantworteten Fragen, die Punkte ohne Frage, Prüfberichte, Abgleiche, die Liste offener Punkte mit Beleg oder Verschiebung je
   Punkt, `state.json` und `migration.json`.
 
 ## Fehlerbilder
 
-- **`run_state` meldet ein offenes Gate oder offene Fragen:** die Fragen stellen, nie die Phase erzwingen
-  und nie an Stelle der Person antworten.
+- **`run_state` meldet ein offenes Gate oder offene Fragen:** auf das Cockpit verweisen, die Antworten
+  beim nächsten Start übernehmen (`questions import`), nie die Phase erzwingen und nie an Stelle der
+  Person antworten.
+- **Kein Werkzeug `get_migration`:** Claude ist nicht mit dem Cockpit verbunden. Hinweis mit dem Link aus
+  "Start der Migration"; ohne Verbindung nur weiter, wenn keine Frage offen ist oder die Person in der
+  Sitzung antwortet.
+- **`questions import` überspringt eine Antwort:** der Grund steht in `skipped`. Meist steht die Person
+  nicht in `theme_migration.people`. In der Sitzung klären, ob sie für die Marke entscheidet; erst nach
+  dem Ja eintragen und den Import wiederholen.
+- **`run_state version` meldet ein älteres Plugin:** erst aktualisieren lassen, nicht mit der älteren
+  Fassung weiterschreiben.
 - **`run_state` meldet eine andere Sitzung:** nur eine Sitzung je Lauf. Die andere schließen lassen;
   `claim --force` nur, wenn sie sicher beendet ist.
 - **`upgrade_needed`:** Lauf aus einer Version vor 0.3.11. `run_state upgrade` benennt die Phasen um und

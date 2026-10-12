@@ -8,13 +8,20 @@ die Bedingung verletzt, steht er auf `rework`. Vorher konnte ein Lauf in der Tes
 neun Prüfern gelaufen waren und keine Vorgabe der Marke eingetragen war.
 
 Dieses Modul liest nur. `run_state` schreibt das Ergebnis nach jedem Befehl als `migration.json` in den Lauf.
+
+Seit 0.3.14 trägt `migration.json` auch, was das Cockpit für die Antworten des Teams braucht: jede offene und
+jede im Repo beantwortete Frage mit Erklärung, Vergleich, Empfehlung und Grund (`answer` mit Person, Zeit und
+Herkunft), die Punkte, die ohne Frage entschieden sind (`ruled`), die Übergabe der letzten Sitzung (`now`,
+`after`, `operator_tasks`) und den Namen des Workspace-Repos (`repo`). Zurückgezogene Fragen erscheinen
+nicht; ihr Ergebnis steht in `ruled`. Das Schema bleibt 1, ältere Cockpits ignorieren die neuen Felder.
 """
 import json
+import re
 import subprocess
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from theme import ConfigError, load_config, policies, questions
+from theme import ConfigError, handover, load_config, policies, questions, ruled
 
 STEPS = (
     ("backup", "Shop gesichert"),
@@ -160,7 +167,9 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
             return "running"
         return "open"
 
-    open_q = questions.open_for(workspace) if questions.path(workspace).is_file() else []
+    asked = questions.load(workspace) if questions.path(workspace).is_file() else []
+    open_q = [q for q in asked if q["status"] == "open"]
+    people = questions.people(workspace)
     q_by_gate = {g: [q for q in open_q if q["gate"] == g] for g in questions.GATES}
     policy = policies.status(workspace)
     if items is None:
@@ -287,13 +296,42 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
         "ready_for_test_round": {"met": ready_test_met, "conditions": ready_test},
         "ready_for_launch": {"met": ready_launch_met, "conditions": ready_launch},
         "owner": owner,
-        "questions": [{"id": q["id"], "gate": q["gate"], "step": {"G1-decisions": 2, "G2-mapping": 3,
-                                                                  "G4-acceptance": 6}[q["gate"]],
-                       "text": q["text"], "options": q.get("options") or [],
-                       "recommendation": q.get("recommendation") or None} for q in open_q],
+        "questions": [_question(q, people) for q in asked if q["status"] in ("open", "answered")],
         "policies": {"version": policy["version"], "applied_at": policy["applied_at"],
                      "open_rules": policy["open_rules"]},
     }
+
+
+#: Der Schritt, in dem eine Frage eines Gates steht.
+QUESTION_STEP = {"G1-decisions": 2, "G2-mapping": 3, "G4-acceptance": 6}
+
+
+def _question(q: dict, people: list) -> dict:
+    """Eine Frage, wie das Cockpit sie zeigt. Ältere Fragen ohne die Felder seit 0.3.14 bleiben lesbar."""
+    answered = q["status"] == "answered"
+    return {
+        "id": q["id"], "gate": q["gate"], "step": QUESTION_STEP[q["gate"]], "text": q["text"],
+        "context": q.get("context") or None, "compare": q.get("compare") or [],
+        "options": q.get("options") or [], "other": q.get("other") or None,
+        "recommendation": q.get("recommendation") or None, "reason": q.get("reason") or None,
+        # Ohne eigene Angabe entscheidet jede Person aus theme_migration.people.
+        "decider": q.get("decider") or people,
+        "answer": {"value": q.get("answer"), "by": q.get("answered_by"), "at": q.get("answered_at"),
+                   "via": q.get("answered_via") or "session"} if answered else None,
+    }
+
+
+def repo_name(workspace) -> str:
+    """Name des Workspace-Repos ohne Besitzer: Basis des Remote `origin` ohne `.git`, sonst der Ordnername."""
+    try:
+        result = subprocess.run(["git", "-C", str(workspace), "remote", "get-url", "origin"],
+                                capture_output=True, text=True, timeout=20)
+        url = result.stdout.strip() if result.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        url = ""
+    # git@host:besitzer/repo.git, https://host/besitzer/repo(.git) oder ein lokaler Pfad
+    name = re.split(r"[/:\\]", url.rstrip("/\\"))[-1].removesuffix(".git") if url else ""
+    return name or Path(workspace).resolve().name
 
 
 def _portal_shop(workspace) -> str | None:
@@ -311,9 +349,16 @@ def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
 
     `people` sind die Personen aus `theme_migration.people`, die Fragen beantworten und Gates entscheiden;
     `shop` ist der Store im Cockpit (`portal.shop`), damit die Karte ihn ohne Manifest zuordnen kann.
+    `now`, `after` und `operator_tasks` kommen aus der Übergabe der letzten Sitzung (Modul `handover`),
+    `ruled` aus `migration/ruled.json` (Modul `ruled`).
     """
     result = compute(workspace, data, **kwargs)
     values = data.get("values") or {}
+    current = result["steps"][result["current_step"] - 1]
+    hand = handover.resolve(workspace, current["step"], current["name"])
+    # Hat der Betreiber etwas zu tun, bevor es weitergeht, ist er zuständig, nicht das Team und nicht Claude.
+    if hand["operator_tasks"]:
+        result = {**result, "owner": "operator"}
     return {
         "schema": 1,
         "run_id": data["run_id"],
@@ -324,5 +369,8 @@ def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
         "live_theme_id": values.get("live_theme_id"),
         "draft_theme_id": values.get("draft_theme_id"),
         "last_sync": values.get("last_sync"),
+        "repo": repo_name(workspace),
         **result,
+        **hand,
+        "ruled": ruled.visible(workspace),
     }

@@ -18,6 +18,7 @@ Aufruf:
     python3 -m theme.run_state log --run-id <id> --kind <kind> --text <text> [--phase <phase>]
     python3 -m theme.run_state upgrade [--run-id <id>]
     python3 -m theme.run_state claim --force [--run-id <id>]
+    python3 -m theme.run_state version [--run-id <id>]
 
 Neben `state.json` liegt `journal.jsonl`: eine Zeile je Ereignis mit Zeitstempel.
 `phase`, `gate` und `set` schreiben ihr Ereignis selbst, `log` hält fest, was
@@ -49,6 +50,12 @@ Seit 0.3.11:
 - Eine Sitzung je Lauf: `session.lock` mit `CLAUDE_CODE_SESSION_ID`. Eine zweite Sitzung schreibt nicht, solange
   die Sperre jünger als zwei Stunden ist; Übernahme mit `claim --force`.
 - `plugin_version` steht im Stand und in jedem Journal-Eintrag. `upgrade` hebt einen älteren Lauf an.
+
+Seit 0.3.14 prüft `version` zu Beginn jeder Sitzung, ob der Lauf aus einer neueren Version des Plugins stammt
+als der installierten, etwa weil eine andere Person mit einem neueren Plugin weitergearbeitet hat. Dann hält
+die Sitzung an, bis das Plugin aktualisiert ist; sonst schriebe die ältere Fassung den Lauf mit älteren Regeln
+weiter. `version` liest nur: kein `migration.json`, keine Sperre, damit der Arbeitsbaum vor dem `git pull`
+sauber bleibt.
 """
 import argparse
 import json
@@ -59,7 +66,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from theme import ConfigError, load_config
-from theme import open_items, questions, steps
+from theme import handover, open_items, questions, ruled, steps
 
 PHASES = (
     "0-setup", "1-snapshot", "2-inventory", "3-mapping", "4-build", "5-upload",
@@ -188,7 +195,8 @@ class MigrationState:
             pending = questions.open_for(self.workspace, gate)
             if pending:
                 raise StateError(f"Gate {gate} hält an: {len(pending)} Fragen an das Team offen "
-                                 f"({_short([q['id'] for q in pending])}). Beantworten mit questions answer.")
+                                 f"({_short([q['id'] for q in pending])}). Antworten aus dem Cockpit mit "
+                                 "questions import übernehmen oder in der Sitzung mit questions answer eintragen.")
         if gate in open_items.GATE_READS:
             check_open_items(self.workspace, gate=gate)
         stamp = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
@@ -238,7 +246,7 @@ class MigrationState:
                          "steps": {s["key"]: s["status"] for s in computed["steps"]},
                          "ready_for_test_round": computed["ready_for_test_round"]["met"],
                          "ready_for_launch": computed["ready_for_launch"]["met"],
-                         "open_questions": len(computed["questions"])}
+                         "open_questions": sum(1 for q in computed["questions"] if q["answer"] is None)}
         except (questions.QuestionError, open_items.OpenItemsError) as error:
             step_view = {"error": str(error)}
         return {
@@ -488,9 +496,29 @@ def latest_run_id(workspace: Path) -> str | None:
     return found[-1] if found else None
 
 
+def _version_key(value) -> tuple | None:
+    """`0.3.14` als `(0, 3, 14)`; `None`, wenn die Version nicht lesbar ist."""
+    parts = str(value or "").strip().split(".")
+    return tuple(int(p) for p in parts) if parts and all(p.isdigit() for p in parts) else None
+
+
+def version_status(workspace: Path, run_id: str | None = None) -> dict:
+    """Ob der Lauf aus einer neueren Version des Plugins stammt als der installierten. Liest nur."""
+    run_id = run_id or latest_run_id(workspace)
+    run_version = load(workspace, run_id).data.get("plugin_version") if run_id else None
+    installed = plugin_version()
+    ran, have = _version_key(run_version), _version_key(installed)
+    outdated = bool(ran and have and ran > have)
+    return {"run_id": run_id, "run_version": run_version, "installed_version": installed,
+            "plugin_outdated": outdated,
+            "hint": (f"Der Lauf stammt aus ptai-ecom {run_version}, installiert ist {installed}. Erst das Plugin "
+                     "aktualisieren, dann weiterarbeiten.") if outdated else None}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="theme.run_state")
-    parser.add_argument("command", choices=("show", "init", "phase", "gate", "set", "log", "upgrade", "claim"))
+    parser.add_argument("command", choices=("show", "init", "phase", "gate", "set", "log", "upgrade", "claim",
+                                            "version"))
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--run-id")
@@ -505,6 +533,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--text", default="")
     args = parser.parse_args(argv)
     workspace = Path(args.workspace)
+    if args.command == "version":
+        try:
+            status = version_status(workspace, args.run_id)
+        except (StateError, FileNotFoundError) as error:
+            print(json.dumps({"error": str(error)}, ensure_ascii=False))
+            return 2
+        print(json.dumps(status, ensure_ascii=False))
+        # 1 heißt Befund: das Plugin ist älter als der Lauf.
+        return 1 if status["plugin_outdated"] else 0
     try:
         if args.command == "init":
             run_id = args.run_id or default_run_id()
@@ -566,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         export(workspace, state)
-    except (questions.QuestionError, open_items.OpenItemsError) as error:
+    except (questions.QuestionError, open_items.OpenItemsError, ruled.RuledError, handover.HandoverError) as error:
         print(json.dumps({"error": f"migration.json nicht geschrieben: {error}"}, ensure_ascii=False))
         return 2
     print(json.dumps(state.summary(), ensure_ascii=False))

@@ -34,6 +34,7 @@ Richtung, nicht der geprüfte Wortlaut: vor dem Einsatz gegen die aktuelle Doku 
 | `rollback.md` | wann und wie zurückgeschaltet wird, und was ein Rückfall nicht zurückdreht | `theme-migration`, `launch-check` |
 | `post-launch.md` | Prüfplan nach dem Launch und die Rückrichtung der Editor-Änderungen ins Repo | `theme-migration`, `snapshot-theme` |
 | `platform-deadlines.md` | Fristen der Plattform mit Stand und Quelle: Skript-Tags, Shopify Scripts, Additional Scripts, Kundenkonten | `inventory-apps`, `theme-migration` |
+| `questions-format.md` | Fragen an das Team mit Erklärung, Vergleich und Empfehlung, Antworten aus dem Cockpit, Punkte ohne Frage (`ruled.json`), Übergabe der Sitzung (`next.json`) und ihre Felder in `migration.json` | `theme-migration`, `theme-launch` |
 | `access-write.md` | Schreibzugang ins Theme: Konto mit Themes-Recht, Admin-Weg mit Scopes, die offene Frage der Ausnahme | `theme-migration`, `upload-theme` |
 | `windows.md` | Betrieb unter Windows: Starter `bin/theme`, Shopify CLI als `shopify.cmd`, Zeilenenden der Sicherungen, Hinweis zum Firmen-Proxy | Betreiber unter Windows |
 
@@ -63,7 +64,7 @@ Dazu kommen drei Ablagen, die eigene Bausteine des Toolkits pflegen:
 
 Für die Marke und das Cockpit sind das neun Schritte (`theme-migration`, Abschnitt "Stand der
 Migration"); `run_state` schreibt sie nach jedem Befehl als `migration.json`. Vorgaben der Marke:
-`policies-format.md`. Windows: `windows.md`.
+`policies-format.md`. Fragen, Punkte ohne Frage und Übergabe: `questions-format.md`. Windows: `windows.md`.
 
 ## Die Liste offener Punkte
 
