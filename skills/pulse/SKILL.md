@@ -9,6 +9,7 @@ description: Erzeugt den Wochen-Puls für den Kunden-Workspace, ein kompaktes Ma
 - Kein Executive-Summary-Absatz, keine Kapitel, kein PDF; nur Tabelle und wenige Sätze.
 - Zieht nur die Quellen, die die konfigurierten `pulse_kpis` brauchen.
 - Schreibt eigene `-pulse.json`-Snapshots; diese sind nie Vergleichsbasis für den Monats-Report.
+- Seit 11.10.2026 zusätzlich ein Lauf `reporting/runs/<heute>-week/` mit `pulse.json`, der beim Hochladen sofort im Cockpit steht (Card "Diese Woche"). Meldungen statt fester Schwelle: auffällig ist, was außerhalb der üblichen Schwankung der letzten acht Wochen liegt (`scripts/audit/pulse.py`). Spec "Wächter und Wirkung" vom 11.10.2026 im Repo `ptai-portal`.
 
 ## Voraussetzungen
 
@@ -64,6 +65,7 @@ Benötigte Pull-Skills:
 - Beispiel: Ausführung Montag 2026-08-10 ergibt Puls-Woche 2026-08-03 bis 2026-08-09 (2026-W32) und Vorwoche 2026-07-27 bis 2026-08-02 (2026-W31).
 - ISO-Wochennummer für den Dateinamen aus dem Sonntag der Puls-Woche: macOS `date -j -f %Y-%m-%d <sonntag> +%G-W%V`, Linux `date -d <sonntag> +%G-W%V`.
 - Es gibt keine gespeicherte Vergleichsbasis: jeder Puls-Lauf zieht aktuelle Woche und Vorwoche zusammen live.
+- **Fenster für das Band:** zusätzlich die neun Wochen vor der Puls-Woche, also zehn volle Wochen von Montag bis Sonntag; acht Veränderungen vor der Puls-Woche brauchen neun Wochenwerte. Beispiel Puls-Woche 2026-10-05 bis 2026-10-11: Fenster 2026-08-03 bis 2026-10-11. Die Pulls in Schritt 3 laufen mit `--start` am Anfang dieses Fensters.
 - Die Regel "Snapshot schlägt Live" aus dem Monats-Report gilt hier nicht; sie gehört nur zur Vormonats-Snapshot-Suche.
 
 ### 3. Pull-Skills aufrufen
@@ -85,7 +87,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-ga4/scripts/ga4_pull.py" \
   --pulse
 ```
 
-**GSC** (nur bei `gsc_clicks` oder `gsc_impressions`; ohne `--inspect-urls`, die Index-Stichprobe ist keine Puls-KPI):
+GA4 schreibt im Puls zusätzlich `by_week` (Sitzungen, Käufe und Kaufumsatz je ISO-Woche); dafür `--start` auf den Anfang des Zehn-Wochen-Fensters setzen.
+
+**GSC** (nur bei `gsc_clicks` oder `gsc_impressions`; ohne `--inspect-urls`, die Index-Stichprobe ist keine Puls-KPI; `--start` am Anfang des Zehn-Wochen-Fensters, die Tagesreihe `daily` trägt die Wochen):
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-gsc/scripts/gsc_pull.py" \
@@ -104,6 +108,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-gsc/scripts/gsc_pull.py" \
 3. Jede Query zweimal ausführen: aktuelle Woche und Vorwoche. Das Vorwochen-Ergebnis in einen `comparison`-Block (gleiche Struktur, eigener `period`).
 4. Nicht ziehen: Zeitreihe (`TIMESERIES day`), Top-Produkte, Bestand. `by_month`, `top_products` und `top_collections` bleiben in `shopify-pulse.json` `null` mit `"notes"`-Eintrag "im Puls nicht gezogen".
 5. Ausgabe: `reporting/data/<heute>/shopify-pulse.json`.
+6. Für den Lauf zusätzlich `currency` (Währung des Shops, etwa "EUR" oder "GBP") und eine Tagesreihe über das Zehn-Wochen-Fenster: `FROM sales SHOW total_sales, net_sales, orders TIMESERIES day` und, wenn verfügbar, `FROM sessions SHOW sessions TIMESERIES day`. In `shopify-pulse.json` als `daily`: `[{"date": "2026-08-10", "total_sales": …, "net_sales": …, "orders": …, "sessions": …}]`. Fehlt der Zugriff auf ShopifyQL (`ACCESS_DENIED`, öffentliche App ohne Level 2), schreibt die Datei `{"error": "<Grund>"}`; der Lauf meldet dann die Verbindung und nimmt Sitzungen aus GA4.
 
 ### 4. Werte, Deltas und Auffälligkeiten
 
@@ -142,6 +147,17 @@ Datei: `reporting/reports/YYYY-Www-pulse.md` (ISO-Woche der Puls-Woche, zum Beis
 5. bei Bedarf der GSC-Nachlauf-Hinweis
 6. Trennlinie `---`
 7. letzte Zeile exakt: `Erstellt mit ptai-ecom von [Path to AI](https://path-to-ai.com).` Nicht umformulieren, nicht kürzen, nichts danach.
+
+### 6b. Lauf bauen und ins Cockpit laden
+
+```bash
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.pulse \
+  --workspace . --data "reporting/data/$(date +%F)" --week-start <montag-der-puls-woche>
+```
+
+- Schreibt `reporting/runs/<heute>-week/` mit `pulse.json` (Meldungen, Kennzahlen der Woche, Stand je Quelle) und `state.json` (Kadenz `week`, Titel "Wochenpuls KW 41").
+- Danach hochladen wie jeden Lauf (`python3 -m audit.publish … --upload`, Aufruf in der `CLAUDE.md` des Cockpits). Der Wochenpuls ist veröffentlicht, sobald er hochgeladen ist; `release` entfällt. Er enthält keine Befunde und keine Maßnahmen.
+- Die Meldungen in `pulse.json` ersetzen für das Cockpit die 20-Prozent-Regel aus Schritt 4; das Markdown bleibt für den Workspace.
 
 ### 7. Zusammenfassung an den Nutzer
 

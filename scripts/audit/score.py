@@ -111,8 +111,10 @@ def target(score: int | None, findings: list[dict], massnahmen: list[dict]) -> i
     """
     if score is None:
         return None
-    mit_massnahme = {m.get("finding_ref") for m in massnahmen
-                     if m.get("finding_ref")}
+    # v1 heißt das Feld `finding_ref`, die Sicht eines Stores auf die Liste
+    # einer Marke `finding_id` (Spec 2026-10-08, D12).
+    mit_massnahme = {m.get("finding_id") or m.get("finding_ref") for m in massnahmen
+                     if m.get("finding_id") or m.get("finding_ref")}
     remainder = [f for f in findings if f.get("id") not in mit_massnahme]
     return max(score, section_score(remainder))
 

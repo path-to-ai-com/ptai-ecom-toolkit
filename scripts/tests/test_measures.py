@@ -491,3 +491,166 @@ class TestEmpfehlung(unittest.TestCase):
         doc = self.backlog()
         measures.set_approval(doc, "M-001", "decision")
         self.assertIsNone(doc["measures"][0]["approval"])
+
+
+# ------------------------------------------------- Liste einer Marke (v2)
+
+from audit import brand as brand_mod  # noqa: E402
+
+from tests import brand_support as bs  # noqa: E402
+
+NEW = {"title": "Versandkosten im Warenkorb nennen", "discipline": "cro",
+       "evidence": "screens.json > cart.png", "confidence": "confirmed",
+       "leverage": "medium", "effort": "small", "check_rule": "Der Warenkorb nennt Versandkosten.",
+       "finding_ref": "CRO-07", "evidence_text": "Ohne Versandzeile."}
+
+
+class TestBrandListFormat(unittest.TestCase):
+    """Spec ptai-portal 2026-10-08, Abschnitt 5.1, Tests aus Abschnitt 13 (A1)."""
+
+    def setUp(self):
+        self.doc = bs.fixture()
+
+    def test_the_fixture_is_a_consistent_brand_list(self):
+        self.assertTrue(measures.is_v2(self.doc))
+        self.assertEqual(measures.consistency_problems(self.doc), [])
+
+    def test_create_writes_by_shop_with_run_and_finding(self):
+        new = measures.create(self.doc, shop="uk", run_id="2026-11-12-audit",
+                              today=date(2026, 11, 12), **NEW)
+        measure = new["measures"][-1]
+        self.assertEqual(measure["id"], "M-006")
+        self.assertEqual(measure["created_run_id"], "2026-11-12-audit")
+        self.assertEqual(measure["shops"], ["uk"])
+        self.assertEqual(measure["by_shop"]["uk"], {
+            "status": "open",
+            "history": [{"status": "open", "date": "2026-11-12",
+                         "run_id": "2026-11-12-audit"}],
+            "finding_run": "2026-11-12-audit", "finding_id": "CRO-07",
+            "evidence": "screens.json > cart.png", "evidence_text": "Ohne Versandzeile."})
+        for field in ("status", "history", "finding_ref", "evidence"):
+            self.assertNotIn(field, measure)
+        self.assertEqual(new["next_id"], 7)
+        self.assertEqual(new["brand"], bs.BRAND)
+        self.assertEqual(measures.consistency_problems(new), [])
+
+    def test_create_without_a_run_writes_no_run_id(self):
+        # Eine Maßnahme aus einer Anforderung ist nicht gemessen.
+        measure = measures.create(self.doc, shop="eu", **NEW)["measures"][-1]
+        self.assertNotIn("created_run_id", measure)
+        self.assertNotIn("run_id", measure["by_shop"]["eu"]["history"][0])
+
+    def test_create_without_a_shop_fails_and_counts_nothing(self):
+        with self.assertRaises(ValueError):
+            measures.create(self.doc, **NEW)
+        self.assertEqual(self.doc["next_id"], 6)
+
+    def test_set_status_writes_only_its_store(self):
+        new = measures.set_status(self.doc, "M-001", "implemented", shop="uk",
+                                  run_id="2026-12-01-report", today=date(2026, 12, 1))
+        m = next(x for x in new["measures"] if x["id"] == "M-001")
+        self.assertEqual(m["by_shop"]["uk"]["status"], "implemented")
+        self.assertEqual(m["by_shop"]["uk"]["history"][-1],
+                         {"status": "implemented", "date": "2026-12-01",
+                          "run_id": "2026-12-01-report"})
+        self.assertEqual(m["by_shop"]["eu"], self.doc["measures"][0]["by_shop"]["eu"])
+        self.assertNotIn("status", m)
+
+    def test_set_status_refuses_a_store_outside_shops(self):
+        with self.assertRaises(ValueError):
+            measures.set_status(self.doc, "M-004", "implemented", shop="eu")
+        with self.assertRaises(ValueError):
+            measures.set_status(self.doc, "M-004", "implemented")
+
+    def test_check_skips_a_measure_of_another_store(self):
+        uk_only = self.doc["measures"][3]
+        self.assertEqual(measures.check(uk_only, {"M-004": True}, shop="eu"), "unchecked")
+        self.assertEqual(measures.check(uk_only, {"M-004": True}, shop="uk"), "implemented")
+        with self.assertRaises(ValueError):
+            measures.check(uk_only, {"M-004": True})
+
+    def test_prioritize_for_one_store_or_all(self):
+        # Sicherheit vor Hebel: M-004 ist belegt, M-001 nur plausibel.
+        self.assertEqual([m["id"] for m in measures.prioritize(self.doc, "uk")],
+                         ["M-004", "M-001"])
+        self.assertEqual(len(measures.prioritize(self.doc)), 5)
+
+    def test_project_flattens_the_store_view(self):
+        uk = measures.project(self.doc, "uk")["measures"]
+        self.assertEqual([m["id"] for m in uk], ["M-001", "M-004"])
+        self.assertEqual(uk[0]["status"], "open")
+        self.assertEqual(uk[0]["finding_id"], "CRO-02")
+        self.assertEqual(measures.finding_of(uk[0]), "CRO-02")
+        eu = measures.project(self.doc, "eu")["measures"]
+        self.assertEqual(eu[0]["status"], "implemented")
+
+    def test_v1_stays_v1(self):
+        backlog = measures.create(measures.empty(), run_id="2026-09-01-audit", **NEW)
+        measure = backlog["measures"][0]
+        self.assertNotIn("version", backlog)
+        self.assertEqual(measure["finding_ref"], "CRO-07")
+        self.assertEqual(measure["created_run_id"], "2026-09-01-audit")
+        self.assertEqual(measure["history"][0]["run_id"], "2026-09-01-audit")
+        self.assertIs(measures.project(backlog, "eu"), backlog)
+
+
+class TestBrandListOnDisk(unittest.TestCase):
+    def setUp(self):
+        self.brand_ws = bs.make_brand(self)
+        self.eu = self.brand_ws / "eu"
+        self.uk = self.brand_ws / "uk"
+
+    def test_next_id_never_decreases(self):
+        backlog = measures.load(self.eu)
+        with self.assertRaises(ValueError) as raised:
+            measures.save(self.eu, {**backlog, "next_id": 5,
+                                    "measures": backlog["measures"][:4]})
+        self.assertIn("next_id", str(raised.exception))
+        self.assertEqual(measures.peek(self.eu)["next_id"], 6)
+
+    def test_a_write_since_reading_is_not_overwritten(self):
+        mine = measures.load(self.eu)
+        # Ein zweiter Prozess (hier simuliert) schreibt dazwischen.
+        theirs = measures.create(bs.fixture(), shop="uk", run_id="2026-11-12-audit", **NEW)
+        bs.write_json(self.brand_ws / "reporting" / "measures.json", theirs)
+        with self.assertRaises(ValueError) as raised:
+            measures.save(self.eu, measures.set_status(mine, "M-002", "implemented", shop="eu"))
+        self.assertIn("geändert", str(raised.exception))
+        self.assertEqual(len(measures.peek(self.eu)["measures"]), 6)
+
+    def test_update_reads_changes_and_writes_under_the_lock(self):
+        measures.update(self.uk, lambda b: measures.create(
+            b, shop="uk", run_id="2026-11-12-audit", **NEW))
+        on_disk = bs.read(self.brand_ws / "reporting" / "measures.json")
+        self.assertEqual(on_disk["next_id"], 7)
+        self.assertEqual(on_disk["measures"][-1]["shops"], ["uk"])
+        self.assertFalse((self.uk / "reporting" / "measures.json").exists())
+
+    def test_the_brand_folder_takes_only_v2(self):
+        with self.assertRaises(ValueError):
+            measures.save(self.eu, {"next_id": 6, "measures": []})
+
+    def test_shops_and_by_shop_must_match(self):
+        backlog = measures.load(self.eu)
+        backlog["measures"][0]["shops"] = ["eu"]
+        with self.assertRaises(ValueError) as raised:
+            measures.save(self.eu, backlog)
+        self.assertIn("by_shop.uk", str(raised.exception))
+
+    def test_a_projection_is_never_saved(self):
+        with self.assertRaises(ValueError):
+            measures.save(self.eu, measures.project(measures.load(self.eu), "eu"))
+
+    def test_render_shows_a_status_per_store(self):
+        path = measures.render(self.eu)
+        self.assertEqual(path, self.brand_ws / "reporting" / "measures.md")
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("eu: umgesetzt, uk: offen", text)
+        self.assertIn("2026-11-12", text)
+
+    def test_the_brand_file_is_unchanged_by_reading(self):
+        before = (self.brand_ws / "reporting" / "measures.json").read_bytes()
+        measures.load(self.eu)
+        measures.peek(self.uk)
+        self.assertEqual((self.brand_ws / "reporting" / "measures.json").read_bytes(), before)
+        self.assertTrue(brand_mod.has_brand_files(self.eu))

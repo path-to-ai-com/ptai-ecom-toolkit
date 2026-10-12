@@ -807,3 +807,11 @@ class TestReadScope(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestByWeek(unittest.TestCase):
+    def test_die_iso_woche_ist_der_schluessel(self):
+        series = ga4_pull.build_by_week([(("202641", "Organic Search"),
+                                          {"sessions": 10, "purchaseRevenue": 5, "ecommercePurchases": 1})])
+        self.assertEqual(series[0]["week"], "2026-W41")
+        self.assertNotIn("month", series[0])

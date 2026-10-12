@@ -8,6 +8,12 @@ Einrichtung durch den Kunden, Abschnitt 10, Nachtrag vom 03.10.2026):
 
 * **Google:** ein Zugang, der nach etwa einer Stunde abläuft. Der
   Refresh-Token bleibt im Cockpit.
+* **Gemeldete Stände:** was die Marke im Cockpit von Hand zu einer Maßnahme
+  gemeldet hat (`public.measure_status`), für alle Stores der Marke. Ein Lauf
+  prüft und öffnet keine Maßnahme in einem Store, den die Marke dort
+  verworfen hat (Spec `ptai-portal` 2026-10-08, Abschnitt 5.5, D10). Ist das
+  Cockpit nicht erreichbar, bricht der Lauf ab, statt ohne die Meldungen
+  weiterzuprüfen.
 * **Shopify:** die Abfrage geht durch das Cockpit, der Offline-Token verlässt
   den Server nie. `shopify-execute` verhält sich dabei wie
   `shopify store execute --json`: Daten ohne `data`-Hülle auf stdout, bei
@@ -29,6 +35,7 @@ CLI:
     python3 -m audit.portal status --brand <brand> --shop <shop> --status collecting [--due 2026-10-16]
     python3 -m audit.portal shopify-execute --query '<graphql>' [--variables '<json>']
     python3 -m audit.portal check --brand <brand> --shop <shop>
+    python3 -m audit.portal measure-status [--brand <brand> --shop <shop>] [--workspace .]
 """
 import argparse
 import json
@@ -61,6 +68,18 @@ CONFIG_SOURCES = {"shopify": "shopify", "ga4": "ga4", "gsc": "gsc", "google_ads"
 STATUSES = ("collecting", "analyzing", "reporting", "cancelled")
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
+
+#: Route der gemeldeten Stände unter `/api/plugin/<brand>/<shop>`.
+MEASURE_STATUS_PATH = "/measure-status"
+
+#: Werte, die das Cockpit für einen gemeldeten Stand führt (ohne das leere
+#: "zurückgenommen", das die Route gar nicht ausliefert).
+REPORTED_STATUSES = ("open", "in_progress", "implemented", "rejected", "obsolete")
+
+#: Gemeldete Stände, mit denen ein Store aus einer Maßnahme herausfällt.
+EXCLUDING_STATUSES = ("rejected", "obsolete")
+
+_MEASURE_ID = re.compile(r"^M-\d{3,4}$")
 
 
 class PortalError(RuntimeError):
@@ -191,6 +210,52 @@ def report_status(brand: str, shop: str, status: str, due: str | None = None,
     return _json_or_error(*_request("POST", brand, shop, "/status", body, workspace), "Stand")
 
 
+def reported_statuses(brand: str, shop: str, workspace: str | os.PathLike = ".") -> list[dict]:
+    """Die von der Marke gemeldeten Stände aller ihrer Stores, aus dem Cockpit.
+
+    `GET /api/plugin/<brand>/<shop>/measure-status`; `shop` ist der Store des
+    Laufs, die Antwort deckt die ganze Marke ab. Je Eintrag `shop`,
+    `measure_id`, `status`, `note` und `set_at`. Zurückgenommene Meldungen
+    (leerer Status) liefert die Route nicht aus.
+
+    **Jede Abweichung ist ein Abbruch, nie eine leere Liste.** Ein Cockpit
+    ohne die Route (404), ohne Antwort oder mit einer Antwort ohne `reports`
+    hieße sonst "nichts gemeldet", und der Lauf öffnete eine Maßnahme in einem
+    Store wieder, den die Marke ausdrücklich verworfen hat.
+    """
+    payload = _json_or_error(*_request("GET", brand, shop, MEASURE_STATUS_PATH, workspace=workspace),
+                             "Gemeldete Stände")
+    rows = payload.get("reports")
+    if not isinstance(rows, list):
+        raise PortalError("Gemeldete Stände: Antwort ohne Liste `reports`")
+    if payload.get("brand") not in (None, brand):
+        raise PortalError(f"Gemeldete Stände: Antwort für die Marke {payload.get('brand')!r}, "
+                          f"angefragt war {brand!r}")
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise PortalError(f"Gemeldete Stände: Eintrag ist kein Objekt: {row!r}")
+        row_shop, measure_id, status = row.get("shop"), row.get("measure_id"), row.get("status")
+        if not (isinstance(row_shop, str) and _SLUG.match(row_shop)):
+            raise PortalError(f"Gemeldete Stände: Store nicht lesbar: {row_shop!r}")
+        if not (isinstance(measure_id, str) and _MEASURE_ID.match(measure_id)):
+            raise PortalError(f"Gemeldete Stände: Maßnahme nicht lesbar: {measure_id!r}")
+        if status not in REPORTED_STATUSES:
+            raise PortalError(f"Gemeldete Stände: unbekannter Stand {status!r} bei {measure_id}")
+        out.append({"shop": row_shop, "measure_id": measure_id, "status": status,
+                    "note": row.get("note") or "", "set_at": row.get("set_at")})
+    return out
+
+
+def exclusions(reports: list[dict]) -> dict[str, set[str]]:
+    """Maßnahmen-ID auf die Stores, in denen die Marke sie verworfen oder überholt gemeldet hat."""
+    out: dict[str, set[str]] = {}
+    for row in reports:
+        if row.get("status") in EXCLUDING_STATUSES:
+            out.setdefault(row["measure_id"], set()).add(row["shop"])
+    return out
+
+
 def merge_config(config: dict, settings: dict) -> dict:
     """Trägt ein, was das Cockpit über den Shop weiß, und lässt den Rest stehen.
 
@@ -293,6 +358,24 @@ def config_target(workspace: str | os.PathLike = ".") -> tuple[str, str]:
     return brand, shop
 
 
+def cockpit_target(workspace: str | os.PathLike = ".") -> tuple[str, str]:
+    """Marke und Store dieses Workspace so, wie das Cockpit sie führt.
+
+    Anders als `config_target()` ohne Pflicht auf den Block `portal`: ein
+    Store, der vor dem Cockpit eingerichtet wurde, heißt dort nach
+    `account_slug` und seinem Namen, wie `publish.destination()` ihn bildet
+    (`audit.brand.brand_slug()` und `shop_slug()`).
+    """
+    from audit import brand as brand_mod  # spät: brand braucht portal nicht
+
+    config = brand_mod.read_config(workspace)
+    brand, shop = brand_mod.brand_slug(config), brand_mod.shop_slug(config)
+    if not (brand and shop):
+        raise PortalError(f"{Path(workspace) / 'reporting' / 'config.json'}: Marke oder Store "
+                          "im Cockpit nicht bestimmbar (portal oder account_slug fehlt)")
+    return brand, shop
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="audit.portal", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -316,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
     execute.add_argument("--variables", help="JSON")
     execute.add_argument("--purpose", default="pull-shopify")
     target_args(sub.add_parser("check", help="Verbindungen und Zugänge prüfen, ohne Werte"))
+    target_args(sub.add_parser("measure-status", help="gemeldete Stände der Marke als JSON"),
+                required=False)
 
     args = parser.parse_args(argv)
     try:
@@ -339,6 +424,9 @@ def main(argv: list[str] | None = None) -> int:
             variables = json.loads(args.variables) if args.variables else None
             print(json.dumps(shopify_execute(brand, shop, query, variables, args.purpose, args.workspace),
                              ensure_ascii=False))
+        elif args.command == "measure-status":
+            brand, shop = (args.brand, args.shop) if args.brand and args.shop else cockpit_target(args.workspace)
+            print(json.dumps(reported_statuses(brand, shop, args.workspace), ensure_ascii=False, indent=2))
         elif args.command == "check":
             settings = shop_settings(args.brand, args.shop, args.workspace)
             print(f"{settings.get('name')} ({settings.get('domain') or 'ohne Domain'})")

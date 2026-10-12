@@ -111,7 +111,7 @@ Die Liste ist fest. Was keine davon abbildet, wird `build` mit Begründung, nie 
 ## Wie sie geprüft wird
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.mapping_check \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" mapping_check \
   --mapping "${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/mappings/broadcast-5__horizon-4.json" \
   --source-schema <quell-auszug.json> --target-schema <ziel-auszug.json> --out <befunde.json>
 ```

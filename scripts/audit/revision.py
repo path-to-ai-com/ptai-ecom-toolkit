@@ -23,21 +23,27 @@ CLI:
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import sys
 from pathlib import Path
+
+from audit import brand as brand_mod
+from audit import measures
 
 #: Was eine Fassung ausmacht: die Befunde je Disziplin, ihre Belegbilder und
 #: was daraus gerendert wurde. Verzeichnisse wandern als Ganzes, Dateien
 #: einzeln. `proof/` gehört dazu, weil die Befunde einer Fassung auf genau
 #: diese Bilder zeigen; eine neue Fassung nimmt ihre eigenen auf.
 BEWEGT_ORDNER = ("findings", "proof")
-BEWEGT_DATEIEN = ("audit.pdf", "audit.html", "audit-web.html")
+#: `carry-over.json` (Bestand prüfen, `audit.carry_over`) gehört zur Fassung:
+#: `reset_measures()` nimmt die übertragenen Stores dieses Laufs zurück, und
+#: eine neue Analyse prüft den Bestand neu.
+BEWEGT_DATEIEN = ("audit.pdf", "audit.html", "audit-web.html", "carry-over.json")
 
 #: Der Backlog liegt eine Ebene höher als der Lauf, weil er über alle Läufe
-#: gilt. Er wird kopiert, nicht verschoben: die Maßnahmen, die ein Mensch
-#: schon angefasst hat, bleiben im Original stehen.
+#: gilt, und bei einer Marke mit mehreren Stores im Ordner der Marke
+#: (`audit.brand`). Er wird kopiert, nicht verschoben: die Maßnahmen, die ein
+#: Mensch schon angefasst hat, bleiben im Original stehen.
 BACKLOG = ("measures.json", "measures.md")
 
 
@@ -87,8 +93,9 @@ def archive(workspace, run_id: str, copy: bool = False) -> Path | None:
             shutil.copytree(quelle, ziel / quelle.name)
         else:
             shutil.copy2(quelle, ziel / quelle.name)
+    backlog_dir = measures.file_path(workspace).parent
     for name in BACKLOG:
-        datei = workspace / "reporting" / name
+        datei = backlog_dir / name
         if datei.exists():
             shutil.copy2(datei, ziel / name)
     return ziel
@@ -108,19 +115,64 @@ def keep(measure: dict) -> bool:
     return len(measure.get("history") or []) > 1
 
 
-def reset_measures(backlog: dict) -> tuple[dict, int, int]:
-    """Nimmt die unberührten Maßnahmen heraus, behält die angefassten.
+def reset_measures(backlog: dict, shop: str | None = None,
+                   run_id: str | None = None) -> tuple[dict, int, int]:
+    """Nimmt zurück, was die vorige Auswertung dieses Laufs angelegt hat.
 
     Gibt den neuen Backlog zurück, dazu die Zahl der entfernten und der
-    behaltenen. `next_id` zählt hinter den behaltenen weiter, damit keine
-    Kennung zweimal vergeben wird, solange in derselben Datei noch eine alte
-    steht.
+    behaltenen Maßnahmen. **`next_id` sinkt nie** (Spec 5.1, Regel 6): eine
+    entfernte Kennung bleibt verbraucht. Bis zum 09.10.2026 zählte `next_id`
+    hinter den behaltenen weiter; in der Liste einer Marke hätte eine neue
+    Analyse in UK damit Kennungen neu vergeben, die EU schon trägt.
+
+    **v1 (Liste eines Stores):** unberührte Maßnahmen gehen, angefasste
+    bleiben (`keep()`).
+
+    **v2 (Liste einer Marke, D12):** nur, was dieser Store in diesem Lauf
+    geschrieben hat. Eine Maßnahme mit `created_run_id == run_id`, die nur
+    Einträge dieses Laufs trägt und nur für diesen Store gilt, geht. Bei jeder
+    anderen gehen nur die Verlaufseinträge unter `by_shop.<shop>` mit dieser
+    `run_id`; bleibt dort keiner, ist der Store in diesem Lauf dazugekommen und
+    fällt aus `shops`. Maßnahmen anderer Stores bleiben unangetastet.
     """
     alle = backlog.get("measures") or []
-    behalten = [m for m in alle if keep(m)]
-    entfernt = len(alle) - len(behalten)
-    return ({"next_id": len(behalten) + 1, "measures": behalten},
-            entfernt, len(behalten))
+    if not measures.is_v2(backlog):
+        behalten = [m for m in alle if keep(m)]
+        return ({**backlog, "next_id": backlog.get("next_id", 1), "measures": behalten},
+                len(alle) - len(behalten), len(behalten))
+    if not shop or not run_id:
+        raise ValueError("Die Liste einer Marke setzt nur zurück, was ein Store in "
+                         "einem Lauf geschrieben hat: shop und run_id angeben.")
+
+    behalten = []
+    for m in alle:
+        by_shop = m.get("by_shop") or {}
+        own = by_shop.get(shop)
+        if m.get("created_run_id") == run_id:
+            others = [s for s in m.get("shops") or [] if s != shop]
+            own_history = (own or {}).get("history") or []
+            if not others and all(h.get("run_id") == run_id for h in own_history):
+                continue
+            # Angefasst: von Hand gemeldet oder schon in einem anderen Store.
+            # Bleibt ganz, wie bisher eine angefasste Maßnahme in v1.
+            behalten.append(m)
+            continue
+        if own is None:
+            behalten.append(m)
+            continue
+        history = own.get("history") or []
+        rest = [h for h in history if h.get("run_id") != run_id]
+        if len(rest) == len(history):
+            behalten.append(m)
+        elif rest:
+            behalten.append({**m, "by_shop": {
+                **by_shop, shop: {**own, "history": rest, "status": rest[-1]["status"]}}})
+        else:
+            shops = [s for s in m.get("shops") or [] if s != shop]
+            behalten.append({**m, "shops": shops,
+                             "by_shop": {k: v for k, v in by_shop.items() if k != shop}})
+    return ({**backlog, "measures": behalten},
+            len(alle) - len(behalten), len(behalten))
 
 
 def main(argv=None) -> int:
@@ -145,15 +197,18 @@ def main(argv=None) -> int:
     # der anderen Disziplinen gelten weiter, auch die unberührten.
     if args.keep_measures or args.copy:
         return 0
-    datei = workspace / "reporting" / "measures.json"
-    if not datei.exists():
+    if not measures.file_path(workspace).exists():
         return 0
-    neu, entfernt, behalten = reset_measures(
-        json.loads(datei.read_text(encoding="utf-8")))
-    datei.write_text(json.dumps(neu, ensure_ascii=False, indent=2) + "\n",
-                     encoding="utf-8")
-    print(f"Backlog: {entfernt} unberührte Maßnahmen entfernt, "
-          f"{behalten} angefasste behalten.")
+    shop = brand_mod.shop_slug(brand_mod.read_config(workspace))
+    # Lesen, Sieben und Schreiben am Stück unter der Sperre der Marke: ein Lauf
+    # in einem anderen Store darf dazwischen nicht schreiben (D4). Geschrieben
+    # wird über save(), das next_id und fremde Änderungen prüft.
+    with measures.locked(workspace):
+        neu, entfernt, behalten = reset_measures(
+            measures.load(workspace), shop=shop, run_id=args.run_id)
+        measures.save(workspace, neu)
+    print(f"Backlog: {entfernt} Maßnahmen dieser Auswertung entfernt, "
+          f"{behalten} behalten. next_id bleibt {neu.get('next_id')}.")
     if behalten:
         print("  Die behaltenen tragen einen Status oder eine Historie. Eine "
               "neue Analyse kann denselben Befund noch einmal stellen; das "

@@ -35,7 +35,9 @@ from audit import senders as senders_mod
 from audit import closing
 from audit import ga4_variants
 from audit import readability
+from audit import brand as brand_mod
 from audit import measures as measures_mod
+from audit import carry_over as carry_over_mod
 from audit import score as score_mod
 from audit import window as window_mod
 
@@ -50,7 +52,9 @@ from audit import window as window_mod
 PREFIXES = {"data-quality": "MES", "commerce": "HDL", "traffic": "TRF",
            "conversion": "CRO", "seo-technical": "TEC", "seo-content": "SEO",
            "geo": "GEO", "competition": "WBW", "content-brand": "CNT",
-           "sea": "SEA", "trust": "TRS"}
+           "sea": "SEA", "trust": "TRS",
+           # Abweichung zum Referenz-Store (`audit.consistency`), seit 11.10.2026.
+           "consistency": "ABW"}
 
 #: Wie eine Quelle im Kundendokument heisst. Der Leser hat Fragen zu seinem
 #: Shop, keine zu unseren Schluesseln: "dfs_keywords" ist kein Werkzeug, und
@@ -401,7 +405,12 @@ class Run:
         self.run = self.ws / "reporting" / "runs" / run_id
         self.config = self._j(self.ws / "reporting" / "config.json")
         self.state = self._j(self.run / "state.json")
-        self.backlog = self._j(self.ws / "reporting" / "measures.json") or {"measures": []}
+        # Die Maßnahmen dieses Stores. Liegt die Liste bei der Marke (v2),
+        # sieht der Report nur die Maßnahmen, deren `shops` seinen Store
+        # nennen, mit dessen Status und Befund (Spec 2026-10-08, Abschnitt 11).
+        # Sonst zeigte ein Report für UK die offenen Maßnahmen von EU.
+        self.shop = brand_mod.shop_slug(self.config or {})
+        self.backlog = measures_mod.project(measures_mod.peek(self.ws), self.shop)
         self.findings = {p.stem: self._j(p)
                          for p in sorted((self.run / "findings").glob("*.json"))
                          if not p.stem.startswith("_")}
@@ -470,7 +479,7 @@ def measures_by_finding(run: Run) -> dict:
     """Welche anstehenden Massnahmen auf welchen Befund zeigen, in Prioritaetsreihenfolge."""
     idx = {}
     for m in open_measures(run.backlog):
-        ref = m.get("finding_ref")
+        ref = measures_mod.finding_of(m)
         if ref:
             idx.setdefault(ref, []).append(m)
     return idx
@@ -579,7 +588,7 @@ LABEL_DISCIPLINE = {"data_quality": "Messung", "commerce": "Handel",
                    "traffic": "Traffic", "cro": "Conversion",
                    "seo_technical": "Technik", "seo": "SEO", "geo": "GEO",
                    "sea": "Bezahlte Suche", "content": "Katalog und Content",
-                   "tech": "Technik"}
+                   "tech": "Technik", "consistency": "Abweichung zwischen Stores"}
 LABEL_LEVERAGE = {"high": "hoch", "medium": "mittel", "low": "gering"}
 LABEL_EFFORT = {"small": "klein", "medium": "mittel", "large": "groß"}
 
@@ -654,14 +663,20 @@ def measures_overview(run: Run, brand: str) -> str:
     ohne_befund = []
     rows = []
     for nr, m in enumerate(prio, 1):
-        ref = m.get("finding_ref")
+        ref = measures_mod.finding_of(m)
         b = idx.get(ref) if ref else None
         if not b:
             ohne_befund.append(m)
             wo = "unten in diesem Abschnitt"
         else:
-            sektion = SECTION_BY_FILE.get(b.get("datei"))
+            # Der Index führt den Dateinamen unter "filename". Bis zum
+            # 11.10.2026 stand hier "datei", und jede Zeile der Spalte
+            # "Steht bei" endete deshalb mit "in " und ohne Abschnitt.
+            filename = b.get("filename") or b.get("datei")
+            sektion = SECTION_BY_FILE.get(filename)
             number, title = SECTION_TITLES.get(sektion, (None, ""))
+            if filename == CONSISTENCY_FILE:
+                number, title = SECTION_APPENDIX["measures"]
             wo = f"{number} · {title}" if number else ""
         rows.append((
             str(nr), m["title"],
@@ -683,6 +698,43 @@ def measures_overview(run: Run, brand: str) -> str:
                 + "".join(_measure_block(m, brand, ref="Lücke in der Datenlage",
                                          workspace=run.ws)
                           for m in ohne_befund))
+    return out
+
+
+#: Befund-Datei der Abweichung zum Referenz-Store. Sie hat keine eigene
+#: Fachsektion und keinen Score; ihre Befunde stehen im Abschnitt Maßnahmen.
+CONSISTENCY_FILE = "consistency"
+
+
+def brand_list_blocks(run: Run, brand: str) -> str:
+    """Was ein Audit mit der Liste der Marke getan hat, im Abschnitt Maßnahmen.
+
+    Zwei Teile, beide nur, wenn es sie gibt (Spec `ptai-portal` 2026-10-08,
+    Abschnitte 8 und 10):
+
+    - **Abweichung zum Referenz-Store:** die Befunde aus
+      `findings/consistency.json` samt ihren Maßnahmen.
+    - **Aus der Maßnahmenliste der Marke:** wie viele Maßnahmen für diesen
+      Store übernommen wurden, und die Liste "Nicht übertragen" mit Grund
+      aus `carry-over.json`.
+    """
+    out = ""
+    if run.findings.get(CONSISTENCY_FILE):
+        out += ('<p class="eyebrow eyebrow--line">Abweichung zum Referenz-Store</p>'
+                + finding_blocks(run, CONSISTENCY_FILE))
+    sheet = carry_over_mod.read(run.run)
+    result = (sheet or {}).get("result")
+    if result:
+        applied, fulfilled = result.get("applied") or [], result.get("fulfilled") or []
+        out += ('<p class="eyebrow eyebrow--line">Aus der Maßnahmenliste der Marke</p>'
+                f"<p>{num_de(len(applied) + len(fulfilled))} Maßnahmen aus anderen Stores "
+                f"gelten auch hier: {num_de(len(applied))} sind offen, "
+                f"{num_de(len(fulfilled))} sind in diesem Store schon erfüllt.</p>")
+        rows = [(r.get("id", ""), r.get("title") or "", r.get("reason") or "")
+                for r in result.get("not_transferred") or []]
+        if rows:
+            out += ('<p class="eyebrow eyebrow--line">Nicht übertragen</p>'
+                    + table(["Maßnahme", "Titel", "Grund"], rows))
     return out
 
 
@@ -948,7 +1000,7 @@ def severity_rank(finding: dict, backlog: dict) -> str:
     if raw in SEVERITY_ORDER:
         return raw
     hebel = {m.get("leverage") for m in (backlog.get("measures") or [])
-             if m.get("finding_ref") == finding.get("id")}
+             if measures_mod.finding_of(m) == finding.get("id")}
     if "high" in hebel:
         return "hoch"
     if "medium" in hebel:
@@ -1152,6 +1204,8 @@ def findings_overview(run: Run) -> str:
     for filename, doc in sorted(run.findings.items()):
         sektion = SECTION_BY_FILE.get(filename)
         number, title = SECTION_TITLES.get(sektion, (99, sektion or filename))
+        if filename == CONSISTENCY_FILE:
+            number, title = SECTION_APPENDIX["measures"]
         findings = []
         for i, f in enumerate(doc.get("findings") or [], 1):
             b = dict(f, id=finding_id(filename, f.get("id"), i))
@@ -2497,7 +2551,7 @@ def section_blocks(run: Run, brand: str) -> dict:
                     'errechnet, steht in Abschnitt 14.</p></div>') + block
             block += finding_blocks(run, filename)
         out[key] = block
-    out["measures"] = measures_overview(run, brand)
+    out["measures"] = measures_overview(run, brand) + brand_list_blocks(run, brand)
     return out
 
 

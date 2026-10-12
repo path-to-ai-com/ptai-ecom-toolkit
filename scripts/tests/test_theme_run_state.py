@@ -2,12 +2,14 @@
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
-from theme import run_state
+from theme import open_items, run_state
 
 
 class RunStateTest(unittest.TestCase):
@@ -32,7 +34,14 @@ class RunStateTest(unittest.TestCase):
         with self.assertRaises(run_state.StateError):
             state.decide_gate("G1-decisions", "  ")
 
+    @mock.patch.dict(os.environ, {"PTAI_OPERATOR": "1"})
     def test_die_entscheidung_haelt_person_und_zeitpunkt_fest(self):
+        # G5 liest die Liste offener Punkte und die Prüfliste; beide ohne offenen Punkt halten nicht an.
+        (self.ws / "reporting").mkdir()
+        (self.ws / "checklist.md").write_text("- [x] **P01** erledigt\n", encoding="utf-8")
+        config = {"theme_migration": {"acceptance_checklist": "checklist.md"}}
+        (self.ws / "reporting" / "config.json").write_text(json.dumps(config), encoding="utf-8")
+        open_items.init(self.ws)
         state = run_state.new(self.ws, "2026-01-01-migration")
         now = datetime(2026, 1, 2, 9, 0, tzinfo=timezone.utc)
         state.decide_gate("G5-go-live", "Beispielperson", "Launch freigegeben", now=now)

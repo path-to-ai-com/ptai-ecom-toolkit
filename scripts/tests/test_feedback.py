@@ -547,3 +547,48 @@ class TestRueckweg(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBrandFile(unittest.TestCase):
+    """Spec 2026-10-08, Abschnitt 5.3: Anforderungen je Marke, jede mit shops."""
+
+    def setUp(self):
+        from tests import brand_support as bs
+        self.bs = bs
+        self.brand_ws = bs.make_brand(self)
+        self.uk = self.brand_ws / "uk"
+
+    def test_add_writes_the_brand_file_with_the_own_store(self):
+        entry = feedback.add(str(self.uk), title="CTA größer", source="Termin")
+        self.assertEqual(entry["shops"], ["uk"])
+        self.assertFalse((self.uk / "reporting" / "feedback.json").exists())
+        on_disk = self.bs.read(self.brand_ws / "reporting" / "feedback.json")
+        # Die Form, die das Cockpit liest: v1-Liste plus version und shops.
+        self.assertEqual(set(on_disk), {"version", "entries"})
+        self.assertEqual(on_disk["version"], 2)
+        self.assertEqual(on_disk["entries"][0]["shops"], ["uk"])
+
+    def test_a_theme_request_names_all_its_stores(self):
+        entry = feedback.add(str(self.uk), title="Theme", source="Termin",
+                             shops=["eu", "uk"])
+        self.assertEqual(entry["shops"], ["eu", "uk"])
+
+    def test_link_checks_against_the_brand_list_and_keeps_the_format(self):
+        feedback.add(str(self.uk), title="CTA", source="Termin")
+        feedback.link(str(self.uk), "FB-001", "M-004", "confirmed", why="dasselbe")
+        on_disk = self.bs.read(self.brand_ws / "reporting" / "feedback.json")
+        self.assertEqual(on_disk["version"], 2)
+        with self.assertRaises(ValueError):
+            feedback.link(str(self.uk), "FB-001", "M-099", "confirmed", why="x")
+
+    def test_validate_rejects_broken_shops(self):
+        errors = feedback.validate([{"id": "FB-001", "title": "x", "source": "y",
+                                     "shops": []}])
+        self.assertTrue(any("shops" in e for e in errors))
+
+    def test_a_store_of_its_own_writes_no_shops(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            entry = feedback.add(tmp, title="x", source="y")
+            self.assertNotIn("shops", entry)
+            on_disk = json.loads((Path(tmp) / "reporting" / "feedback.json").read_text())
+            self.assertEqual(set(on_disk), {"entries"})

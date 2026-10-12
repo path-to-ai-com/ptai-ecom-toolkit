@@ -18,6 +18,22 @@ Ein offener Befund, ein offener Punkt der Prüfliste und eine Lücke der SEO-Aus
 Frage, sondern `missing`; ein Bericht, der sich nicht finden lässt, ist `blocked`. Am 07.10.2026 ging
 ein Shop live, weil hier stattdessen gefragt wurde, ob alles erledigt sei.
 
+**Die Quelle für offene Punkte ist die eine Liste** `migration/open-items.json` (Skill
+`theme-migration`, Abschnitt "Die Liste offener Punkte"), sobald es sie gibt oder ein Migrationslauf
+besteht:
+
+- `acceptance-open-items`: jeder offene Punkt der Gates G4 und G5 ist `missing`; fehlt die Liste in
+  einem Migrationslauf, `blocked`.
+- `acceptance-sources`: Prüfberichte (`report_paths`, jüngster unter `migration/verify/`), die
+  Prüfliste aus Phase 2 und die jüngste Testrunde sind nur noch Quellen für die Liste. Was dort offen
+  steht und in der Liste fehlt, ist `missing`; eine konfigurierte Quelle, die sich nicht finden lässt,
+  `blocked`.
+- Deckt eine bestandene Prüfung dieses Laufs einen offenen Punkt ab (etwa hreflang), steht das im
+  Beleg; erledigt wird er erst in der Liste, mit `open_items close-covered`.
+
+Ohne Liste und ohne Migrationslauf (Launch ohne Theme-Wechsel) gilt die Auswertung je Bericht,
+Prüfliste und Testrunde wie unten beschrieben.
+
 Sie ersetzt `theme-migration` nicht, sondern führt deren Phase 9 als eigenständigen Prüflauf aus:
 beliebig oft, mit oder ohne Migrationslauf, auch für einen Launch ohne Theme-Wechsel.
 
@@ -99,11 +115,11 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
 1. **Stand lesen.** Bei vorhandenem Migrationslauf `run_state show`:
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.run_state show
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state show
    ```
 
-   Liefert IDs, letzten Abgleich, Änderungsstopp und Gates. Den Launch-Termin erfragen, wenn er weder dort
-   (`freeze_until`) noch in der Config steht.
+   Liefert IDs, letzten Abgleich und Gates. Den Launch-Termin übergibt der Betreiber mit
+   `--launch-date`; ohne ihn steht der Termin als offene Frage im Bericht.
 
 2. **Seitenliste festlegen.**
    - `migration/inventory/pages.json`, falls vorhanden.
@@ -113,7 +129,7 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
      und steht auf `blocked`. Ergänzen, Primärsprache zuerst:
 
      ```bash
-     PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.seo_parity pages --pages "$RUN/pages.json" --locales de,en
+     "${CLAUDE_PLUGIN_ROOT}/bin/theme" seo_parity pages --pages "$RUN/pages.json" --locales de,en
      ```
 
    - Format wie in `capture_network.py`:
@@ -135,7 +151,7 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
 4. **Prüflauf:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.launch_check \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" launch_check \
      --launch-date <YYYY-MM-DD> [--live-theme-id <id>] [--draft-theme-id <id>]
    ```
 
@@ -156,8 +172,12 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
 
 6. **Folgeschritte empfehlen, nicht selbst starten:**
    - `live-sync` auf `missing`: `sync-live-theme` (Abgleich II)
-   - offene Befunde: beheben und im Bericht als erledigt markieren oder mit Person und Datum
-     verschieben, dann `verify-theme` für die betroffenen Prüfer
+   - offene Punkte der Liste: beheben und mit Beleg erledigen (`open_items done`) oder mit Person und
+     Datum verschieben (`open_items defer`), dann `verify-theme` für die betroffenen Prüfer; ohne
+     Liste im Bericht als erledigt markieren
+   - Punkte, die eine bestandene Prüfung dieses Laufs abdeckt: `open_items close-covered
+     --launch-check $RUN/launch-check.json`, dann neu prüfen
+   - `acceptance-sources` auf `missing`: jede genannte Quelle mit `open_items import` übernehmen
    - Lücken in `seo-structured-data`, `seo-hreflang`, `seo-open-graph`: Horizon-Grundpaket prüfen
      (`build-theme`, `seo-parity.md`), hochladen, neu mitschneiden
    - alte Vergleichswerte: `pull-gsc`, `pull-ga4`, `pull-cwv` und `crawl-site` direkt vor dem Launch
@@ -193,7 +213,7 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
 2. **Prüflauf:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.launch_check --after \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" launch_check --after \
      --live-theme-id <old-live-theme-id> --draft-theme-id <new-live-theme-id> \
      [--network-old reporting/runs/<pre-launch-run>/capture/old-declined/network.json]
    ```
@@ -228,10 +248,11 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
 |---|---|---|
 | Zeitpunkt | Wochentag, Feiertag, Saisonspitze | aus dem Termin: Montag bis Donnerstag, kein bundesweiter Feiertag am Tag und am Folgetag, nicht ab vier Wochen vor Black Friday bis Jahresende |
 | Zeitpunkt | Kampagnen, Preis- und A/B-Tests, Ansprechpartner | Fragen; ein Testwerkzeug im Mitschnitt steht als Hinweis daneben |
-| Abnahme | G4, Befunde, Testrunde | Gate im Migrationslauf; jüngstes `migration/verify/*/findings.json` und jeder Bericht unter `theme_migration.report_paths` (offen: `blocker`, `before_launch`, Abschnitte "Vor dem Launch" und "Blocker" ohne Erledigt- oder Verschoben-Vermerk; kein Bericht: `blocked`); `reporting/runs/*-test/test.json` (offen: `open`, `in_progress`, `decision`) |
-| Abnahme | Prüfliste aus Phase 2 | `theme_migration.acceptance_checklist`: jede Zeile `- [ ] **Pnn**` abgehakt, verschoben mit Person und Datum oder durch eine bestandene SEO-Prüfung abgedeckt (`seo-parity.md`) |
+| Abnahme | Liste offener Punkte (mit Liste oder Migrationslauf) | `migration/open-items.json`: kein Punkt mit Gate `G4-acceptance` oder `G5-go-live` offen; jede Quelle (Prüfliste, `report_paths`, jüngster Bericht unter `migration/verify/`, jüngste Testrunde) ohne Offenes, das in der Liste fehlt |
+| Abnahme | G4, Befunde, Testrunde (ohne Liste und ohne Migrationslauf) | Gate im Migrationslauf; jüngstes `migration/verify/*/findings.json` und jeder Bericht unter `theme_migration.report_paths` (offen: `blocker`, `before_launch`, Abschnitte "Vor dem Launch" und "Blocker" ohne Erledigt- oder Verschoben-Vermerk; kein Bericht: `blocked`); `reporting/runs/*-test/test.json` (offen: `open`, `in_progress`, `decision`) |
+| Abnahme | Prüfliste aus Phase 2 (ohne Liste und ohne Migrationslauf) | `theme_migration.acceptance_checklist`: jede Zeile `- [ ] **Pnn**` abgehakt, verschoben mit Person und Datum oder durch eine bestandene SEO-Prüfung abgedeckt (`seo-parity.md`) |
 | Abgleich | Live-Theme seit dem letzten Abgleich | `updatedAt` frisch gegen jüngstes `delta.json` oder `manifest.json` unter `migration/` |
-| Abgleich | Änderungsstopp | `freeze_from` und `freeze_until` im Lauf oder `theme_migration.freeze`, deckt den Termin |
+| Abgleich | Abgleich vor dem Launch | `last_sync` im Lauf, höchstens sieben Tage alt; kein Änderungsstopp seit 0.3.11 |
 | Entwurf | Entwurf, Rückfall-Theme | Rolle `UNPUBLISHED`, nicht in Verarbeitung; Live-Theme `MAIN`, ID notiert |
 | Apps | App-Embeds | aktive Embeds aus `config/settings_data.json` beider Themes; gestrichen laut `apps.json` oder `decisions.json` ist `ok` mit Beleg |
 | Übersetzungen | Theme-Übersetzungen | je veröffentlichter Sprache: übersetzt, veraltet, Anteil neu gegen alt |
@@ -276,6 +297,11 @@ Es entstehen keine Bilder.
   (Vorschau-Cookie, Weiterleitung). Neu mitschneiden, den Befund nie übergehen.
 - **Hunderte fehlende Hosts:** Mitschnitte mit und ohne Einwilligung vermischt oder verschiedene
   Seitenlisten. Beide Themes mit derselben `pages.json` und demselben Consent-Zustand mitschneiden.
+- **`acceptance-open-items` bleibt `missing`, obwohl im Bericht alles abgehakt ist:** die Liste ist
+  die Quelle, nicht der Bericht. Jeden Punkt dort mit Beleg erledigen oder verschieben.
+- **`acceptance-open-items` `blocked` in einem Migrationslauf:** die Liste fehlt. `open_items init`,
+  dann jede Quelle importieren; eine von Hand geführte Liste im Format von `findings.json` mit
+  `open_items import --kind findings` übernehmen.
 - **Befunde `blocked`, obwohl es einen Prüfbericht gibt:** er liegt außerhalb des Workspace.
   `theme_migration.report_paths` auf seinen Ordner setzen; ist der Ordner nicht eingebunden (Drive
   offline), steht er unter "nicht gefunden".

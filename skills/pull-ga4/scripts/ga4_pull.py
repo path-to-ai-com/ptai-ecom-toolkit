@@ -357,6 +357,21 @@ def build_by_month(rows: list) -> list:
     return series
 
 
+def build_by_week(rows: list) -> list:
+    """Wochenreihe aus (isoYearIsoWeek, Kanal)-Zeilen, nur im Puls.
+
+    Der Wochenpuls braucht neun Wochen, um die übliche Schwankung einer
+    Kennzahl zu bestimmen (`audit/pulse.py`). Aufbau wie `by_month`, der
+    Schlüssel ist die ISO-Woche (`2026-W41`), damit sie zu den Wochen von
+    Shopify und Search Console passt.
+    """
+    series = build_by_month(rows)
+    for row in series:
+        code = row.pop("month").replace("-", "")
+        row["week"] = f"{code[0:4]}-W{code[4:6]}"
+    return series
+
+
 def build_site_search(rows: list) -> list:
     """Interne Suchbegriffe nach demselben events/sessions-Muster wie der
     Funnel: events ist, wie oft gesucht wurde, sessions, in wie vielen
@@ -1492,6 +1507,18 @@ def main():
             **({"dimensionFilter": base_filter} if base_filter else {}),
         }
 
+    if args.pulse:
+        # Zehn Wochen statt zwei: die übliche Schwankung braucht acht
+        # Veränderungen von Woche zu Woche (Skill pulse, Schritt 2).
+        calls["by_week"] = {
+            "dateRanges": [main_range],
+            "dimensions": [{"name": "isoYearIsoWeek"},
+                           {"name": "sessionDefaultChannelGroup"}],
+            "metrics": [{"name": name} for name in CHANNEL_METRICS],
+            "limit": 100000,
+            **({"dimensionFilter": base_filter} if base_filter else {}),
+        }
+
     results = {}
     comparison_error = None
     purchases_note = None
@@ -1499,7 +1526,7 @@ def main():
     channel_totals = {}
     for name, body in calls.items():
         try:
-            if name in ("channels", "by_month"):
+            if name in ("channels", "by_month", "by_week"):
                 # Beide fragen die Käufe ab und brauchen denselben Fallback.
                 # Die Notiz kommt aus dem Kanal-Call; scheitert die Metrik,
                 # scheitert sie in beiden aus demselben Grund.
@@ -1564,6 +1591,8 @@ def main():
         snapshot["history_from"] = history_from
     if "by_month" in results:
         snapshot["by_month"] = build_by_month(results["by_month"].get("date_range_0", []))
+    if "by_week" in results:
+        snapshot["by_week"] = build_by_week(results["by_week"].get("date_range_0", []))
     if compare:
         if comparison_error:
             snapshot["comparison"] = {"error": comparison_error}

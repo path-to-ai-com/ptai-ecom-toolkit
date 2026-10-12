@@ -130,7 +130,7 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
    `report.json` zeigt vor G2 verworfene Einstellungen, Standardwerte, `build`-Fälle und Limit-Verstöße:
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.generate \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" generate \
      --mapping migration/mapping/mapping.json \
      --overrides migration/mapping/overrides.json \
      --source migration/snapshots/<date>-<theme-id> \

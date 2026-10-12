@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from tests import theme_fake_shop as fake  # noqa: E402
 from theme import launch_check as lc  # noqa: E402
+from theme import open_items as oi  # noqa: E402
+from theme import run_state  # noqa: E402
 
 EMBED = "shopify://apps/beispiel-bewertungen/blocks/sterne/0000aaaa-0000-0000-0000-000000000000"
 
@@ -571,6 +573,88 @@ class TestOffeneBefunde(Base):
     def test_pruefliste_ohne_migrationslauf_trifft_nicht_zu(self):
         _, report = self.run_check()
         self.assertEqual(self.by_id(report)["acceptance-checklist"]["status"], lc.NA)
+
+
+class TestEineListe(Base):
+    """Mit `migration/open-items.json` oder einem Migrationslauf ist die Liste die einzige Quelle."""
+
+    def set_migration(self, **values):
+        config = json.loads((self.ws / "reporting" / "config.json").read_text())
+        config["theme_migration"].update(values)
+        (self.ws / "reporting" / "config.json").write_text(json.dumps(config))
+
+    def checklist(self) -> Path:
+        path = self.ws / "migration" / "inventory" / "checklist.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text((SEO_FIXTURES / "checklist.md").read_text(encoding="utf-8"), encoding="utf-8")
+        self.set_migration(acceptance_checklist="migration/inventory/checklist.md")
+        return path
+
+    def test_offener_punkt_der_liste_ist_no_go_und_alte_auswertung_entfaellt(self):
+        items, _ = oi.init(self.ws)
+        items.add(title="hreflang fehlt", ident="S-03")
+        items.add(title="Menü", ident="B-01", severity="blocker", status="done", evidence="im Entwurf geprüft")
+        items.add(title="Sitemap einreichen", severity="after_launch")
+        items.save()
+        code, report = self.run_check()
+        checks = self.by_id(report)
+        check = checks["acceptance-open-items"]
+        self.assertEqual((check["status"], code), (lc.MISSING, 1))
+        self.assertIn("S-03 hreflang fehlt (G5-go-live)", check["evidence"])
+        self.assertNotIn("Sitemap", check["evidence"], "nach dem Launch hält den Launch nicht an")
+        for legacy in ("acceptance-findings", "acceptance-checklist", "acceptance-test-round"):
+            self.assertNotIn(legacy, checks)
+        self.assertEqual(checks["acceptance-sources"]["status"], lc.OK)
+
+    def test_migrationslauf_ohne_liste_haelt_an_statt_zu_fragen(self):
+        run_state.new(self.ws, "2026-10-01-migration").save()
+        _, report = self.run_check()
+        checks = self.by_id(report)
+        self.assertEqual(checks["acceptance-open-items"]["status"], lc.BLOCKED)
+        self.assertEqual(checks["acceptance-open-items"]["question"], "")
+        self.assertEqual(checks["acceptance-sources"]["status"], lc.BLOCKED)
+        self.assertIn("acceptance_checklist nicht gesetzt", checks["acceptance-sources"]["evidence"])
+
+    def test_was_in_einem_bericht_steht_und_in_der_liste_fehlt_ist_missing(self):
+        oi.init(self.ws)
+        drive = self.ws / "drive" / "projects" / "beispiel"
+        drive.mkdir(parents=True)
+        (drive / "verify-findings.md").write_text((SEO_FIXTURES / "verify-findings.md").read_text(encoding="utf-8"))
+        config = json.loads((self.ws / "reporting" / "config.json").read_text())
+        config["drive_path"] = str(self.ws / "drive")
+        config["theme_migration"]["report_paths"] = ["{drive_path}/projects/beispiel"]
+        (self.ws / "reporting" / "config.json").write_text(json.dumps(config))
+        _, report = self.run_check()
+        check = self.by_id(report)["acceptance-sources"]
+        self.assertEqual(check["status"], lc.MISSING)
+        self.assertIn("verify-findings.md: S-03", check["evidence"])
+        items = oi.load(self.ws)
+        items.merge(oi.from_report(drive / "verify-findings.md"))
+        items.save()
+        _, report = self.run_check()
+        self.assertEqual(self.by_id(report)["acceptance-sources"]["status"], lc.OK)
+        self.assertEqual(self.by_id(report)["acceptance-open-items"]["status"], lc.MISSING)
+
+    def test_abgedeckt_steht_im_beleg_erledigt_nur_ueber_die_liste(self):
+        items, _ = oi.init(self.ws)
+        items.merge(oi.from_checklist(self.checklist()))
+        items.save()
+        pages = dict({k: (path, f"live-{name}.html") for k, (path, name) in SEO_PAGES.items()},
+                     **{"product-en": ("/en/products/beispielring", "live-product.html")})
+        seo_capture(self.ws, "old", "000000000000", pages)
+        seo_capture(self.ws, "new", "111111111111", pages)
+        _, report = self.run_check()
+        check = self.by_id(report)["acceptance-open-items"]
+        self.assertEqual(check["status"], lc.MISSING)
+        self.assertIn("P03 (seo-hreflang)", check["evidence"])
+        path = self.ws / "reporting" / "runs" / "2026-10-06-launch-check" / "launch-check.json"
+        items = oi.load(self.ws)
+        oi.close_covered(items, json.loads(path.read_text()), "2026-10-06-launch-check")
+        items.save()
+        _, report = self.run_check()
+        check = self.by_id(report)["acceptance-open-items"]
+        self.assertNotIn("P03", check["evidence"].split("; verschoben")[0])
+        self.assertIn("P02", check["evidence"], "kein Merkmal einer Prüfung, bleibt offen")
 
 
 if __name__ == "__main__":

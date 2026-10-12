@@ -15,6 +15,8 @@ sie automatisch und blockiert den Launch.
   und dem gerenderten HTML.
 - Die Prüfliste "Muss nach dem Umbau wieder da sein" aus Phase 2, eine Zeile `- [ ] **Pnn**` je
   Punkt, ihr Pfad in `theme_migration.acceptance_checklist`. Sie ist die Abnahme der SEO-Ausgabe.
+  Am Ende von Phase 2 steht jeder Punkt in der Liste offener Punkte (`migration/open-items.json`,
+  Gate G4); ab dann wird dort erledigt und verschoben, nicht mehr in der Prüfliste.
 - Die Schutzliste: alle URLs mit relevanten Klicks im maximalen Zeitraum der Search Console, dazu die
   Seiten mit externen Verweisen. Keine davon darf verschwinden oder ihren Canonical ändern.
 - Der Export der bestehenden Redirects.
@@ -38,8 +40,8 @@ sie automatisch und blockiert den Launch.
 | Sitemap | erreichbar, gleiche Unterkarten |
 
 Was ein zulässiger Unterschied ist, entscheidet ein Mensch. Nicht jede Abweichung ist eine
-Verschlechterung, aber jede wird benannt; eine gewollte steht abgehakt oder verschoben mit Person und
-Datum in der Prüfliste.
+Verschlechterung, aber jede wird benannt; eine gewollte steht erledigt mit Beleg oder verschoben mit
+Person und Datum in der Liste offener Punkte.
 
 ## Bekannte Lücken von Horizon
 
@@ -93,16 +95,21 @@ Live-Stand: eine `ProductGroup` mit Varianten ohne `description` ist immer `miss
   `/<sprache><pfad>`:
 
   ```bash
-  PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.seo_parity pages --pages <pages.json> --locales de,en
+  "${CLAUDE_PLUGIN_ROOT}/bin/theme" seo_parity pages --pages <pages.json> --locales de,en
   ```
 
-- **Prüfliste aus Phase 2** (`acceptance-checklist`). Jeder Punkt `- [ ] **Pnn**` ist abgehakt,
+- **Liste offener Punkte** (`acceptance-open-items`, `acceptance-sources`), sobald es sie gibt oder ein
+  Migrationslauf besteht. Dann ersetzt sie die beiden folgenden Prüfungen: jeder offene Punkt der
+  Gates G4 und G5 ist No-Go, und was in Prüfliste oder Bericht offen steht und in der Liste fehlt,
+  ebenso. Deckt eine bestandene Prüfung einen Punkt nach den Merkmalen unten ab, steht das im Beleg;
+  `open_items close-covered --launch-check <launch-check.json>` erledigt ihn mit Beleg in der Liste.
+- **Prüfliste aus Phase 2** (`acceptance-checklist`, ohne Liste und ohne Migrationslauf). Jeder Punkt `- [ ] **Pnn**` ist abgehakt,
   verschoben mit Person und Datum (`verschoben von <Name> am <JJJJ-MM-TT>`) oder abgedeckt: er nennt
   eine der Prüfungen (hreflang, `og:`, einen Schema-Typ wie `Product` oder `WebSite`, JSON-LD,
   Canonical oder noindex, Meta-Description, `robots.txt`) und jede genannte ist bestanden. Alles
   andere ist offen und damit No-Go. Die Zuordnung ist bewusst eng; ein Punkt ohne eines dieser
   Merkmale (genau ein `title`, `html lang`, Twitter-Karte) braucht einen Haken von Hand.
-- **Prüfberichte** (`acceptance-findings`). Offene Punkte aus jedem Bericht unter `migration/verify/`
+- **Prüfberichte** (`acceptance-findings`, ohne Liste und ohne Migrationslauf). Offene Punkte aus jedem Bericht unter `migration/verify/`
   und unter `theme_migration.report_paths` sind No-Go; ohne auffindbaren Bericht steht der Punkt auf
   `blocked`, nie als Frage. Was als erledigt oder verschoben zählt, steht in
   `scripts/theme/launch_findings.py`.
@@ -116,8 +123,8 @@ Jede Migration auf Horizon bekommt beim Bau (`build-theme`, Schritt 4) vier Snip
 `reference/theme-migration/horizon-base/snippets/`, mit dem Präfix des Projekts statt `beispiel`:
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base install --target-repo <target-repo> --prefix <file_prefix>
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base check --target-repo <target-repo> --prefix <file_prefix> [--without-hreflang]
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" horizon_base install --target-repo <target-repo> --prefix <file_prefix>
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" horizon_base check --target-repo <target-repo> --prefix <file_prefix> [--without-hreflang]
 ```
 
 `install` überschreibt eine abweichende Datei im Ziel-Repo nur mit `--force`. `check` meldet fehlende

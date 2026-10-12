@@ -67,7 +67,7 @@ Theme übersetzen: https://help.shopify.com/en/manual/online-store/themes/custom
 5. **Store-Übersetzungen nie anfassen.** Sie gehören beiden Themes.
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.translations register \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" translations register \
   --theme <draft-theme-id> --source migration/build/translations.json
 ```
 

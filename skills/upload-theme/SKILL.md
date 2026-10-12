@@ -71,8 +71,8 @@ print(json.dumps({
 2. **Paket und Limits:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.limits check --theme-dir <target-repo>
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.package \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" limits check --theme-dir <target-repo>
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" package \
      --theme-dir <target-repo> --out "migration/build/<date>-theme.zip"
    ```
 
@@ -83,7 +83,7 @@ print(json.dumps({
    - `admin-api`:
 
      ```bash
-     PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.upload create \
+     "${CLAUDE_PLUGIN_ROOT}/bin/theme" upload create \
        --zip "migration/build/<date>-theme.zip" --name "<draft-name>"
      ```
 
@@ -115,9 +115,9 @@ print(json.dumps({
    - `admin-api`, in Paketen zu höchstens 50 Dateien, bei `userErrors` anhalten:
 
      ```bash
-     PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.upload update \
+     "${CLAUDE_PLUGIN_ROOT}/bin/theme" upload update \
        --theme <draft-theme-id> --dir <target-repo> --files <code-files>
-     PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.upload update \
+     "${CLAUDE_PLUGIN_ROOT}/bin/theme" upload update \
        --theme <draft-theme-id> --dir <target-repo> --files <template-files>
      ```
 
@@ -133,7 +133,7 @@ print(json.dumps({
 ### Zurücklesen
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.upload verify \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" upload verify \
   --theme <draft-theme-id> --dir <target-repo>
 ```
 
@@ -148,7 +148,7 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.upload verify \
 ### Theme-Übersetzungen
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.translations register \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" translations register \
   --theme <draft-theme-id> --source migration/build/translations.json
 ```
 

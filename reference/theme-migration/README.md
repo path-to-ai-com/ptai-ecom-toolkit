@@ -35,6 +35,7 @@ Richtung, nicht der geprüfte Wortlaut: vor dem Einsatz gegen die aktuelle Doku 
 | `post-launch.md` | Prüfplan nach dem Launch und die Rückrichtung der Editor-Änderungen ins Repo | `theme-migration`, `snapshot-theme` |
 | `platform-deadlines.md` | Fristen der Plattform mit Stand und Quelle: Skript-Tags, Shopify Scripts, Additional Scripts, Kundenkonten | `inventory-apps`, `theme-migration` |
 | `access-write.md` | Schreibzugang ins Theme: Konto mit Themes-Recht, Admin-Weg mit Scopes, die offene Frage der Ausnahme | `theme-migration`, `upload-theme` |
+| `windows.md` | Betrieb unter Windows: Starter `bin/theme`, Shopify CLI als `shopify.cmd`, Zeilenenden der Sicherungen, Hinweis zum Firmen-Proxy | Betreiber unter Windows |
 
 Dazu kommen drei Ablagen, die eigene Bausteine des Toolkits pflegen:
 
@@ -55,10 +56,41 @@ Dazu kommen drei Ablagen, die eigene Bausteine des Toolkits pflegen:
 | 4 Neubau | Ziel-Repo, Generator, Theme Check, Limits | `build-theme` | **G3** erster Upload freigegeben |
 | 5 Upload | unveröffentlichtes Theme, Zurücklesen, Übersetzungen | `upload-theme` | |
 | 6 Prüfung | Prüfer je Disziplin, Befunde zurück in 3 bis 5 | `verify-theme` | |
-| 7 Abgleich I | Live-Änderungen seit der Sicherung | `sync-live-theme` | Entscheidung je Änderung |
-| 8 Abnahme | Testrunde mit dem Team | `verify-theme`, `test-round` | **G4** Abnahme |
-| 9 Launch | Änderungsstopp, Abgleich II, Vergleichswerte, Go/No-Go, Veröffentlichen durch einen Menschen | `sync-live-theme`, `launch-check`, `theme-migration` | **G5** Go/No-Go |
-| 10 Nachsorge | Prüfplan, Rückrichtung ins Repo | `theme-migration` | |
+| 7 Abgleich | Live-Änderungen seit der Sicherung, beliebig oft | `sync-live-theme` | Entscheidung je Änderung |
+| 8 Testrunde | erst nach "bereit für die Testrunde"; Team testet im Cockpit | `verify-theme`, `test-round` | **G4** Abnahme (Betreiber) |
+| 9 Launch | Abgleich vor dem Launch, Vergleichswerte, Go/No-Go, Veröffentlichen durch einen Menschen | `sync-live-theme`, `launch-check`, `theme-launch` | **G5** Go/No-Go (Betreiber) |
+| 10 Nachsorge | Prüfplan, Rückrichtung ins Repo | `theme-launch` | |
+
+Für die Marke und das Cockpit sind das neun Schritte (`theme-migration`, Abschnitt "Stand der
+Migration"); `run_state` schreibt sie nach jedem Befehl als `migration.json`. Vorgaben der Marke:
+`policies-format.md`. Windows: `windows.md`.
+
+## Die Liste offener Punkte
+
+Jede Migration führt genau eine Liste dessen, was vor einem Schritt erledigt sein muss:
+`migration/open-items.json` im Workspace, gepflegt über `theme.open_items`, mit der Ansicht
+`migration/open-items.md`. Vier Regeln, entstanden aus einem Launch, dessen SEO-Lücken sauber
+aufgeschrieben waren und trotzdem live gingen, weil sie in neun Listen standen und keine davon ein
+Schritt las:
+
+1. **Eine Liste je Projekt**, drei Status: `open`, `done` mit Beleg, `deferred` mit Person und Datum.
+   Prüfberichte, Prüfliste, Testrunde und Portal sind Ansichten darauf oder schreiben hinein
+   (`open_items import`), sie führen keinen eigenen Stand.
+2. **Keine Liste ohne Verbraucher.** Jeder Punkt nennt das Gate, das ihn liest: `G4-acceptance`,
+   `G5-go-live` oder `after_launch` (Abschluss der Nachsorge). Wer "vor dem Launch" schreibt, schreibt
+   in diese Liste, nicht in eine neue.
+3. **Ein Gate hält an, es fragt nicht.** `run_state` verweigert G4, G5 und den Abschluss der Phasen 2,
+   6 und 10, solange die Liste es verlangt; `launch-check` meldet `missing` oder `blocked`.
+4. **Jede Migration läuft als Migrationslauf** (`theme-migration`, `state.json`), ab der ersten
+   Bestandsaufnahme. `run_state init` legt die Liste an.
+
+| Gate | liest | hält an bei |
+|---|---|---|
+| Phase 2 fertig | Prüfliste | Prüfliste fehlt oder nicht übernommen |
+| Phase 6 fertig | Punkte `blocker`, jüngster Prüfbericht | offenem `blocker` oder nicht übernommenem Befund |
+| G4 | Punkte für G4, jede Quelle | offenem Punkt oder Offenem außerhalb der Liste |
+| G5 | Punkte für G4 und G5, jede Quelle | wie G4 |
+| Phase 10 fertig | alle Punkte | jedem offenen Punkt |
 
 **Veröffentlichen ist immer ein Mensch.** Keine Skill ruft `themePublish` oder `shopify theme
 publish` auf, und keine schreibt in ein Theme mit einer anderen Rolle als `UNPUBLISHED`.

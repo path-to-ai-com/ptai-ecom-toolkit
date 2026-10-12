@@ -103,11 +103,12 @@ Diese Skills brauchen keine Zugänge.
 
 ### Theme-Migration
 
-Überführt ein bestehendes Shopify-Theme (Vintage oder Online Store 2.0) in ein aktuelles 2.0-Theme, zum Beispiel Horizon. `theme-migration` führt durch alle Phasen; die übrigen Skills sind auch einzeln nutzbar. Geschrieben wird nur in ein unveröffentlichtes Theme. Veröffentlicht wird von Hand, nie durch eine Skill.
+Überführt ein bestehendes Shopify-Theme (Vintage oder Online Store 2.0) in ein aktuelles 2.0-Theme, zum Beispiel Horizon. `theme-migration` führt das Team in neun Schritten bis "bereit für die Testrunde", `theme-launch` übernimmt für den Betreiber Abnahme, Launch und Nachsorge; die übrigen Skills sind auch einzeln nutzbar. Geschrieben wird nur in ein unveröffentlichtes Theme. Veröffentlicht wird von Hand, nie durch eine Skill.
 
 | Skill | Funktion |
 |---|---|
-| `ptai-ecom:theme-migration` | Führt durch die Phasen Setup, Sicherung, Bestandsaufnahme, Zuordnung, Neubau, Upload, Prüfung, Abgleich, Abnahme, Launch und Nachsorge. Hält den Stand und die Freigaben fest. |
+| `ptai-ecom:theme-migration` | Führt das Team durch die Schritte Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs und Testrunde. Hält den Stand, die Fragen an das Team und die Vorgaben der Marke fest und schreibt `migration.json` für das Cockpit. Fragt nie nach Termin oder Änderungsstopp. |
+| `ptai-ecom:theme-launch` | Für den Betreiber: Vorgaben der Marke anwenden, Testrunde ins Cockpit, Abnahme, Abgleich vor dem Launch, Go/No-Go, Launch und Kontrolle nach dem Launch. |
 | `ptai-ecom:snapshot-theme` | Sichert ein Theme vollständig mit einem Manifest aller Dateien. |
 | `ptai-ecom:inventory-theme` | Erfasst Theme-Typ, genutzte Templates, Anpassungen gegenüber dem Original, Funktionen je Seitentyp, Metafelder, Übersetzungen und SEO-Ausgabe. |
 | `ptai-ecom:inventory-apps` | Erfasst alle Apps und Fremddienste mit Einbindungsweg, Tracking je Messziel und Consent-Verhalten. Kennzeichnet, was einen Theme-Wechsel nicht übersteht. |
@@ -121,13 +122,13 @@ Diese Skills brauchen keine Zugänge.
 
 ### So läuft ein Launch
 
-Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änderung. Die Einzelheiten stehen in `reference/theme-migration/launch-checklist.md`, der Rückfall in `rollback.md`, die Zeit danach in `post-launch.md`. `theme-migration` führt den Ablauf als Phase 9, `launch-check` prüft ihn als Lauf, der beliebig oft wiederholt werden kann.
+Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änderung. Die Einzelheiten stehen in `reference/theme-migration/launch-checklist.md`, der Rückfall in `rollback.md`, die Zeit danach in `post-launch.md`. `theme-launch` führt den Ablauf als Phase 9, `launch-check` prüft ihn als Lauf, der beliebig oft wiederholt werden kann.
 
 **Tage vorher**
 
 1. **Abnahme.** Das Team hat den Entwurf in der Testrunde (`test-round`) abgenommen, kein Befund der Schwere `blocker` oder `before_launch` ist offen. In einer Migration ist das Gate G4, mit Namen festgehalten.
 2. **Abgleich mit dem Live-Theme.** `sync-live-theme` zeigt alles, was das Team seit der Sicherung im alten Theme geändert hat. Jede Änderung wird übernommen oder bewusst gestrichen.
-3. **Änderungsstopp.** Ab dem Abgleich ändert niemand mehr am alten Theme. Shopdaten wie Produkte, Kollektionen, Menüs und Seiten dürfen weiter gepflegt werden, sie gelten für beide Themes.
+3. **Kein Änderungsstopp.** Das Team arbeitet am alten Theme weiter. Direkt vor dem Launch läuft der Abgleich noch einmal; danach hält jede Änderung am Theme den Launch an. Shopdaten wie Produkte, Kollektionen, Menüs und Seiten gelten für beide Themes.
 4. **Rückfall planen.** Schriftlich steht, wann zurückgeschaltet wird und wer das entscheidet, dazu die Liste dessen, was ein Rückfall nicht zurückdreht.
 
 **Am Launch-Tag, vor dem Klick**

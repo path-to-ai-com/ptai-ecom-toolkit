@@ -34,6 +34,9 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 - Die Bestandsaufnahme unter `migration/inventory/` und die Entscheidungen in
   `migration/mapping/decisions.json`.
 - `uv` für Playwright.
+- Die Liste offener Punkte `migration/open-items.json` (legt `run_state init` an; ohne Migrationslauf
+  `open_items init`). Diese Skill führt keinen eigenen Stand: ihr Prüfbericht ist Rohausgabe, offen,
+  erledigt und verschoben steht in der Liste.
 
 ## Ablauf
 
@@ -44,7 +47,8 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
      Vorschau-Cookie
    - Beispielseiten (`pages.json`)
    - Entscheidungen des Teams; bereits entschiedene Abweichungen sind kein Befund
-   - bekannte offene Punkte
+   - bekannte offene Punkte aus `migration/open-items.json` mit ihrer `id`; ein Befund zu einem dieser
+     Punkte trägt dessen `id`, damit er beim Übernehmen kein zweiter Punkt wird
    - Regeln für jeden Prüfer aus `verify-checklist.md`
 
 2. **Prüfer als Subagents starten.** Je Prüfer ein `Agent`-Aufruf mit dem Typ `general-purpose`, der
@@ -75,7 +79,10 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
      `scripts/browser/capture_network.py` für Apps und Tracking, Lighthouse dreimal mit Median für
      Performance, axe und Lighthouse für Barrierefreiheit, `shopify theme check` und `theme.limits` für
      Struktur
-   - das Ausgabeziel `migration/verify/<date>/<checker>/findings.json` plus `findings.md`
+   - das Ausgabeziel `migration/verify/<date>/<checker>/findings.json` plus `findings.md`, mit festem
+     Ordnernamen je Prüfer: `structure`, `content`, `seo`, `design`, `function`, `apps_tracking`,
+     `languages`, `performance`, `accessibility`. Schritt 5 der Migration zählt genau diese Ordner; ein
+     anderer Name zählt nicht als gelaufen
    - den Satz: "Lade für jede Abfrage an Shopify zuerst die passende Shopify-Skill des Shopify AI
      Toolkit und schreib nichts aus dem Gedächtnis. Nur lesen, nichts abschicken. Was du nicht prüfen
      konntest, steht als nicht geprüft mit Grund, nie als bestanden."
@@ -89,7 +96,19 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
    - bei Gestaltung der Pfad des Bildpaars im Kundenordner
 
    Doppelte Befunde verschiedener Prüfer zusammenlegen. Ein gescheiterter Prüfer steht mit Grund als
-   nicht geprüft; die übrigen Ergebnisse gelten.
+   nicht geprüft; die übrigen Ergebnisse gelten. Optional je Befund `id` (Kennung eines bekannten
+   Punkts) und `gate`; ohne `gate` folgt es der Schwere (`blocker` G4, `before_launch` G5,
+   `after_launch` Nachsorge). `info` kommt nicht in die Liste.
+
+   Danach in die Liste offener Punkte übernehmen:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" open_items import --kind findings --path migration/verify/<date>/findings.json
+   ```
+
+   Die Ausgabe nennt neue Punkte (`created`) und Abweichungen (`drift`): ein Befund, den die Liste
+   schon als erledigt führt und der wieder auftritt, wird mit `open_items reopen --id <id> --reason
+   "<text>"` wieder offen, nie still übergangen.
 
 4. **Nachprüfen** der Befunde `blocker` und `before_launch`: nacheinander, ein Prüfer, mit Abstand
    zwischen den Aufrufen. Nicht nachstellbare Befunde werden `info` mit Vermerk.
@@ -103,8 +122,12 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
    - danach `upload-theme` und die betroffenen Prüfer erneut
    - **nie nur in der erzeugten Datei**, sonst macht der nächste Lauf die Korrektur rückgängig
    - Befunde mit Ursache `data` als Datenpflege an das Team, nicht ins Theme
+   - ist die Nachprüfung bestanden, den Punkt in der Liste mit Beleg erledigen: `open_items done --id
+     <id> --evidence "<was geprüft, wo, Datum, Link>"`. Ein Befund, der im nächsten Bericht nur fehlt,
+     ist nicht erledigt.
 
-Die Schleife endet, wenn kein Befund `blocker` mehr offen ist. Danach Abgleich I (`sync-live-theme`),
+Die Schleife endet, wenn in der Liste kein Punkt `blocker` mehr offen ist (`open_items list --status
+open --severity blocker`). Danach Abgleich I (`sync-live-theme`),
 dann die Testrunde.
 
 ## Testrunde (`--test-round`)
@@ -125,7 +148,11 @@ entspricht.
    Versandregel, mit Rabattcode und Gutschein, eingeloggt und als Gast, mobil zuerst, mit dem Hinweis zum
    Stornieren der Testbestellungen.
 5. **Für das Handy "Hide bar" vorgeben**, sonst verdeckt die Vorschauleiste Buttons in App-Fenstern.
-6. Veröffentlichen erst nach ausdrücklichem Go des Betreibers, wie in `test-round` beschrieben.
+6. **Testpunkte in die Liste offener Punkte**, wie in `test-round` beschrieben: `open_items import
+   --kind test-round --path reporting/runs/<date>-test/test.json`. Jeder Punkt mit `status` liest Gate
+   G4. Ein Testpunkt zu einem Befund, der schon in der Liste steht, wird dort ein eigener Punkt; er
+   wird zusammen mit dem Befund erledigt, mit Verweis auf dessen `id` im Beleg.
+7. Veröffentlichen erst nach ausdrücklichem Go des Betreibers, wie in `test-round` beschrieben.
 
 **Rückmeldungen zuerst nachstellen, dann beheben:**
 
@@ -138,8 +165,9 @@ entspricht.
 ## Ergebnis
 
 - `migration/verify/<date>/findings.json` und `findings.md`, je Prüfer ein Unterordner, Bildpaare im
-  Kundenordner.
-- Mit `--test-round`: `reporting/runs/<date>-test/test.json`.
+  Kundenordner. Rohausgabe dieses Laufs, kein Stand.
+- Jeder Befund ab `after_launch` in `migration/open-items.json`.
+- Mit `--test-round`: `reporting/runs/<date>-test/test.json`, jeder Testpunkt mit `status` in der Liste.
 - Eine Meldung mit Zahl der Befunde je Schwere, Abdeckung je Prüfer und nächstem Schritt.
 
 Den Migrationsstand schreibt `theme-migration`, weder diese Skill noch ein Prüfer.

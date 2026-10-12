@@ -464,10 +464,41 @@ class TestUpload(unittest.TestCase):
         self.assertFalse((self.target / MANIFEST_KEY).exists())
 
     def test_a_manifest_already_in_the_target_is_used_as_it_is(self):
+        # Vorbereitet wird auf dem Manifest im Ziel, nicht auf dem aus dem
+        # Bucket. Seit dem 09.10.2026 (D12) holt publish das Manifest vor dem
+        # Hochladen trotzdem noch einmal: passt es nicht zu dem, auf dem das
+        # Ziel aufbaut, bricht es ab, statt die Läufe im Bucket zu ersetzen.
         publish.prepare(self.ws, self.run_id, self.target)
         bucket = FakeBucket({MANIFEST_KEY: self.remote})
-        self._publish(bucket)
-        self.assertNotIn(("GET", MANIFEST_KEY), bucket.calls)
+        with self.assertRaises(SystemExit) as raised:
+            self._publish(bucket)
+        self.assertIn("geändert", str(raised.exception))
+        self.assertEqual(bucket.calls, [("GET", MANIFEST_KEY)])
+        self.assertEqual(bucket.uploads(), [])
+
+    def test_the_uploaded_manifest_counts_up(self):
+        bucket = FakeBucket({MANIFEST_KEY: self.remote})
+        self._publish(bucket, extra=("--visible",))
+        self.assertEqual(bucket.manifest()["revision"], 1)
+
+    def test_a_manifest_changed_since_reading_stops_the_upload(self):
+        # Zwei publish zweier Stores: zwischen Lesen und Hochladen schreibt
+        # das andere. Ohne Prüfung verschwände dessen Lauf aus dem Verzeichnis.
+        bucket = FakeBucket({MANIFEST_KEY: self.remote})
+        other = json.loads(self.remote)
+        other["revision"] = 7
+        real_prepare = publish.prepare
+
+        def prepare_while_another_publish_writes(*args, **kwargs):
+            result = real_prepare(*args, **kwargs)
+            bucket.objects[MANIFEST_KEY] = json.dumps(other).encode("utf-8")
+            return result
+
+        with mock.patch.object(publish, "prepare", prepare_while_another_publish_writes), \
+                self.assertRaises(SystemExit) as raised:
+            self._publish(bucket, extra=("--visible",))
+        self.assertIn("Zähler 7", str(raised.exception))
+        self.assertEqual(bucket.uploads(), [])
 
 
 if __name__ == "__main__":
@@ -490,3 +521,128 @@ class TestDestinationFromCockpit(unittest.TestCase):
     def test_without_portal_the_shop_comes_from_the_brand(self):
         config = {"account_slug": "beispielkunde", "brand": "Beispielshop"}
         self.assertEqual(publish.destination(config), ("beispielkunde", "beispielshop"))
+
+
+class TestBrandFiles(unittest.TestCase):
+    """Spec 2026-10-08, Abschnitt 5.1, 11 und 13 (A1): Dateien der Marke."""
+
+    RUN = "2026-09-01-audit"
+    KEY = "brands/beispielmarke/manifest.json"
+
+    def setUp(self):
+        from tests import brand_support as bs
+        self.bs = bs
+        self.brand_ws = bs.make_brand(self)
+        bs.write_json(self.brand_ws / "reporting" / "feedback.json",
+                      {"version": 2, "entries": []})
+        self.eu = self.brand_ws / "eu"
+        run = self.eu / "reporting" / "runs" / self.RUN
+        bs.write_json(run / "state.json", {"run_id": self.RUN, "cadence": "audit"})
+        bs.write_json(run / "findings" / "conversion.json", {"findings": [
+            {"id": "CRO-03"}, {"id": "CRO-05"}]})
+        bs.write_json(run / "findings" / "content-brand.json", {"findings": [{"id": "CNT-04"}]})
+        bs.write_json(run / "findings" / "data-quality.json", {"findings": [{"id": "MES-11"}]})
+        bs.write_json(self.eu / "reporting" / "baseline" / "01" / "baseline.json", {})
+        self.target = self.brand_ws.parent / "bucket"
+
+    def _prepare(self, **kwargs):
+        return publish.prepare(self.eu, self.RUN, self.target, **kwargs)
+
+    def test_brand_files_sit_under_files_at_the_manifest_root(self):
+        result = self._prepare()
+        data = manifest.load(self.target / self.KEY)
+        self.assertEqual(sorted(data["files"]), ["feedback.json", "measures.json"])
+        self.assertTrue((self.target / "brands" / "beispielmarke" / "measures.json").exists())
+        self.assertEqual(sorted(data["shops"]["eu"]["files"]), ["baseline/01/baseline.json"])
+        self.assertFalse((self.target / manifest.path_for("beispielmarke", "eu")
+                          / "measures.json").exists())
+        self.assertEqual(result["brand_files"], 2)
+        self.assertEqual(data["revision"], 1)
+
+    def test_the_run_carries_a_copy_of_the_brand_list(self):
+        self._prepare()
+        copy = self.target / manifest.path_for("beispielmarke", "eu", self.RUN) / "measures.json"
+        self.assertEqual(self.bs.read(copy), self.bs.fixture())
+        data = manifest.load(self.target / self.KEY)
+        self.assertIn("measures.json", data["runs"][0]["files"])
+
+    def test_the_manifest_counts_each_publish(self):
+        self._prepare()
+        self._prepare()
+        self.assertEqual(manifest.load(self.target / self.KEY)["revision"], 2)
+
+    def test_portal_test_is_refused_with_brand_files(self):
+        with self.assertRaises(SystemExit) as raised:
+            self._prepare(account_slug="portal-test")
+        self.assertIn("portal-test-beispielmarke", str(raised.exception))
+        self.assertFalse(self.target.exists())
+
+    def test_the_preview_goes_to_its_own_test_brand(self):
+        result = self._prepare(account_slug="portal-test-beispielmarke")
+        self.assertEqual(result["brand"], "portal-test-beispielmarke")
+        self.assertTrue((self.target / "brands" / "portal-test-beispielmarke"
+                         / "measures.json").exists())
+
+    def test_shops_without_by_shop_stops_the_publish(self):
+        doc = self.bs.fixture()
+        doc["measures"][0]["shops"] = ["eu"]
+        self.bs.write_json(self.brand_ws / "reporting" / "measures.json", doc)
+        with self.assertRaises(SystemExit) as raised:
+            self._prepare()
+        self.assertIn("by_shop.uk", str(raised.exception))
+        self.assertFalse(self.target.exists())
+
+    def test_a_finding_missing_from_its_local_run_stops_the_publish(self):
+        self.bs.write_json(self.eu / "reporting" / "runs" / self.RUN / "findings"
+                           / "data-quality.json", {"findings": []})
+        with self.assertRaises(SystemExit) as raised:
+            self._prepare()
+        self.assertIn("MES-11", str(raised.exception))
+
+    def test_a_run_of_another_store_not_on_this_machine_is_no_error(self):
+        # Die UK-Befunde liegen in uk/reporting/runs/2026-11-12-audit, das es
+        # hier nicht gibt. Nicht prüfbar ist kein Fehler.
+        self._prepare()
+
+    def _main(self, *argv):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return publish.main(["--workspace", str(self.eu), "--target", str(self.target), *argv])
+
+    def test_brand_only_uploads_brand_files_and_manifest(self):
+        bucket = FakeBucket()
+        env = {"SUPABASE_URL": FakeBucket.URL, "SUPABASE_SERVICE_ROLE_KEY": "k"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("urllib.request.urlopen", bucket.urlopen):
+            code = self._main("--brand-only", "--upload")
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(bucket.uploads()), [
+            "brands/beispielmarke/feedback.json", "brands/beispielmarke/manifest.json",
+            "brands/beispielmarke/measures.json"])
+        uploaded = json.loads(bucket.objects[self.KEY])
+        self.assertEqual(uploaded["runs"], [])
+        self.assertEqual(sorted(uploaded["files"]), ["feedback.json", "measures.json"])
+
+    def test_brand_only_keeps_the_runs_in_the_bucket(self):
+        remote = manifest.add_run(manifest.empty("beispielmarke", "Beispielmarke"),
+                                  shop="eu", run_id=self.RUN, kind="audit",
+                                  cadence="audit", period=None, run_date="2026-09-01",
+                                  files={"audit.pdf": 4})
+        remote["revision"] = 3
+        bucket = FakeBucket({self.KEY: json.dumps(remote).encode("utf-8")})
+        env = {"SUPABASE_URL": FakeBucket.URL, "SUPABASE_SERVICE_ROLE_KEY": "k"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("urllib.request.urlopen", bucket.urlopen):
+            self._main("--brand-only", "--upload")
+        uploaded = json.loads(bucket.objects[self.KEY])
+        self.assertEqual([r["run_id"] for r in uploaded["runs"]], [self.RUN])
+        self.assertEqual(uploaded["revision"], 4)
+
+    def test_brand_only_needs_a_brand_folder(self):
+        from tests import brand_support as bs
+        bs.write_json(self.eu / "reporting" / "config.json", bs.store_config("eu", None))
+        with self.assertRaises(SystemExit):
+            publish.prepare_brand_only(self.eu, self.target)
+
+    def test_brand_only_takes_no_run(self):
+        with self.assertRaises(SystemExit):
+            self._main("--brand-only", "--run-id", self.RUN)

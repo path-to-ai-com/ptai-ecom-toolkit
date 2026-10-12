@@ -1,6 +1,6 @@
 ---
 name: audit
-description: Fährt den einmaligen Ecommerce-Audit eines Shops, als Nullpunkt vor einem Relaunch oder als erste vollständige Bestandsaufnahme. Zieht jede verfügbare Quelle über ihre volle Historie statt über einen Berichtsmonat, startet die Analysen als eigene Subagents, verdichtet die Befunde zu einem priorisierten Maßnahmen-Backlog, friert die Baseline blockweise ein und rendert das Kunden-PDF. Verwenden bei /ptai-ecom:audit, bei einem Erstaudit, bei einer Bestandsaufnahme vor einem Theme- oder Relaunch oder wenn der Nutzer den Nullpunkt für einen Shop will. Stoppt zweimal (Gate A nach den Rohdaten, Gate B nach den Analysen) und setzt erst nach ausdrücklicher Freigabe fort. Ein vollständiger Lauf je Shop; ein zweiter Aufruf wird verweigert und verweist auf report, auf --backfill (leere Baseline-Blöcke nachtragen), auf --reanalyze (Phase 2 bis 4 auf denselben Rohdaten wiederholen, wenn sich eine Analyse geändert hat) oder auf --rerun <discipline> (eine einzelne Analyse nachholen, deren Zugang erst nach dem Audit kam, und ihr Ergebnis in Befunde, Backlog und Gesamtreport desselben Laufs einarbeiten). Liest reporting/config.json im Kunden-Workspace, schreibt reporting/runs/<run-id>/ (Zustand, Datenlage, Screenshots-Index, Befunde, Kunden-PDF) sowie reporting/baseline/01/ und reporting/measures.json.
+description: Fährt den einmaligen Ecommerce-Audit eines Shops, als Nullpunkt vor einem Relaunch oder als erste vollständige Bestandsaufnahme. Zieht jede verfügbare Quelle über ihre volle Historie statt über einen Berichtsmonat, startet die Analysen als eigene Subagents, verdichtet die Befunde zu einem priorisierten Maßnahmen-Backlog, friert die Baseline blockweise ein und rendert das Kunden-PDF. Verwenden bei /ptai-ecom:audit, bei einem Erstaudit, bei einer Bestandsaufnahme vor einem Theme- oder Relaunch oder wenn der Nutzer den Nullpunkt für einen Shop will. Stoppt zweimal (Gate A nach den Rohdaten, Gate B nach den Analysen) und setzt erst nach ausdrücklicher Freigabe fort. Ein vollständiger Lauf je Shop; ein zweiter Aufruf wird verweigert und verweist auf report, auf --backfill (leere Baseline-Blöcke nachtragen), auf --reanalyze (Phase 2 bis 4 auf denselben Rohdaten wiederholen, wenn sich eine Analyse geändert hat) oder auf --rerun <discipline> (eine einzelne Analyse nachholen, deren Zugang erst nach dem Audit kam, und ihr Ergebnis in Befunde, Backlog und Gesamtreport desselben Laufs einarbeiten). Liest reporting/config.json im Kunden-Workspace, schreibt reporting/runs/<run-id>/ (Zustand, Datenlage, Screenshots-Index, Befunde, Kunden-PDF) sowie reporting/baseline/01/ und die Maßnahmenliste (reporting/measures.json, bei einer Marke mit mehreren Stores die Liste der Marke unter brand_workspace).
 ---
 
 # audit: der Ecommerce-Audit-Orchestrator
@@ -36,6 +36,29 @@ description: Fährt den einmaligen Ecommerce-Audit eines Shops, als Nullpunkt vo
   - `PTAI_GOOGLE_CREDENTIALS` in der `.env` des Workspace
   - Betreiber-Schlüssel (PageSpeed, DataForSEO, GEO, Ads-Token) dort oder zentral in `~/.config/ptai-ecom/.env`
 - Fehlerbilder einzelner Quellen stehen in der jeweiligen Pull-Skill.
+
+## Wo die Maßnahmen liegen: Store oder Marke
+
+Seit dem 09.10.2026 kann eine Marke mehrere Stores führen, mit einer gemeinsamen Maßnahmenliste (Spec `ptai-portal` 2026-10-08 "eine Marke, mehrere Stores").
+
+| Config des Stores | `measures.json` und `feedback.json` liegen | Format |
+|---|---|---|
+| ohne `brand_workspace` | in `reporting/` dieses Workspace | v1, Liste eines Stores |
+| mit `brand_workspace` (absoluter Pfad) | in `<brand_workspace>/reporting/` | v2, Liste der Marke, Status je Store unter `by_shop.<store>` |
+
+- **Nie einen Pfad zu `measures.json` selbst bilden.** Immer über `measures.load_or_empty()`, `measures.save()`, `measures.file_path()` und `feedback.py`; sie lösen den Ort über `scripts/audit/brand.py` auf.
+- Der Store ist `portal.shop` aus der Config (`brand.shop_slug(config)`). In der Liste einer Marke braucht jeder Aufruf von `create()`, `set_status()` und `check()` ihn als `shop=...`, dazu `run_id=` dieses Laufs.
+- **Der Pfad zur Marke darf je Rechner anders sein** (seit 11.10.2026). Repos, die ein Kundenteam auf anderen Rechnern mitbenutzt, tragen keinen absoluten Pfad in der getrackten `config.json`. Es gilt der erste Treffer:
+  1. Umgebungsvariable `PTAI_BRAND_WORKSPACE`, für eine Sitzung, etwa in einem Git-Worktree
+  2. `reporting/config.local.json` mit nur `brand_workspace`, nie committet; anlegen mit `python3 -m audit.brand set-local --workspace . --brand-workspace <ordner-der-marke>`, das sie zugleich in `.git/info/exclude` einträgt
+  3. `brand_workspace` in `reporting/config.json`
+- Welcher Pfad gilt und woher: `python3 -m audit.brand show --workspace .`
+- Nennt die Datei der Marke eine andere Marke als der Store (`portal.brand`, sonst `account_slug`), bricht jeder Zugriff ab. Eine Umgebungsvariable gilt für jeden Workspace der Sitzung.
+- Fehlt die Datei der Marke dort, wohin `brand_workspace` zeigt, bricht jeder Zugriff ab. Nichts anlegen; den Pfad prüfen oder Yves fragen. Eine leere Liste hätte eine zweite Zählung ab M-001.
+- Liegt über dem Workspace (auch über einem Git-Worktree) eine Liste derselben Marke und fehlt `brand_workspace` auf allen drei Wegen, bricht jeder Zugriff ab und nennt den Befehl für diesen Rechner. Verglichen wird die Marke im Cockpit (`portal.brand`, sonst `account_slug`), nicht ein alter `account_slug`.
+- **Von der Marke verworfen heißt: nicht prüfen, nicht wieder öffnen** (D10). Meldet die Marke im Cockpit eine Maßnahme für einen Store als verworfen oder überholt, prüft kein Lauf sie dort. `measures.check()` bekommt dafür `exclusions=portal.exclusions(portal.reported_statuses(brand, shop))`; Marke und Store liefert `portal.cockpit_target()`. Ist das Cockpit nicht erreichbar, bricht der Lauf ab, statt ohne die Meldungen zu prüfen.
+- Lesen, Ändern und Schreiben laufen unter der Sperre der Marke: `with measures.locked(workspace): ...`. Ein zweiter Lauf eines anderen Stores wartet bis zu 30 Sekunden und bricht dann ab. `save()` verweigert außerdem einen sinkenden `next_id` und eine Datei, die seit dem `load()` ein anderer geschrieben hat; dann neu laden und die Änderung wiederholen.
+- Umzug eines Stores in den Ordner der Marke: `python3 -m audit.brand_migrate --brand-workspace <ordner-der-marke> --shop <store> --dry-run`, danach ohne `--dry-run`. Nur auf Anweisung von Yves.
 
 ## Ein Audit läuft genau einmal je Shop
 
@@ -85,6 +108,8 @@ mv reporting/baseline         "$ARCH/baseline"
 mv reporting/measures.json    "$ARCH/measures.json"
 mv reporting/measures.md      "$ARCH/measures.md"
 ```
+
+- Bei einer Marke mit mehreren Stores (`brand_workspace` in der Config) die beiden letzten Zeilen **nicht** ausführen: die Liste gehört allen Stores. Stattdessen `python3 -m audit.revision --workspace . --run-id <run-id>` vor dem Verschieben; es nimmt nur zurück, was dieser Store in diesem Lauf geschrieben hat.
 
 - Im Archivordner ein `README.md` anlegen, das in drei Sätzen den Grund des Verwerfens nennt.
 - Diese drei Dateien bleiben an ihrem Platz:
@@ -149,15 +174,16 @@ Was `revision` verschiebt und was bleibt:
 | Was | Wohin | Grund |
 |---|---|---|
 | `findings/`, `audit.pdf`, `audit.html`, `audit-web.html` | nach `runs/<run-id>/revisions/NN/` | das ist die Fassung; ohne sie lässt sich später nicht erklären, warum eine Zahl anders lautet als im Termin |
-| `measures.json`, `measures.md` | **Kopie** ins Archiv | der Backlog gilt über alle Läufe, das Original bleibt |
+| `measures.json`, `measures.md` | **Kopie** ins Archiv, auch die Liste der Marke | der Backlog gilt über alle Läufe, das Original bleibt |
 | `report-text.json` | **bleibt** | enthält die von einem Menschen geschriebenen Sätze; sie gelten dem Lauf, nicht der Fassung |
 | die Snapshots in `data/<run-id>/` | bleiben unverändert | auf ihnen läuft der ganze Modus |
 
 - **Der Backlog wird gesiebt, nicht geleert.**
-  - Eine Maßnahme mit Status `open` und nur dem einen Eintrag, den `create()` selbst schreibt, ist unberührt: sie entsteht neu und wird entfernt.
-  - Hat sie einen gesetzten Status oder eine Historie, bleibt sie.
+  - Liste eines Stores (v1): Eine Maßnahme mit Status `open` und nur dem einen Eintrag, den `create()` selbst schreibt, ist unberührt: sie entsteht neu und wird entfernt. Hat sie einen gesetzten Status oder eine Historie, bleibt sie.
+  - Liste einer Marke (v2): entfernt wird nur, was dieser Store in diesem Lauf geschrieben hat. Maßnahmen mit `created_run_id` dieses Laufs, die nur Einträge dieses Laufs tragen, gehen; bei allen anderen gehen nur die Verlaufseinträge unter `by_shop.<store>` mit dieser `run_id`. Maßnahmen anderer Stores bleiben unangetastet.
+  - Eine Maßnahme ohne `created_run_id` (etwa aus dem Umzug) wird nie entfernt.
   - Stellt eine neue Analyse denselben Befund erneut, entsteht eine Dublette; das ist gewollt, eine verlorene Entscheidung wiegt schwerer.
-  - `next_id` zählt hinter den behaltenen weiter, keine Kennung wird doppelt vergeben.
+  - `next_id` sinkt nie. Eine entfernte Kennung bleibt verbraucht, die neue Analyse zählt dahinter weiter.
 - **Die Baseline bleibt unverändert.** `baseline.write_block()` schreibt nur in leere Blöcke. Ein zweiter Durchgang von Phase 3 lässt die sieben gefüllten stehen und füllt nur nach, was beim ersten Mal leer blieb. Der Nullpunkt gehört dem Messzeitpunkt, nicht der Auswertung.
 
 ### Wenn eine Disziplin nachkommt: `--rerun <discipline>`
@@ -202,15 +228,16 @@ python3 -m audit.rerun --workspace . --run-id <run-id> \
     --discipline <discipline> --previous reporting/runs/<run-id>/revisions/NN/findings/<discipline>.json
 ```
 
-- Exit 1: eine Kennung bezeichnet jetzt einen anderen Befund. Umnummerieren, nicht weitermachen; eine Maßnahme verweist über `finding_ref` auf genau diese Kennung, im Portal stünde sonst ein fremder Befund darunter.
+- Exit 1: eine Kennung bezeichnet jetzt einen anderen Befund. Umnummerieren, nicht weitermachen; eine Maßnahme verweist über `finding_ref` (in der Liste einer Marke `finding_run` und `finding_id`) auf genau diese Kennung, im Portal stünde sonst ein fremder Befund darunter.
+- In der Liste einer Marke meldet das Script nur verwaiste Maßnahmen dieses Stores, deren `finding_run` dieser Lauf ist.
 - Beim Umnummerieren auch Verweise in Texten nachziehen ("siehe SEA-05").
 - Ohne Fehler listet das Script neue Befunde, weggefallene Befunde und verwaiste Maßnahmen.
 - Danach Abnahme und Belegprüfung wie nach Phase 2 (`audit.qa`, `audit.evidence`) für diesen Lauf.
 
 **5. Den Backlog fortschreiben, nicht neu aufbauen.**
 
-- `measures.create()` nur für die neuen Befunde, mit allen Feldern aus Phase 3, Schritt 3.
-- Jede verwaiste Maßnahme bekommt über `measures.set_status()` mit `run_id` und `note` ein Urteil:
+- `measures.create()` nur für die neuen Befunde, mit allen Feldern aus Phase 3, Schritt 3, unter `measures.locked()`.
+- Jede verwaiste Maßnahme bekommt über `measures.set_status()` mit `run_id` und `note` (in der Liste einer Marke dazu `shop=`) ein Urteil:
   - `implemented`, wenn der Nachlauf die beschriebene Lücke geschlossen hat ("Zugang steht seit dem …, die offenen Kernfragen sind in SEA-03 bis SEA-09 beantwortet")
   - sonst `obsolete`, wenn die Analyse den Befund nicht mehr stützt
 - Maßnahmen zu gebliebenen Befunden bleiben unverändert.
@@ -700,6 +727,64 @@ python3 -m audit.report_build --workspace . --run-id <run-id> --pdf
 - Nicht in zwei Aufrufe aufteilen; sonst fehlt leicht eine Fassung, während der Lauf fertig aussieht.
 - `--no-web` lässt die Web-Fassung weg, wenn nur die Druckfassung gebraucht wird.
 
+## Liste der Marke: Bestand prüfen und Abweichung zum Referenz-Store
+
+Nur bei einer Marke mit mehreren Stores (`brand_workspace` auf einem der drei Wege oben). Beides läuft nach den Analysen und vor Gate B, damit die Ergebnisse dort mit vorliegen (Spec `ptai-portal` 2026-10-08, Abschnitte 8 und 10).
+
+### Abweichung zum Referenz-Store (`consistency`)
+
+- Nur mit `reference_shop` in `reporting/config.json` und nur in einem anderen Store als diesem. Ohne `reference_shop` (Marken, deren Stores eigene Marken mit eigenem Theme sind) entfällt der Schritt; `compare` meldet das und schreibt nichts.
+- Vergleich mit den neuesten Snapshots des Referenz-Stores unter `<ordner-der-marke>/<reference_shop>/`:
+
+```bash
+python3 -m audit.consistency compare --workspace . --run-id <run-id>
+```
+
+- Verglichen werden Theme-Version und Einstellungen samt Sections (aus der neuesten Theme-Sicherung `migration/snapshots/`, sonst "nicht verglichen"), eingebundene Dienste (`shop-tech.json`), Pflichtseiten und Strukturdaten (`crawl.json`), Meta-Descriptions, Alt-Texte und Stammdaten der Produkte mit gleicher SKU (`catalog.json > products_index`).
+- Texte, Preise und Handles vergleicht das Modul nie; sie unterscheiden sich durch Sprache und Währung.
+- Jede Zeile unter "nicht verglichen" in der Ausgabe nennen. Ein nicht verglichener Bereich ist nicht gleich.
+- Was trotzdem durch Sprache, Währung oder Recht des Landes erklärt ist, mit Grund herausnehmen. Eine Abweichung bei Pflichtseiten (`review: "law"`) muss so entschieden werden, sonst verweigert das Script:
+
+```bash
+python3 -m audit.consistency findings --workspace . --run-id <run-id> \
+    --drop legal="<warum das Recht des Landes es erklärt>"   # oder --keep-law
+```
+
+- Ergebnis: `reporting/runs/<run-id>/findings/consistency.json`, Disziplin `consistency`, Kennungen `ABW-01` …, Titel "Abweichung zu <REF>: …". Sie gehen in Phase 3 durch `measures.create()` wie jeder Befund; die Maßnahme gilt für diesen Store. Muss stattdessen der Referenz-Store angeglichen werden, steht das in `intent`, und der Referenz-Store kommt mit seinem nächsten Lauf dazu.
+
+### Bestand prüfen (`carry_over`)
+
+Jede Maßnahme der Marke, die noch nicht für diesen Store gilt, wird gegen ihn geprüft, außer sie ist in allen Stores verworfen oder überholt oder die Marke hat sie für diesen Store verworfen gemeldet.
+
+**1. Meldungen holen und Arbeitsblatt anlegen.** Bricht ab, wenn das Cockpit nicht erreichbar ist; dann nicht ohne die Meldungen weiterprüfen, sondern den Lauf hier anhalten.
+
+```bash
+python3 -m audit.carry_over prepare --workspace . --run-id <run-id>
+```
+
+**2. Je Kandidat in `reporting/runs/<run-id>/carry-over.json` das Ergebnis eintragen,** anhand der Prüfregel (`check_rule`), der Snapshots und der Befunde dieses Laufs:
+
+| `outcome` | wann | Pflichtfelder |
+|---|---|---|
+| `applies` | trifft im Store zu | `evidence` (Quellfeld im Snapshot dieses Laufs); `finding_id`, wenn ein Befund dieses Laufs dasselbe zeigt; `evidence_text` als Satz mit Zahlen |
+| `fulfilled` | im Store schon erfüllt | `evidence`, woran das gemessen ist |
+| `not_applicable` | passt nicht zum Store (Recht, Sortiment, Funktion fehlt) | `reason`, ein Satz; er steht im Bericht unter "Nicht übertragen" |
+
+- Kein Kandidat bleibt ohne Ergebnis; `apply` verweigert sonst und schreibt nichts.
+- Die Liste der ausgenommenen Maßnahmen (`skipped`) bleibt, wie sie ist.
+- Gate B zeigt die Zahl je Ergebnis und die Liste "Nicht übertragen".
+
+**3. Erst in Phase 3, Schritt 3, vor dem ersten `measures.create()`:**
+
+```bash
+python3 -m audit.carry_over apply --workspace . --run-id <run-id>
+python3 -m audit.carry_over covered --workspace . --run-id <run-id>
+```
+
+- `apply` holt die Meldungen erneut, schreibt unter der Sperre der Marke und hält das Ergebnis im Arbeitsblatt fest. Eine Maßnahme, die die Marke inzwischen verworfen hat, wird übersprungen.
+- `covered` nennt die Befunde, die eine übertragene Maßnahme abdeckt. Für sie entsteht keine neue Maßnahme (Spec Abschnitt 8, Punkt 4).
+- Eine neue Analyse (`--reanalyze`) legt `carry-over.json` mit der Fassung beiseite und nimmt die übertragenen Stores dieses Laufs zurück (`audit.revision`); danach den Bestand neu prüfen.
+
 ## Gate B: Befunde vorlegen
 
 Bevor etwas in Baseline oder Maßnahmen-Backlog geht (`baseline.md` und `measures.md` gehen ganz oder in Auszügen an den Kunden), die Befunde aus allen vorliegenden `findings/<disziplin>.json` zeigen:
@@ -1029,6 +1114,9 @@ Aufheben und Umfang:
 
 Für jede Datei in `reporting/runs/<run-id>/findings/` und jeden Befund darin einmal `measures.create()` aufrufen.
 
+- **Bei einer Marke mit mehreren Stores zuerst den Bestand übertragen** (`python3 -m audit.carry_over apply`, Abschnitt "Bestand prüfen"). Befunde, die `carry_over.covered_findings(workspace, run_id)` nennt, gehen **nicht** durch `create()`: sie sind der Fall "trifft zu" einer bestehenden Maßnahme.
+- `findings/consistency.json` geht wie jede andere Datei durch `create()`, Disziplin `consistency`.
+
 - **`criteria` geht nicht durch `create()`.** Maßnahmen entstehen nur aus `findings`. Ein verletztes Kriterium hat seinen Befund dort, verknüpft über `finding_id`; ein erfülltes ist positive Kontrolle, keine Handlung. Sonst stünde jeder Mangel doppelt im Backlog.
 - **`blocked_questions` gehen nicht durch `create()`.**
   - Daraus entsteht **höchstens eine** Maßnahme je fehlender Eingabe, nie eine je Frage.
@@ -1038,15 +1126,22 @@ Für jede Datei in `reporting/runs/<run-id>/findings/` und jeden Befund darin ei
 - **`create()` ändert `backlog` nicht, es liefert ein neues Dokument.** Den Rückgabewert zuweisen, sonst schreibt `save()` einen leeren Backlog ohne Fehlermeldung:
 
 ```python
-backlog = measures.load_or_empty(workspace)
-for finding in findings:
-    backlog = measures.create(
-        backlog, title=..., discipline=..., evidence=...,
-        confidence=..., leverage=..., effort=..., responsible=...,
-        data_source=..., check_rule=..., finding_ref=finding["id"],
-        intent=..., effect=..., needs=..., evidence_text=...,
-        today=today)
+from audit import brand, measures
+shop = brand.shop_slug(brand.read_config(workspace))
+with measures.locked(workspace):
+    backlog = measures.load_or_empty(workspace)
+    for finding in findings:
+        backlog = measures.create(
+            backlog, title=..., discipline=..., evidence=...,
+            confidence=..., leverage=..., effort=..., responsible=...,
+            data_source=..., check_rule=..., finding_ref=finding["id"],
+            intent=..., effect=..., needs=..., evidence_text=...,
+            shop=shop, run_id=run_id, today=today)
+    measures.save(workspace, backlog)
 ```
+
+- `shop` und `run_id` immer mitgeben. In der Liste einer Marke sind sie Pflicht: die Maßnahme bekommt `created_run_id`, `shops: [shop]` und ihren Befund als `finding_run` (dieser Lauf) und `finding_id`. In der Liste eines Stores schaden sie nicht und tragen die Lauf-ID in den Verlauf.
+- Schritt 4 (`save()`) gehört in denselben `with`-Block. Wer zwischen Laden und Speichern die Sperre loslässt, riskiert, dass ein Lauf eines anderen Stores dazwischen schreibt; `save()` bricht dann ab.
 
 - Jeder Befund geht durch diesen Aufruf, unabhängig von seiner `confidence`.
 - `create()` entscheidet allein aus `confidence`, ob eine Maßnahme (`type: "measure"`) oder ein Test (`type: "test"`) entsteht (Spec Abschnitt 9: "eine Hypothese wird nie priorisiert, sie wird als Test formuliert").
@@ -1103,7 +1198,7 @@ Parameter, die erst hier entstehen:
 
 ### Schritt 4: Priorisieren und schreiben
 
-Nachdem alle Befunde aus allen vorliegenden `findings/`-Dateien durch `create()` gelaufen sind: `measures.save(workspace, backlog)`.
+Nachdem alle Befunde aus allen vorliegenden `findings/`-Dateien durch `create()` gelaufen sind: `measures.save(workspace, backlog)`, im selben `with measures.locked(workspace):` wie das Laden (Codeblock in Schritt 3).
 
 **`prioritize()` hier nicht aufrufen und seinen Rückgabewert nie zuweisen.**
 
@@ -1121,7 +1216,7 @@ Nachdem alle Befunde aus allen vorliegenden `findings/`-Dateien durch `create()`
 - Häufigster Grund: ein `create()`-Aufruf ohne zugewiesenen Rückgabewert (siehe Schritt 3); er wirft keine Ausnahme.
 - Das Rendern zu `measures.md` (`measures.render()`) passiert erst in Phase 4. Wie bei der Baseline schreibt diese Phase den Zustand, Phase 4 leitet das lesbare Dokument ab.
 
-**Artefakte:** `reporting/baseline/01/baseline.json` (neu oder um Blöcke ergänzt) und `reporting/measures.json`.
+**Artefakte:** `reporting/baseline/01/baseline.json` (neu oder um Blöcke ergänzt) und `measures.json` (im Store oder bei der Marke, siehe "Wo die Maßnahmen liegen").
 
 **Bei Fehler:**
 

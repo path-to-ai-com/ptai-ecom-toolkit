@@ -61,7 +61,7 @@ bei `appInstallations` beweist nichts. Jede Quelle hat im Ergebnis eine Abdeckun
 3. **Tag Manager vollständig auflösen.**
    - Je Container-ID `gtm.js?id=GTM-...` abrufen und als `migration/inventory/gtm/GTM-<id>.js` ablegen.
    - Einzelprüfung eines Containers:
-     `PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.gtm resolve --gtm <datei> --out <json>`.
+     `"${CLAUDE_PLUGIN_ROOT}/bin/theme" gtm resolve --gtm <datei> --out <json>`.
    - Der Scan liest daraus `resource` mit `tags`, `macros`, `predicates`, `rules`: je aktivem Tag
      Funktion, aufgelöste Kennung und Auslöser.
    - Eine Suche nur nach IDs genügt nicht, weil Kennungen dort auch ohne Präfix stehen.
@@ -69,7 +69,7 @@ bei `appInstallations` beweist nichts. Jede Quelle hat im Ergebnis eine Abdeckun
 4. **Scan über Theme, HTML, Mitschnitt und Tag Manager:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.apps scan \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" apps scan \
      --snapshot migration/snapshots/<date>-<theme-id> \
      --html "migration/inventory/network/<date>-declined/html" \
      --network "migration/inventory/network/<date>-declined/network.json" \

@@ -57,15 +57,24 @@ konnte der Kunde nicht beantworten, weil sie eine Zuordnung voraussetzte, die er
 selbst nicht kannte. Was außerhalb des Projekts liegt, braucht keine Frage;
 beides zugleich ist ein Fehler.
 
+**Eine Datei je Marke** (Spec `ptai-portal` 2026-10-08, Abschnitt 5.3): steht
+`brand_workspace` in der Config des Stores, liegt `feedback.json` im Ordner der
+Marke neben `measures.json`, und jede Anforderung trägt `shops`, die Stores, die
+sie betrifft (Vorgabe: der Store, aus dem sie kam). Jedes Lesen, Ändern und
+Schreiben läuft unter der Sperre der Marke (`audit.brand.lock`), damit zwei
+Sitzungen zweier Stores sich nicht gegenseitig Punkte überschreiben.
+
 **Was hier nicht passiert: ein Statuswechsel.** Eine Verknuepfung sagt "das ist
 dieselbe Sache", nie "das ist damit erledigt". Ob eine Massnahme umgesetzt ist,
 entscheidet allein die Pruefregel im Folgelauf.
 """
+import functools
 import json
 import os
 from datetime import date
 from pathlib import Path
 
+from audit import brand as brand_mod
 from audit import measures
 
 #: Dateiname im Kunden-Workspace, relativ zu dessen Wurzel.
@@ -101,8 +110,37 @@ ORIGINAL_FIELDS = ("title", "section", "shop", "priority", "goal", "notes")
 
 
 def feedback_path(workspace: str = ".") -> Path:
-    """Der volle Pfad zur Feedback-Datei eines Workspace."""
-    return Path(workspace) / FILE
+    """Der volle Pfad zur Feedback-Datei eines Workspace.
+
+    Mit `brand_workspace` die Datei der Marke, sonst die des Stores; die Regeln
+    stehen in `audit.brand`.
+    """
+    return brand_mod.file_path(workspace, "feedback.json")
+
+
+def _locked(function):
+    """Führt eine Änderung unter der Sperre der Marke aus: Lesen, Ändern und
+    Schreiben am Stück (D4). Erstes Argument ist immer der Workspace."""
+    @functools.wraps(function)
+    def wrapper(workspace, *args, **kwargs):
+        with brand_mod.lock(workspace):
+            return function(workspace, *args, **kwargs)
+    return wrapper
+
+
+def _default_shops(workspace: str) -> list[str] | None:
+    """Die Stores, die ein neuer Punkt betrifft, wenn niemand etwas angibt.
+
+    In der Datei einer Marke der Store, aus dem er kam. In der Datei eines
+    Stores gibt es nichts zu unterscheiden, dort bleibt das Feld weg.
+    """
+    if not brand_mod.has_brand_files(workspace):
+        return None
+    shop = brand_mod.shop_slug(brand_mod.read_config(workspace))
+    if not shop:
+        raise ValueError("Die Config dieses Stores nennt keinen Store "
+                         "(portal.shop), die Anforderung hätte keine shops.")
+    return [shop]
 
 
 def load(workspace: str = ".") -> list[dict]:
@@ -141,7 +179,21 @@ def validate(entries: list[dict]) -> list[str]:
         errors.extend(_clarification_errors(wo, e))
         errors.extend(_original_errors(wo, e))
         errors.extend(_created_errors(wo, e))
+        errors.extend(_shops_errors(wo, e))
     return errors
+
+
+def _shops_errors(wo: str, e: dict) -> list[str]:
+    """`shops`, wenn es steht, ist eine nicht leere Liste von Stores."""
+    if "shops" not in e:
+        return []
+    shops = e["shops"]
+    if (not isinstance(shops, list) or not shops
+            or not all(isinstance(x, str) and x for x in shops)):
+        return [f"{wo}: shops ist keine Liste von Stores"]
+    if len(set(shops)) != len(shops):
+        return [f"{wo}: ein Store steht zweimal in shops"]
+    return []
 
 
 def _link_errors(wo: str, e: dict) -> list[str]:
@@ -269,7 +321,7 @@ def next_id(entries: list[dict]) -> str:
 
 def add(workspace: str, *, title: str, source: str, ref: str | None = None,
         note: str | None = None, original: dict | None = None,
-        today: date | None = None) -> dict:
+        today: date | None = None, shops: list[str] | None = None) -> dict:
     """Legt einen Punkt an und schreibt die Datei.
 
     `source` ist Fliesstext und sagt, woher der Punkt kam ("Aufgabenliste vom
@@ -287,6 +339,10 @@ def add(workspace: str, *, title: str, source: str, ref: str | None = None,
     haeufigste Fall: der Abgleich gegen den Bestand passiert im selben
     Arbeitsgang, aber die Entscheidung, auf welche Massnahme ein Punkt faellt,
     ist ein eigener Schritt mit eigener Begruendung.
+
+    `shops` nennt die Stores, die der Punkt betrifft. In der Datei einer Marke
+    steht das Feld immer, Vorgabe ist der Store dieses Workspace; ein Punkt zum
+    gemeinsamen Theme nennt alle Stores, die es tragen.
     """
     if not (title or "").strip():
         raise ValueError("title darf nicht leer sein, sonst weiss niemand, "
@@ -295,25 +351,34 @@ def add(workspace: str, *, title: str, source: str, ref: str | None = None,
         raise ValueError("source darf nicht leer sein, sonst ist spaeter nicht "
                          "nachvollziehbar, wer das gesagt hat")
     fields = _clean_original(original)
-    entries = load(workspace)
-    entry = {
-        "id": next_id(entries),
-        "received": (today or date.today()).isoformat(),
-        "source": source.strip(),
-        "title": title.strip(),
-        "links": [],
-    }
-    if ref:
-        entry["ref"] = str(ref).strip()
-    if note:
-        entry["note"] = note.strip()
-    if fields:
-        entry["original"] = fields
-    entries.append(entry)
-    _save(workspace, entries)
+    shops = list(shops) if shops else _default_shops(workspace)
+    if shops is not None:
+        problems = _shops_errors("shops", {"shops": shops})
+        if problems:
+            raise ValueError(problems[0])
+    with brand_mod.lock(workspace):
+        entries = load(workspace)
+        entry = {
+            "id": next_id(entries),
+            "received": (today or date.today()).isoformat(),
+            "source": source.strip(),
+            "title": title.strip(),
+            "links": [],
+        }
+        if shops is not None:
+            entry["shops"] = shops
+        if ref:
+            entry["ref"] = str(ref).strip()
+        if note:
+            entry["note"] = note.strip()
+        if fields:
+            entry["original"] = fields
+        entries.append(entry)
+        _save(workspace, entries)
     return entry
 
 
+@_locked
 def set_original(workspace: str, feedback_id: str, original: dict) -> dict:
     """Setzt die Angaben aus der Quelle an einem bestehenden Punkt.
 
@@ -359,6 +424,7 @@ def _clean_original(original: dict | None) -> dict:
     return fields
 
 
+@_locked
 def link(workspace: str, feedback_id: str, measure_id: str, certainty: str, *,
          why: str, question: str | None = None,
          created: bool | None = None) -> dict:
@@ -422,6 +488,7 @@ def link(workspace: str, feedback_id: str, measure_id: str, certainty: str, *,
     return entry
 
 
+@_locked
 def record_created(workspace: str, feedback_id: str, measure_id: str) -> dict:
     """Hält fest, dass eine Maßnahme aus diesem Punkt angelegt wurde.
 
@@ -455,13 +522,14 @@ def _remove_created(entry: dict, measure_id: str) -> None:
 
 def _check_measure(workspace: str, measure_id: str) -> None:
     """Die Maßnahme muss im Bestand stehen, sonst ist der Verweis im Portal tot."""
-    bestand = measures.load_or_empty(Path(workspace))
+    bestand = measures.peek(Path(workspace))
     if measure_id not in {m["id"] for m in bestand.get("measures", [])}:
         raise ValueError(f"{measure_id} steht nicht im Maßnahmen-Bestand. "
                          "Ein Verweis auf eine unbekannte Kennung ist im "
                          "Portal ein toter Verweis.")
 
 
+@_locked
 def unlink(workspace: str, feedback_id: str, measure_id: str) -> dict:
     """Loest eine Verknuepfung wieder, etwa weil der Kunde widersprochen hat."""
     entries = load(workspace)
@@ -472,6 +540,7 @@ def unlink(workspace: str, feedback_id: str, measure_id: str) -> dict:
     return entry
 
 
+@_locked
 def mark_out_of_scope(workspace: str, feedback_id: str, reason: str) -> dict:
     """Stellt einen Punkt als ausserhalb des Projekts liegend fest.
 
@@ -497,6 +566,7 @@ def mark_out_of_scope(workspace: str, feedback_id: str, reason: str) -> dict:
     return entry
 
 
+@_locked
 def set_clarification(workspace: str, feedback_id: str, question: str) -> dict:
     """Hält unsere offene Frage an den Kunden fest, was der Punkt meint.
 
@@ -522,6 +592,7 @@ def set_clarification(workspace: str, feedback_id: str, question: str) -> dict:
     return entry
 
 
+@_locked
 def clear_clarification(workspace: str, feedback_id: str) -> dict:
     """Nimmt die Frage zurück, etwa weil der Kunde sie im Termin beantwortet
     hat. Danach gilt wieder der Zustand aus den Verknüpfungen."""
@@ -549,13 +620,26 @@ def _find(entries: list[dict], feedback_id: str) -> dict:
     raise ValueError(f"unbekannte Kennung: {feedback_id!r}")
 
 
+#: Das Format der Datei einer Marke. Das Cockpit liest beide Formate: v1
+#: `{"entries": [...]}`, v2 dieselbe Liste mit `version: 2` und `shops` je
+#: Anforderung; eine Anforderung ohne `shops` gilt für jeden Store.
+VERSION = 2
+
+
+def document(entries: list[dict], brand_file: bool) -> dict:
+    """Das Dokument, wie es auf der Platte steht: v2 bei der Marke, sonst v1."""
+    if brand_file:
+        return {"version": VERSION, "entries": entries}
+    return {"entries": entries}
+
+
 def _save(workspace: str, entries: list[dict]) -> Path:
     """Schreibt atomar: erst daneben, dann umbenennen. Ein abgebrochener Lauf
     darf keine halbe Datei hinterlassen, sonst ist jede Zuordnung futsch."""
     p = feedback_path(workspace)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.parent / (p.name + ".tmp")
-    tmp.write_text(json.dumps({"entries": entries}, ensure_ascii=False,
-                              indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(document(entries, brand_mod.has_brand_files(workspace)),
+                              ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, p)
     return p

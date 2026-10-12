@@ -221,7 +221,7 @@ def check_measures(run: rb.Run) -> list[Finding]:
     earlier = _revision_finding_ids(run)
     for m in massnahmen:
         wo = f"Maßnahme {m.get('id')}"
-        ref = m.get("finding_ref")
+        ref = rb.measures_mod.finding_of(m)
         # Eine abgeschlossene Maßnahme darf auf einen Befund einer früheren
         # Fassung zeigen: der Nachlauf einer Disziplin (audit.rerun) hat ihn
         # geschlossen, und sein Wortlaut liegt in revisions/. Eine offene

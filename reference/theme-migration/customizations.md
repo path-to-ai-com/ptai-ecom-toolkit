@@ -26,7 +26,7 @@ dem Gedächtnis.
    Vielfaches dessen, was wirklich neu ist. Verglichen wird über die Selektoren.
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.customizations diff \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" customizations diff \
   --original migration/snapshots/<original-snapshot> \
   --current migration/snapshots/<date>-<live-theme-id> \
   --out migration/inventory/customizations-candidates.json
@@ -155,7 +155,7 @@ auffallen. Jede ist eine Regel aus einem belegten Fehler.
 - Die Prüfung läuft vor jedem Commit, der eine Datei des Ziel-Themes ändert, ohne Befund:
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.customizations check \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" customizations check \
   --target-repo <target-repo> --prefix <file_prefix> \
   --register migration/customizations.md
 ```

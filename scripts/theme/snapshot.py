@@ -16,7 +16,10 @@
 Mit `--original-zip` wird zusätzlich das unveränderte Quell-Theme aus einem ZIP
 als Vergleichsbasis abgelegt (`<out>/original-<name>/`).
 
-Der Commit im Workspace ist Sache der Skill, nicht dieses Moduls.
+Der Commit im Workspace ist Sache der Skill, nicht dieses Moduls. Vor dem
+Schreiben trägt die CLI `migration/snapshots/** -text` in die `.gitattributes`
+des Workspace ein: unter Windows schreibt Git sonst die Zeilenenden der
+gesicherten Dateien um, und die Prüfsummen im Manifest passen nicht mehr.
 
 CLI:
     python3 -m theme.snapshot --theme <id|live> --out migration/snapshots [--original-zip <zip>]
@@ -33,6 +36,28 @@ from theme.limits import theme_capacity
 from theme.manifest import write_manifest
 from theme.normalize import content_hash
 from theme.shopify import ShopifyError, numeric_id, theme_gid, transport_from_config
+
+
+#: Sicherungen sind Byte für Byte die Theme-Dateien; Git fasst ihre Zeilenenden nie an.
+GITATTRIBUTES_LINE = "migration/snapshots/** -text"
+
+
+def ensure_gitattributes(workspace) -> bool:
+    """Trägt `GITATTRIBUTES_LINE` in `<workspace>/.gitattributes` ein, nie doppelt.
+
+    Legt die Datei an, wenn sie fehlt. Der vorhandene Inhalt bleibt Byte für
+    Byte, auch seine Zeilenenden und Bytes, die kein UTF-8 sind; die neue Zeile
+    bekommt dasselbe Zeilenende. Gibt zurück, ob die Datei geändert wurde.
+    """
+    path = Path(workspace) / ".gitattributes"
+    text = path.read_bytes().decode("utf-8", "surrogateescape") if path.exists() else ""
+    if any(" ".join(line.split()) == GITATTRIBUTES_LINE for line in text.splitlines()):
+        return False
+    eol = "\r\n" if "\r\n" in text else "\n"
+    if text and not text.endswith(("\n", "\r")):
+        text += eol
+    path.write_bytes((text + GITATTRIBUTES_LINE + eol).encode("utf-8", "surrogateescape"))
+    return True
 
 
 def free_dir(root: Path, name: str) -> Path:
@@ -154,6 +179,7 @@ def main(argv: list[str] | None = None, *, transport=None, fetch_url=None) -> in
         config = load_config(args.workspace)
         if transport is None:
             transport = transport_from_config(config, workspace=args.workspace)
+        gitattributes_updated = ensure_gitattributes(args.workspace)
         target, manifest, report = capture(transport, args.theme, args.out, store=config.get("shopify_store", ""),
                                            fetch_url=fetch_url)
         if args.original_zip:
@@ -167,7 +193,8 @@ def main(argv: list[str] | None = None, *, transport=None, fetch_url=None) -> in
                "role": manifest["theme_role"], "expected": manifest["expected_files"],
                "captured": manifest["captured_files"], "complete": manifest["complete"],
                "findings": len(report["findings"]), "warnings": report["warnings"],
-               "free_theme_slots": report["theme_capacity"]["free"]}
+               "free_theme_slots": report["theme_capacity"]["free"],
+               "gitattributes_updated": gitattributes_updated}
     if "original" in report:
         summary["original"] = report["original"]
     emit(summary)

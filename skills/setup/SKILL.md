@@ -311,6 +311,9 @@ PTAI_GOOGLE_CREDENTIALS=<workspace>/secrets/google-sa.json
 
 - Snapshots eines Report-Laufs dürfen wegfallen; der nächste Lauf zieht sie neu.
 - Snapshots eines Audit-Laufs nicht: `crawl.json` und die Core Web Vitals halten den Zustand vor einem Relaunch fest, den danach keine Abfrage wiederherstellt.
+- Führt eine Marke mehrere Stores mit einer gemeinsamen Maßnahmenliste, liegen `measures.json` und `feedback.json` in `<ordner-der-marke>/reporting/`, und die Config jedes Stores trägt `brand_workspace` mit dem **absoluten** Pfad zu diesem Ordner. Dann gehört `<ordner-der-marke>/reporting/` ins Repo der Marke. Angelegt wird das nicht hier, sondern mit `python3 -m audit.brand_migrate` (Spec `ptai-portal` 2026-10-08, Abschnitt 11).
+  - Teilt ein Kundenteam das Store-Repo auf anderen Rechnern, steht `brand_workspace` nicht in der getrackten `config.json`, sondern je Rechner in `reporting/config.local.json`: `python3 -m audit.brand set-local --workspace . --brand-workspace <ordner-der-marke>`. Das trägt die Datei zugleich in `.git/info/exclude` ein; für eine einzelne Sitzung reicht `PTAI_BRAND_WORKSPACE`.
+  - Hat die Marke einen Referenz-Store für "Abweichung zu …" (Stores auf demselben Theme), kommt `reference_shop` mit seinem Slug in die Config jedes Stores, etwa `"reference_shop": "eu"`. Marken, deren Stores eigene Marken mit eigenem Theme sind, bekommen keinen.
 - Enthält die `.gitignore` ein pauschales `reporting/data/`: vor dem Audit eine Ausnahme ergänzen, etwa `!reporting/data/*-audit/`.
 - Belegbilder (`proof/` im Lauf) sind Shop-Screenshots und gehören nicht ins Kunden-Repo. Ihre Quelle ist der Bucket; `publish` lädt sie mit dem Lauf hoch.
 - Die Zeile `reporting/runs/**/proof/` erfasst auch die Bilder älterer Fassungen unter `revisions/`.

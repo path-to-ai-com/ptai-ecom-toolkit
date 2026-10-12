@@ -1,6 +1,6 @@
 ---
 name: sync-live-theme
-description: Ermittelt, was sich im Live-Theme und auf Shop-Ebene seit der letzten Sicherung geändert hat und was davon in den Entwurf muss: Dateien je Manifest über Zeitstempel und SHA-256 (JSON normalisiert), Template-Zuweisungen, App-Embeds, Pixel, Skript-Tags, Hosts und Theme-Übersetzungen, je Änderung die betroffene Generator-Quelle und die Entscheidung take, adapt oder drop. Läuft in einer Migration zweimal, vor der Abnahme und direkt vor dem Veröffentlichen, mit dem Änderungsstopp dazwischen und einer Schlussprüfung unmittelbar vor dem Klick; ohne Migration als Wachposten. Nutzen bei "was hat sich im Live-Theme geändert", "Abgleich mit dem Live-Stand", "Delta seit dem Snapshot", "Änderungsstopp", "letzter Abgleich vor dem Launch", in Phase 7 und Phase 9 einer Theme-Migration. Nicht verwenden für die erste Sicherung (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
+description: Ermittelt, was sich im Live-Theme und auf Shop-Ebene seit der letzten Sicherung geändert hat und was davon in den Entwurf muss: Dateien je Manifest über Zeitstempel und SHA-256 (JSON normalisiert), Template-Zuweisungen, App-Embeds, Pixel, Skript-Tags, Hosts und Theme-Übersetzungen, je Änderung die betroffene Generator-Quelle und die Entscheidung take, adapt oder drop. Läuft in einer Migration vor der Testrunde, beliebig oft, und direkt vor dem Veröffentlichen, dazu eine Schlussprüfung unmittelbar vor dem Klick; ohne Migration als Wachposten. Es gibt keinen Änderungsstopp. Nutzen bei "was hat sich im Live-Theme geändert", "Abgleich mit dem Live-Stand", "Delta seit dem Snapshot", "letzter Abgleich vor dem Launch", in Phase 7 und Phase 9 einer Theme-Migration. Nicht verwenden für die erste Sicherung (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # sync-live-theme: Abgleich mit dem Live-Stand
@@ -28,9 +28,9 @@ den lesenden Abfragen dieses Abgleichs.
 
 | Lauf | Wann | Umfang |
 |---|---|---|
-| **Abgleich I** | Phase 7, nach der Prüfung und vor der Abnahme | voll: Dateien und Shop-Ebene, Entscheidung je Änderung, Übernahme in den Entwurf |
-| **Abgleich II** | Phase 9, direkt vor dem Launch, nach dem Änderungsstopp | voll, gegen die Sicherung von Abgleich I |
-| **Schlussprüfung** | unmittelbar vor dem Veröffentlichen | nur `updatedAt` des Live-Themes und die Template-Zuweisungen; jede Änderung seit Abgleich II hält den Launch an |
+| **Abgleich** | Phase 7 (`7-sync`), nach der Kontrolle und vor der Testrunde, beliebig oft | voll: Dateien und Shop-Ebene, Entscheidung je Änderung, Übernahme in den Entwurf |
+| **Abgleich vor dem Launch** | Phase 9, direkt vor dem Launch, durch den Betreiber (`theme-launch`) | voll, gegen die letzte Sicherung |
+| **Schlussprüfung** | unmittelbar vor dem Veröffentlichen | nur `updatedAt` des Live-Themes und die Template-Zuweisungen; jede Änderung seit dem Abgleich vor dem Launch hält den Launch an |
 | Wachposten | ohne Migration, auf Zuruf | voll, ohne Übernahme; Ergebnis ist nur `delta.md` |
 
 ## Ablauf eines vollen Laufs
@@ -38,7 +38,7 @@ den lesenden Abfragen dieses Abgleichs.
 1. **Dateien neu erheben:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.sync \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" sync \
      --last migration/snapshots/<last-snapshot>/manifest.json \
      --out "migration/sync/<date>"
    ```
@@ -53,7 +53,7 @@ den lesenden Abfragen dieses Abgleichs.
    Zwei Manifeste direkt vergleichen:
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.manifest diff \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" manifest diff \
      migration/snapshots/<old>/manifest.json migration/snapshots/<new>/manifest.json \
      --out "migration/sync/<date>/manifest-diff.json"
    ```
@@ -92,30 +92,18 @@ den lesenden Abfragen dieses Abgleichs.
 
 Den Migrationsstand (`last_sync`, `snapshot`) schreibt `theme-migration`.
 
-## Der Änderungsstopp
+## Kein Änderungsstopp
 
-Zwischen Abgleich I und dem Veröffentlichen gilt ein Änderungsstopp für alles, was das Theme betrifft.
-Nach Abgleich I schlägt die Skill Umfang und Zeitraum vor:
-
-- **Eingefroren:** Theme-Editor und Code des Live-Themes, neue Template-Zuweisungen auf Suffixe ohne
-  Datei im Entwurf, App-Installationen und -Deinstallationen, Locale-Texte und Theme-Übersetzungen,
-  Änderungen über eine verbundene GitHub-Anbindung und durch Dritte (Agentur, Apps mit Schreibrecht ins
-  Theme).
-- **Frei:** Produkte, Preise, Bestände, Rabatte, Seiten und Blog, weil sie im Admin liegen und beide
-  Themes sie nutzen.
-- **Daten erst nach dem Launch:** geplante Massenänderungen an Shop-Daten vorbereiten, aber erst nach
-  dem Launch umsetzen.
-
-- Text an das Team: `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/change-freeze.md`.
-- Die Nachricht schickt der Betreiber, nicht die Skill.
-- Eine angekündigte Ausnahme vor Abgleich II in den Entwurf übernehmen.
+Seit 0.3.11 gibt es keinen Stopp. Das Team arbeitet am Live-Theme weiter; jede Änderung kommt mit dem
+nächsten Abgleich in den Entwurf. Direkt vor dem Launch läuft der Abgleich ein letztes Mal, danach hält
+jede Änderung den Launch an (`reference/theme-migration/change-freeze.md`).
 
 ## Die Schlussprüfung
 
 Unmittelbar vor dem Veröffentlichen, nach dem Go:
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -c "
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" PYTHONUTF8=1 python3 -c "
 import json
 from theme import guard, shopify
 config = json.load(open('reporting/config.json'))
@@ -123,7 +111,7 @@ print(json.dumps(guard.live_fingerprint(shopify.transport_from_config(config))))
 "
 ```
 
-Dazu die Template-Zuweisungen gegen den Stand von Abgleich II. Hat sich seit Abgleich II `updatedAt` des
+Dazu die Template-Zuweisungen gegen den Stand des Abgleichs vor dem Launch. Hat sich seitdem `updatedAt` des
 Live-Themes oder eine Zuweisung geändert, **hält der Launch an**: ein voller Lauf für die geänderten
 Teile folgt. Nie mit bekannter Lücke veröffentlichen.
 
@@ -145,5 +133,5 @@ Teile folgt. Nie mit bekannter Lücke veröffentlichen.
 - **Erste Sicherung überschrieben:** sie bleibt unverändert, jeder Lauf legt eine neue an.
 - **Änderung nur in der erzeugten Datei übernommen:** der nächste Generatorlauf macht sie rückgängig. In
   Quelle oder Mapping übernehmen.
-- **Änderung während des Stopps:** ein Punkt in `delta.md`, kein Vorwurf. Nach Abgleich II hält jede
-  Änderung den Launch an.
+- **Änderung des Teams am Live-Theme:** Normalfall, ein Punkt in `delta.md`. Nach dem Abgleich vor dem
+  Launch hält jede Änderung den Launch an.

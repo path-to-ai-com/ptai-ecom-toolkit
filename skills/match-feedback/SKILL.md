@@ -7,12 +7,13 @@ description: Gleicht eine Liste von außen mit dem Maßnahmen-Bestand ab und sch
 
 - Für jeden Punkt einer eingehenden Liste (Kundenliste, Termin, Mail) wird entschieden, ob es ihn schon als Maßnahme gibt.
 - Ergebnis: `reporting/feedback.json`, geschrieben über `scripts/audit/feedback.py`.
+- Führt der Store seine Maßnahmen bei der Marke (`brand_workspace` in `reporting/config.json`, in `reporting/config.local.json` oder in `PTAI_BRAND_WORKSPACE`), liegen `measures.json` und `feedback.json` im Ordner der Marke. `feedback.py` findet beide selbst; nie einen Pfad von Hand bilden. Jede Anforderung trägt dort `shops`, Vorgabe ist der eigene Store. Betrifft sie das gemeinsame Theme, beim Anlegen `shops=[...]` mit allen Stores übergeben, die es tragen.
 - Die Verknüpfung steht nur in `feedback.json`, nie in `measures.json`. Ein Punkt kann zu mehreren Maßnahmen gehören, eine Maßnahme zu mehreren Punkten; eine zweite Stelle würde abweichende Stände erzeugen.
 
 ## Voraussetzungen
 
 1. Arbeitsverzeichnis ist der Kunden-Workspace.
-2. `reporting/measures.json` existiert. Fehlt sie: melden, dass zuerst ein Audit laufen muss, und abbrechen.
+2. Die Maßnahmenliste existiert (`reporting/measures.json`, bei einer Marke unter `brand_workspace`). Fehlt sie: melden, dass zuerst ein Audit laufen muss, und abbrechen.
 3. Die Liste kommt als Datei, Export oder Text im Gespräch.
 4. Die Liste nie ändern und nie deuten. Ihr Wortlaut geht unverändert als `original` mit.
 5. Unser `title` darf übersetzen und präzisieren; `original` bleibt im Wortlaut des Kunden.

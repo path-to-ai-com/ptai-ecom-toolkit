@@ -164,6 +164,7 @@ def flatten(product: dict) -> dict:
         "images": len(images),
         "images_with_alt": sum(1 for image in images if _has_text(image.get("altText"))),
         "variants": len(variants),
+        "skus": sorted({str(v.get("sku")).strip() for v in variants if _has_text(v.get("sku"))}),
         "variants_without_sku": sum(1 for v in variants if not _has_text(v.get("sku"))),
         "variants_without_cost": without_cost,
         "price_min": min(prices) if prices else None,
@@ -181,6 +182,25 @@ def _percentile(values: list, share: float):
 def _capped(rows: list, key: str) -> dict:
     return {key: [row["handle"] for row in rows][:MAX_LIST],
             f"{key}_truncated": len(rows) > MAX_LIST}
+
+
+#: Felder je Produkt im Index für den Vergleich zweier Stores derselben Marke
+#: (`audit.consistency`, Spec `ptai-portal` 2026-10-08, Abschnitt 10). Nur
+#: Zustände und Zähler, kein Text, kein Preis: die unterscheiden sich durch
+#: Sprache und Währung und wären keine Abweichung.
+INDEX_FIELDS = ("handle", "skus", "status", "vendor", "seo_title", "seo_description",
+                "images", "images_with_alt", "variants")
+
+
+def products_index(products: list) -> list:
+    """Ein kurzer Eintrag je Produkt mit SKU, ungekappt.
+
+    Ungekappt, weil der Vergleich mit dem Referenz-Store über die gemeinsame
+    SKU läuft: ein abgeschnittener Index hieße "Produkt nur in einem Store",
+    und das wäre falsch. Produkte ohne SKU fehlen, sie lassen sich keinem
+    Produkt des anderen Stores zuordnen.
+    """
+    return [{field: p.get(field) for field in INDEX_FIELDS} for p in products if p.get("skus")]
 
 
 def build(products: list, collections: list, shape_notes: list | None = None) -> dict:
@@ -245,6 +265,7 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
     result.update(_capped(missing_alt, "products_with_missing_alt"))
     result.update(_capped(missing_cost, "products_without_cost"))
     result.update(_capped(sold_out_rows, "products_sold_out"))
+    result["products_index"] = products_index(products)
     result["duplicate_descriptions"] = [
         {"count": len(handles), "handles": handles[:5]} for handles in duplicate_groups[:MAX_GROUPS]]
     result["duplicate_descriptions_truncated"] = len(duplicate_groups) > MAX_GROUPS

@@ -1603,3 +1603,38 @@ class TestClosingInTheAudit(unittest.TestCase):
         self.assertNotIn("Kontakt", panel)
         self.assertNotIn("mailto:", panel)
         self.assertNotIn('class="summary"', panel)
+
+
+class TestMeasuresOfOneStore(unittest.TestCase):
+    """Spec 2026-10-08, Abschnitt 11: ein UK-Report zählt nur UK-Maßnahmen."""
+
+    def setUp(self):
+        from tests import brand_support as bs
+        self.bs = bs
+        self.brand_ws = bs.make_brand(self)
+        self.run_id = "2026-11-12-audit"
+        run = self.brand_ws / "uk" / "reporting" / "runs" / self.run_id
+        bs.write_json(run / "state.json", {"sources": {}})
+        bs.write_json(run / "findings" / "conversion.json",
+                      {"discipline": "cro", "findings": [{"id": "CRO-02", "statement": "x"}]})
+
+    def _run(self, shop):
+        with contextlib.redirect_stderr(io.StringIO()):
+            return rb.Run(self.brand_ws / shop, self.run_id)
+
+    def test_uk_sees_only_its_measures_with_its_status(self):
+        run = self._run("uk")
+        self.assertEqual(run.shop, "uk")
+        self.assertEqual([m["id"] for m in rb.open_measures(run.backlog)], ["M-004", "M-001"])
+        self.assertEqual(sorted(rb.measures_by_finding(run)), ["CRO-02", "TRU-04"])
+
+    def test_eu_does_not_count_the_open_uk_measure(self):
+        # M-001 ist in UK offen, in EU umgesetzt: im EU-Report steht sie nicht.
+        ids = [m["id"] for m in rb.open_measures(self._run("eu").backlog)]
+        self.assertEqual(ids, ["M-003", "M-002"])
+
+    def test_the_score_reads_findings_via_finding_id(self):
+        run = self._run("uk")
+        finding = {"id": "CRO-02", "confidence": "plausible"}
+        # M-001 (Hebel hoch) zeigt in UK auf CRO-02.
+        self.assertEqual(rb.severity_rank(finding, run.backlog), "hoch")

@@ -21,16 +21,19 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
 
 ## Vorbereitung, Tage vorher
 
-1. **Abnahme (G4) entschieden**, alle Befunde `blocker` und `before_launch` erledigt, in jedem
-   Prüfbericht, auch in einem außerhalb des Workspace (`theme_migration.report_paths`). Jeder Punkt
-   ist erledigt oder namentlich mit Datum verschoben. Ein offener Punkt ist ein No-Go, keine Frage.
-2. **Prüfliste aus Phase 2 abgeschlossen** (`theme_migration.acceptance_checklist`): jeder Punkt
-   abgehakt, verschoben mit Person und Datum oder durch eine bestandene automatische Prüfung
-   abgedeckt. Am 07.10.2026 ging ein Shop live, dessen Prüfliste nie abgehakt war.
+1. **Abnahme (G4) entschieden** und in der Liste offener Punkte (`migration/open-items.json`) kein
+   Punkt für G4 oder G5 offen: jeder erledigt mit Beleg oder namentlich mit Datum verschoben. Ein
+   offener Punkt ist ein No-Go, keine Frage.
+2. **Jede Quelle in der Liste:** Prüfberichte, auch außerhalb des Workspace
+   (`theme_migration.report_paths`), die Prüfliste aus Phase 2 (`theme_migration.acceptance_checklist`)
+   und die Testrunde halten nichts Offenes, das in der Liste fehlt (`open_items sources`). Am
+   07.10.2026 ging ein Shop live, dessen Prüfliste nie abgehakt war und dessen Prüfbericht offene
+   Punkte führte, die kein Schritt las.
 3. **SEO-Ausgabe wie live** (`seo-parity.md`): strukturierte Daten, hreflang, Open Graph, Title,
    Description und Canonical je Seitentyp und je Sprache, im Mitschnitt verglichen. Die bekannten
    Lücken von Horizon schließt das Grundpaket beim Bau.
-4. **Änderungsstopp läuft** (`change-freeze.md`), Termin steht beim Team.
+4. **Abgleich vor dem Launch** höchstens sieben Tage alt, direkt vor dem Termin neu; kein Änderungsstopp
+   (`change-freeze.md`). Termin steht beim Team.
 5. **Abgleich II** (`sync-live-theme`): jede Änderung seit Abgleich I entschieden und im Entwurf.
 6. **Vergleichswerte direkt vorher ziehen:** `pull-gsc`, `pull-ga4`, `pull-cwv`, Crawl des
    Live-Themes, Rankings, Conversion je Seitentyp und Gerät. Verglichen wird nach dem Launch mit
@@ -55,8 +58,9 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
 
 Go nur, wenn alles davon stimmt:
 
-- G4 entschieden, keine offenen Befunde `blocker` oder `before_launch` in einem der Prüfberichte
-- Prüfliste aus Phase 2 abgeschlossen, SEO-Ausgabe ohne Lücke gegen live
+- G4 entschieden, kein offener Punkt für G4 oder G5 in der Liste offener Punkte, keine Quelle mit
+  Offenem außerhalb der Liste (`run_state gate --gate G5-go-live` verweigert sonst)
+- SEO-Ausgabe ohne Lücke gegen live
 - Abgleich II ohne offene Änderung, Schlussprüfung direkt vorher ohne Änderung
 - Vergleichswerte von diesem oder dem Vortag liegen vor
 - Rückfall-Theme liegt in der Theme-Bibliothek, ID notiert

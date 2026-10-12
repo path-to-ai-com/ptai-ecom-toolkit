@@ -142,5 +142,50 @@ class TestShopScopeFields(unittest.TestCase):
         self.assertEqual(merged["shop_hostnames"], ["eu.beispielshop.test"])
         self.assertEqual(merged["ga4_stream_ids"], ["111"])
 
+class TestReportedStatuses(unittest.TestCase):
+    """Gemeldete Stände der Marke (D10): jede Abweichung ist ein Abbruch, nie eine leere Liste."""
+
+    ROWS = [{"shop": "uk", "measure_id": "M-025", "status": "rejected", "note": "nicht in UK",
+             "set_at": "2026-11-01T10:00:00Z"},
+            {"shop": "eu", "measure_id": "M-040", "status": "in_progress", "note": "",
+             "set_at": "2026-11-02T10:00:00Z"}]
+
+    def test_reads_the_route_of_the_store_and_returns_the_rows(self):
+        with mock.patch.object(portal, "_request",
+                               return_value=answer(200, {"brand": "beispielmarke", "reports": self.ROWS})) as request:
+            rows = portal.reported_statuses("beispielmarke", "uk")
+        self.assertEqual(request.call_args.args[:4], ("GET", "beispielmarke", "uk", "/measure-status"))
+        self.assertEqual([r["measure_id"] for r in rows], ["M-025", "M-040"])
+        self.assertEqual(portal.exclusions(rows), {"M-025": {"uk"}})
+
+    def test_cockpit_unreachable_aborts(self):
+        with mock.patch.dict(os.environ, {"PTAI_PORTAL_URL": "http://127.0.0.1:9", "PTAI_PORTAL_TOKEN": "x"}), \
+                mock.patch("urllib.request.urlopen", side_effect=portal.urllib.error.URLError("refused")):
+            with self.assertRaisesRegex(portal.PortalError, "nicht erreichbar"):
+                portal.reported_statuses("beispielmarke", "uk")
+
+    def test_missing_route_or_broken_answer_aborts(self):
+        for status, payload in ((404, {"error": "not_found"}), (500, {"error": "measure_status_unreadable"}),
+                                (200, {"brand": "beispielmarke"}), (200, {"reports": "x"}),
+                                (200, {"brand": "andere-marke", "reports": []}),
+                                (200, {"reports": [{"shop": "uk", "measure_id": "M-1", "status": "rejected"}]}),
+                                (200, {"reports": [{"shop": "uk", "measure_id": "M-001", "status": ""}]})):
+            with self.subTest(status=status, payload=payload), \
+                    mock.patch.object(portal, "_request", return_value=answer(status, payload)), \
+                    self.assertRaises(portal.PortalError):
+                portal.reported_statuses("beispielmarke", "uk")
+
+    def test_an_empty_list_is_an_answer(self):
+        with mock.patch.object(portal, "_request", return_value=answer(200, {"brand": "beispielmarke", "reports": []})):
+            self.assertEqual(portal.reported_statuses("beispielmarke", "uk"), [])
+
+    def test_cockpit_target_without_portal_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "reporting").mkdir()
+            (Path(tmp) / "reporting" / "config.json").write_text(
+                json.dumps({"account_slug": "beispielmarke", "brand": "Nordshop"}), encoding="utf-8")
+            self.assertEqual(portal.cockpit_target(tmp), ("beispielmarke", "nordshop"))
+
+
 if __name__ == "__main__":
     unittest.main()

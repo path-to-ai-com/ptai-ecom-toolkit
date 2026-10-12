@@ -25,16 +25,35 @@ description: Schreibt die Testrunde vor einem Launch als `test.json` in den Work
 
 ## Offene Punkte im Kundenprojekt
 
-1. Alles Offene eines Kundenprojekts steht in der Testrunde: Aufgaben, Fragen, Entscheidungen, auch solche, die nur der Betreiber umsetzt.
+1. Alles Offene eines Kundenprojekts, das das Team sehen soll, steht in der Testrunde: Aufgaben, Fragen, Entscheidungen, auch solche, die nur der Betreiber umsetzt.
 2. Dafür keine Liste in Notion und kein Paperclip-Ticket. Paperclip nur für Arbeit, die Agents bauen.
 3. Das Team sieht alle Punkte. Die Punkte mit `status: decision` sind die Agenda des Termins mit dem Team.
 4. Auftrag "leg das in der Testrunde ab" oder "nimm das in der Testrunde mit auf": einen Punkt mit `status` schreiben. Gibt es schon einen passenden Punkt, diesen ergänzen, sonst einen neuen anlegen.
 5. Neue Punkte entstehen nur hier, das Portal legt keine an; das Team kommentiert nur.
 6. Schreiben mehrere Sessions in dieselbe Datei: vor jedem Schreiben die Datei neu lesen und nur den eigenen Punkt ändern.
 
+## Die Testrunde in einer Migration
+
+In einer Theme-Migration gibt es eine Liste offener Punkte, `migration/open-items.json` (Skill `theme-migration`, Abschnitt "Die Liste offener Punkte"). Die Testrunde ist die Ansicht für das Team, der Stand steht in der Liste. Keine Liste ohne Verbraucher: die Punkte der Testrunde liest Gate G4, die Abnahme.
+
+1. Nach jedem Schreiben der Testrunde jeden Punkt mit `status` in die Liste übernehmen:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" open_items import --kind test-round --path reporting/runs/<run-id>/test.json
+   ```
+
+2. Erledigt, verschoben oder wieder offen wird ein Punkt in der Liste (`open_items done`, `defer`, `reopen`), mit Beleg oder mit Person und Datum. Eine `resolution` allein erledigt nichts.
+3. Danach den Stand der Liste in die Testrunde zurückschreiben, damit das Portal dasselbe zeigt, und erst dann veröffentlichen:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" open_items sync-test-round --path reporting/runs/<run-id>/test.json
+   ```
+
+4. Ohne Migration (neuer Shop, größere Änderung ohne Theme-Wechsel) gilt die Testrunde allein, wie bisher.
+
 ## Umsetzungsstand
 
-Jeder Punkt mit offener Arbeit bekommt `status`. Das Portal zeigt den Fortschritt auf dem Überblick als eigenen Balken neben den Maßnahmen.
+Jeder Punkt mit offener Arbeit bekommt `status`. Das Portal zeigt den Fortschritt auf dem Überblick als eigenen Balken neben den Maßnahmen. In einer Migration kommt `done` aus der Liste offener Punkte (`sync-test-round`), nicht von Hand.
 
 | `status` | Wann |
 |---|---|

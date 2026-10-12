@@ -284,3 +284,23 @@ class TestLaienwoerter(unittest.TestCase):
 
     def test_a_counted_quantity_passes(self):
         self.assertIsNone(qa.VAGUE_QUANTITIES.search("Acht von zwölf Diensten fehlen"))
+
+
+class TestNurDieMassnahmenDesStores(unittest.TestCase):
+    """Spec 2026-10-08, Abschnitt 11: QA über die Liste einer Marke prüft nur
+    die Maßnahmen ihres Stores."""
+
+    def test_uk_prueft_nur_uk(self):
+        from tests import brand_support as bs
+        brand_ws = bs.make_brand(self)
+        run_id = "2026-11-12-audit"
+        run = brand_ws / "uk" / "reporting" / "runs" / run_id
+        _schreibe(run / "state.json", {"sources": {}})
+        _schreibe(run / "findings" / "conversion.json",
+                  {"discipline": "cro", "findings": [dict(SAUBER, id="CRO-02")]})
+        wo = {f.wo for f in qa.check_measures(rb.Run(brand_ws / "uk", run_id))}
+        # M-001 ist vollständig und ihr Befund CRO-02 steht im Lauf; M-004
+        # zeigt auf TRU-04, den es hier nicht gibt. M-002, M-003 und M-005
+        # gehören nur EU und dürfen nicht auftauchen, obwohl auch ihre Befunde
+        # in diesem Lauf fehlen.
+        self.assertEqual(wo, {"Maßnahme M-004"})

@@ -57,7 +57,7 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 2. **Templates und Nutzung:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.templates usage \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" templates usage \
      --snapshot migration/snapshots/<date>-<theme-id> \
      --out migration/inventory/templates.json
    ```
@@ -74,7 +74,7 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 3. **Anpassungen gegen das Original:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.customizations diff \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" customizations diff \
      --original migration/snapshots/original-<zip-name> \
      --current migration/snapshots/<date>-<theme-id> \
      --out migration/inventory/customizations-candidates.json
@@ -149,7 +149,7 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
    - mit Search-Console-Snapshot die meistbesuchte, sonst die erste mit Inhalt
    - dazu je veröffentlichter Sprache jeder Seitentyp einmal und je Markt-Pfad eine Seite; der
      SEO-Vergleich in `launch-check` ist ohne eine Sprache unvollständig und steht dann auf `blocked`.
-     `PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.seo_parity pages --pages <pages.json> --locales de,en`
+     `"${CLAUDE_PLUGIN_ROOT}/bin/theme" seo_parity pages --pages <pages.json> --locales de,en`
      ergänzt die Sprachen (Primärsprache zuerst)
 
    ```json

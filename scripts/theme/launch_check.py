@@ -36,6 +36,14 @@ der Bestandsaufnahme (`theme_migration.acceptance_checklist`) liest
 `launch_findings`. Beides ist nie eine Frage: offen heißt `missing`, nicht
 auffindbar `blocked`.
 
+**Die eine Liste offener Punkte** (`migration/open-items.json`, Modul `open_items`)
+ist die Quelle, sobald es sie gibt oder ein Migrationslauf besteht: jeder offene
+Punkt der Gates G4 und G5 ist `missing`, eine fehlende Liste in einem
+Migrationslauf `blocked`. Prüfberichte, Prüfliste, `findings.json` aus
+`verify-theme` und die Testrunde sind dann nur noch Quellen für den Import; was
+dort offen steht und in der Liste fehlt, ist `missing`. Ohne Liste und ohne
+Migrationslauf gilt die ältere Auswertung je Bericht, Prüfliste und Testrunde.
+
 Ein Migrationslauf (`run_state`) ist optional: ohne ihn kommen die Theme-IDs aus
 `theme_migration` der Config oder aus `--live-theme-id` und `--draft-theme-id`.
 Antworten auf `manual`-Punkte stehen in `reporting/launch-answers.json` und
@@ -64,7 +72,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from theme import (EXIT_ERROR, EXIT_FINDINGS, EXIT_OK, ConfigError, emit, load_config, migration_config,
                    now_utc, write_json)
-from theme import apps, launch_findings, run_state, seo_parity
+from theme import apps, launch_findings, open_items, run_state, seo_parity
 from theme.files import fetch_by_names, list_files, list_themes
 from theme.shopify import ShopifyError, numeric_id, transport_from_config
 from theme.translations import read_resource
@@ -568,8 +576,8 @@ def build_context(args, config: dict, workspace: Path, *, transport=None) -> dic
     values = (state or {}).get("values") or {}
     live_id = args.live_theme_id or values.get("live_theme_id") or block.get("live_theme_id")
     draft_id = args.draft_theme_id or values.get("draft_theme_id") or block.get("draft_theme_id")
-    freeze = block.get("freeze") or {}
-    launch = args.launch_date or values.get("freeze_until") or freeze.get("until")
+    # Seit 0.3.11 kein Änderungsstopp mehr: den Termin nennt der Betreiber beim Aufruf.
+    launch = args.launch_date
     launch_date = None
     if launch:
         try:
@@ -610,6 +618,7 @@ def build_context(args, config: dict, workspace: Path, *, transport=None) -> dic
         "catalog": catalog, "dropped": dropped, "host_map": host_map, "cache": {},
         "report_paths": [str(p) for p in block.get("report_paths") or [] if str(p).strip()],
         "checklist": block.get("acceptance_checklist") or None,
+        "open_items": open_items.exists(workspace),
     }
 
 
@@ -670,7 +679,7 @@ def check_timing(ctx: dict) -> list:
     day = ctx["launch_date"]
     if not day:
         out.append(make_check("timing-date", group, "Launch-Termin", MANUAL,
-                              "kein Termin bekannt (--launch-date, freeze_until im Migrationslauf oder in der Config)",
+                              "kein Termin bekannt (--launch-date)",
                               question="An welchem Tag und zu welcher Uhrzeit wird veröffentlicht?", owner=BOTH))
     else:
         names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -834,7 +843,85 @@ def latest_test_round(workspace: Path):
     return path, read_json(path) if path else None
 
 
-def check_acceptance(ctx: dict) -> list:
+def check_open_items(ctx: dict, statuses: dict) -> dict:
+    """Die eine Liste offener Punkte: jeder offene Punkt der Gates G4 und G5 ist `missing`.
+
+    Eine Prüfung dieses Laufs schließt keinen Punkt still: deckt sie ihn ab, steht das im Beleg,
+    und `open_items close-covered` schreibt es mit Beleg in die Liste. Sonst führte der Launch-Check
+    einen zweiten Stand neben der Liste.
+    """
+    group, title = "Abnahme und offene Befunde", "Offene Punkte (migration/open-items.json)"
+    if not ctx["open_items"]:
+        return make_check("acceptance-open-items", group, title, BLOCKED,
+                          "keine Liste offener Punkte, obwohl ein Migrationslauf besteht",
+                          action="python3 -m theme.open_items init, dann jede Quelle importieren "
+                                 "(open_items import, theme-migration Phase 2)", owner=OPERATOR)
+    try:
+        items = open_items.load(ctx["workspace"])
+    except open_items.OpenItemsError as exc:
+        return make_check("acceptance-open-items", group, title, BLOCKED, str(exc)[:300],
+                          action="Liste reparieren, nicht neu anlegen", owner=OPERATOR)
+    blocking = items.blocking("G5-go-live")
+    deferred = [i for i in items.items if i["status"] == "deferred" and i["gate"] != "after_launch"]
+    counts = items.counts()
+    evidence = (f"{len(items.items)} Punkte, {counts['open']} offen ({len(blocking)} vor dem Launch), "
+                f"{counts['done']} erledigt, {counts['deferred']} verschoben")
+    if blocking:
+        evidence += "; offen: " + short_list([f"{i['id']} {i['title'][:60]} ({i['gate']})" for i in blocking], 10)
+        covered = [f"{i['id']} ({', '.join(c)})" for i in blocking
+                   for c in [launch_findings.checks_for(f"{i['title']} {i.get('description', '')}")]
+                   if c and all(statuses.get(x) == OK for x in c)]
+        if covered:
+            evidence += ("; durch bestandene Prüfungen dieses Laufs abgedeckt, in der Liste noch offen: "
+                         + short_list(covered, 8))
+    if deferred:
+        evidence += "; verschoben: " + short_list([f"{i['id']} (von {i['deferred_by']} am {i['deferred_at']})"
+                                                   for i in deferred], 6)
+    action = ("jeden Punkt beheben und mit Beleg erledigen (open_items done --id <id> --evidence <text>) oder mit "
+              "Person und Datum verschieben (open_items defer); abgedeckte Punkte: open_items close-covered "
+              "--launch-check <launch-check.json>") if blocking else ""
+    check = make_check("acceptance-open-items", group, title, MISSING if blocking else OK, evidence,
+                       action=action, owner=OPERATOR if blocking else "")
+    check["details"] = {"open": [open_items.brief(i) for i in blocking],
+                        "deferred": [open_items.brief(i) for i in deferred]}
+    return check
+
+
+def check_open_item_sources(ctx: dict) -> dict:
+    """Was in einem Prüfbericht, der Prüfliste, `findings.json` oder der Testrunde offen steht und in
+    der Liste fehlt. So geht nichts still verloren, das jemand an anderer Stelle festgehalten hat.
+    """
+    group, title = "Abnahme und offene Befunde", "Quellen in der Liste übernommen"
+    items = None
+    if ctx["open_items"]:
+        try:
+            items = open_items.load(ctx["workspace"])
+        except open_items.OpenItemsError:
+            items = None
+    result = open_items.source_gaps(items, ctx["workspace"], ctx["config"], migration=bool(ctx["state"]))
+    missing, gaps = result["missing"], result["gaps"]
+    evidence = (f"{len(result['sources'])} Quellen gelesen ({short_list(result['sources'], 5)})"
+                if result["sources"] else "keine Quelle gefunden")
+    if missing:
+        evidence += f"; {len(missing)} offen und nicht in der Liste: " + short_list(
+            [f"{m['source']}: {m['id']} {m['title'][:50]}" for m in missing], 8)
+    if gaps:
+        evidence += "; " + "; ".join(gaps)
+    status = MISSING if missing else (BLOCKED if gaps else OK)
+    action = ("jede Quelle übernehmen: open_items import --kind <checklist|report|findings|test-round> --path "
+              "<datei>" if missing else "Pfad prüfen oder in theme_migration der Config eintragen" if gaps else "")
+    check = make_check("acceptance-sources", group, title, status, evidence, action=action,
+                       owner=OPERATOR if status != OK else "")
+    check["details"] = result
+    return check
+
+
+def ledger_mode(ctx: dict) -> bool:
+    """Die Liste ist die Quelle, sobald es sie gibt oder ein Migrationslauf besteht."""
+    return bool(ctx["open_items"] or ctx["state"])
+
+
+def check_acceptance(ctx: dict, statuses: dict | None = None) -> list:
     group = "Abnahme und offene Befunde"
     out = []
     state = ctx["state"]
@@ -849,6 +936,8 @@ def check_acceptance(ctx: dict) -> list:
         out.append(make_check("acceptance-decision", group, "Abnahme", MANUAL,
                               "kein Migrationslauf im Workspace" + (f" ({ctx['state_error']})" if ctx["state_error"] else ""),
                               question="Hat das Team den Entwurf abgenommen? Wer, an welchem Tag?", owner=TEAM))
+    if ledger_mode(ctx):
+        return out + [check_open_items(ctx, statuses or {}), check_open_item_sources(ctx)]
     out.append(check_findings(ctx))
     path, test = latest_test_round(ctx["workspace"])
     if not isinstance(test, dict):
@@ -920,21 +1009,23 @@ def check_sync(ctx: dict) -> list:
             evidence += f"; letzter Abgleich laut Migrationslauf {last}"
         out.append(make_check("live-sync", group, "Live-Theme seit dem letzten Abgleich", status, evidence,
                               action=action, owner=OPERATOR if status != OK else "", links=link_pair(ctx)))
+    # Seit 0.3.11 gibt es keinen Änderungsstopp: das Team arbeitet am Live-Theme weiter, und direkt vor dem
+    # Launch wird der Stand neu gezogen. Geprüft wird deshalb, wie frisch der letzte Abgleich ist.
     values = (ctx["state"] or {}).get("values") or {}
-    freeze = migration_config(ctx["config"]).get("freeze") or {}
-    start = values.get("freeze_from") or freeze.get("from")
-    until = values.get("freeze_until") or freeze.get("until")
-    if not start:
-        out.append(make_check("change-freeze", group, "Änderungsstopp", MISSING,
-                              "kein Änderungsstopp festgehalten (freeze_from im Migrationslauf oder theme_migration.freeze)",
-                              action="Umfang und Zeitraum nach change-freeze.md vorschlagen, Text an das Team schicken",
-                              owner=OPERATOR))
+    last = values.get("last_sync")
+    try:
+        age = (date.today() - date.fromisoformat(str(last)[:10])).days if last else None
+    except ValueError:
+        age = None
+    if age is None:
+        out.append(make_check("sync-fresh", group, "Abgleich vor dem Launch", MISSING,
+                              "kein Abgleich im Migrationslauf festgehalten",
+                              action="sync-live-theme direkt vor dem Launch laufen lassen", owner=OPERATOR))
     else:
-        ends_early = bool(until and ctx["launch_date"] and str(until)[:10] < ctx["launch_date"].isoformat())
-        out.append(make_check("change-freeze", group, "Änderungsstopp", MISSING if ends_early else OK,
-                              f"von {start} bis {until or 'offen'}" + (", endet vor dem Launch" if ends_early else ""),
-                              action="freeze_until auf den Launch-Termin ziehen und dem Team sagen" if ends_early else "",
-                              owner=OPERATOR if ends_early else ""))
+        out.append(make_check("sync-fresh", group, "Abgleich vor dem Launch", OK if age <= 7 else MISSING,
+                              f"letzter Abgleich {last}, vor {age} Tagen",
+                              action="" if age <= 7 else "sync-live-theme direkt vor dem Launch erneut laufen lassen",
+                              owner="" if age <= 7 else OPERATOR))
     return out
 
 
@@ -1407,7 +1498,7 @@ def check_criteria(ctx: dict) -> list:
                    "Liste in rollback.md: Zuweisungen, Admin-Daten, App-Deinstallationen, Embeds je Theme, Skript-Tags",
                    question="Hat das Team die Liste gesehen?", owner=OPERATOR),
         make_check("communication", group, "Kommunikation", MANUAL, "nicht automatisch prüfbar",
-                   question="Sind Termin, Änderungsstopp und Rückfallkriterien an alle Beteiligten raus, auch an "
+                   question="Sind Termin und Rückfallkriterien an alle Beteiligten raus, auch an "
                             "Agenturen und Apps mit Schreibrecht ins Theme?", owner=OPERATOR),
     ]
 
@@ -1615,9 +1706,11 @@ def collect(ctx: dict) -> list:
             + check_after_rest(ctx)
     else:
         seo = [check_seo_robots(ctx, "SEO"), check_seo_pages(ctx, "SEO")] + check_seo_output(ctx)
-        # Die Prüfliste zählt einen Punkt als abgedeckt, wenn die SEO-Prüfung dazu bestanden ist.
-        checklist = check_checklist(ctx, {c["id"]: c["status"] for c in seo})
-        checks = (check_timing(ctx) + check_acceptance(ctx) + [checklist] + check_sync(ctx) + check_draft(ctx)
+        statuses = {c["id"]: c["status"] for c in seo}
+        # Ohne Liste zählt die Prüfliste einen Punkt als abgedeckt, wenn die SEO-Prüfung dazu bestanden ist.
+        # Mit Liste stehen ihre Punkte dort, und check_open_items prüft sie.
+        checklist = [] if ledger_mode(ctx) else [check_checklist(ctx, statuses)]
+        checks = (check_timing(ctx) + check_acceptance(ctx, statuses) + checklist + check_sync(ctx) + check_draft(ctx)
                   + check_embeds(ctx) + check_translations(ctx) + check_tracking(ctx) + check_pagination(ctx)
                   + seo + check_baseline(ctx) + check_criteria(ctx) + check_customer_accounts(ctx)
                   + check_script_tags(ctx))

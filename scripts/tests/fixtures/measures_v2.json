@@ -1,0 +1,157 @@
+{
+  "version": 2,
+  "brand": "beispielmarke",
+  "next_id": 6,
+  "measures": [
+    {
+      "id": "M-001",
+      "created_run_id": "2026-09-01-audit",
+      "title": "Kaufleiste auf dem Handy ab Seitenanfang einblenden",
+      "discipline": "cro",
+      "type": "measure",
+      "confidence": "plausible",
+      "leverage": "high",
+      "effort": "small",
+      "responsible": "Path to AI",
+      "data_source": "Shopify-Theme, Section Produktinformation",
+      "check_rule": "Auf der mobilen Produktseite (390 x 844 px) ist ein Kaufbutton ohne Scrollen sichtbar.",
+      "intent": "Ich stelle die Kaufleiste so ein, dass sie ab Seitenanfang erscheint.",
+      "effect": "Besucher auf dem Handy sehen den Weg zum Kauf ohne Scrollen.",
+      "needs": "Schreibzugriff auf das Theme.",
+      "approval": "recommended",
+      "shops": ["eu", "uk"],
+      "by_shop": {
+        "eu": {
+          "status": "implemented",
+          "history": [
+            { "status": "open", "date": "2026-09-01", "run_id": "2026-09-01-audit" },
+            { "status": "implemented", "date": "2026-10-01", "run_id": "2026-10-01-report", "note": "Kaufbutton bei 612 px sichtbar." }
+          ],
+          "finding_run": "2026-09-01-audit",
+          "finding_id": "CRO-03",
+          "evidence": "screens.json > product-mobil.png",
+          "evidence_text": "Der Kaufbutton beginnt bei 1.300 Pixeln, die Erstansicht endet bei 844 Pixeln."
+        },
+        "uk": {
+          "status": "open",
+          "history": [
+            { "status": "open", "date": "2026-11-12", "run_id": "2026-11-12-audit" }
+          ],
+          "finding_run": "2026-11-12-audit",
+          "finding_id": "CRO-02",
+          "evidence": "screens.json > product-mobil.png",
+          "evidence_text": "Der Kaufbutton beginnt bei 1.400 Pixeln, gleiches Theme wie EU."
+        }
+      }
+    },
+    {
+      "id": "M-002",
+      "created_run_id": "2026-09-01-audit",
+      "title": "Alt-Texte für Produktbilder ergänzen",
+      "discipline": "content",
+      "type": "measure",
+      "confidence": "confirmed",
+      "leverage": "medium",
+      "effort": "medium",
+      "responsible": "Path to AI",
+      "data_source": "Shopify-Katalog, Bilder je Produkt",
+      "check_rule": "Mindestens 95 Prozent der Produktbilder tragen einen Alt-Text.",
+      "approval": null,
+      "shops": ["eu"],
+      "by_shop": {
+        "eu": {
+          "status": "in_progress",
+          "history": [
+            { "status": "open", "date": "2026-09-01", "run_id": "2026-09-01-audit" },
+            { "status": "in_progress", "date": "2026-10-15", "run_id": "2026-10-15-report" }
+          ],
+          "finding_run": "2026-09-01-audit",
+          "finding_id": "CNT-04",
+          "evidence": "catalogue.json > share_images_with_alt",
+          "evidence_text": "420 von 1.200 Bildern haben einen Alt-Text."
+        }
+      }
+    },
+    {
+      "id": "M-003",
+      "title": "Sitemap in der Search Console einreichen",
+      "discipline": "data_quality",
+      "type": "measure",
+      "confidence": "confirmed",
+      "leverage": "low",
+      "effort": "small",
+      "responsible": "Customer",
+      "data_source": "Search Console, Sitemaps",
+      "check_rule": "Die Search Console listet mindestens eine eingereichte Sitemap.",
+      "approval": null,
+      "shops": ["eu"],
+      "by_shop": {
+        "eu": {
+          "status": "open",
+          "history": [
+            { "status": "open", "date": "2026-08-20" }
+          ],
+          "finding_run": "2026-09-01-audit",
+          "finding_id": "MES-11",
+          "evidence": "gsc.json > sitemaps_submitted",
+          "evidence_text": "Keine Sitemap eingereicht."
+        }
+      }
+    },
+    {
+      "id": "M-004",
+      "created_run_id": "2026-11-12-audit",
+      "title": "Preise mit Hinweis auf VAT ausweisen",
+      "discipline": "trust",
+      "type": "measure",
+      "confidence": "confirmed",
+      "leverage": "medium",
+      "effort": "small",
+      "responsible": "Path to AI",
+      "data_source": "Crawl, Produktseiten",
+      "check_rule": "Jede Produktseite in UK zeigt inc. VAT am Preis.",
+      "approval": null,
+      "shops": ["uk"],
+      "by_shop": {
+        "uk": {
+          "status": "open",
+          "history": [
+            { "status": "open", "date": "2026-11-12", "run_id": "2026-11-12-audit" }
+          ],
+          "finding_run": "2026-11-12-audit",
+          "finding_id": "TRU-04",
+          "evidence": "crawl.json > pages[].price_note",
+          "evidence_text": "Kein Hinweis auf VAT an 412 von 412 Produktseiten."
+        }
+      }
+    },
+    {
+      "id": "M-005",
+      "created_run_id": "2026-09-01-audit",
+      "title": "Versandzeile in der Warenkorb-Schublade ergänzen",
+      "discipline": "cro",
+      "type": "measure",
+      "confidence": "confirmed",
+      "leverage": "medium",
+      "effort": "small",
+      "responsible": "Path to AI",
+      "data_source": "Shopify-Theme, Warenkorb-Schublade",
+      "check_rule": "Die Warenkorb-Schublade zeigt die Versandkosten.",
+      "approval": null,
+      "shops": ["eu"],
+      "by_shop": {
+        "eu": {
+          "status": "implemented",
+          "history": [
+            { "status": "open", "date": "2026-09-01", "run_id": "2026-09-01-audit" },
+            { "status": "implemented", "date": "2026-11-20", "run_id": "2026-11-20-report" }
+          ],
+          "finding_run": "2026-09-01-audit",
+          "finding_id": "CRO-05",
+          "evidence": "screens.json > cart-drawer.png",
+          "evidence_text": "Schublade ohne Versandzeile."
+        }
+      }
+    }
+  ]
+}

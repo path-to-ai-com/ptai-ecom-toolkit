@@ -277,9 +277,9 @@ Palette aus dem Ziel und trägt die Farben ein.
    Ohne Lauf geht dieselbe Prüfung über Schema-Auszüge, etwa für eine Bibliothek:
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.schema export \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" schema export \
      --theme-dir <quell-theme> --out <quell-auszug.json>
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.schema export \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" schema export \
      --theme-dir <ziel-theme> --out <ziel-auszug.json>
    ```
 
@@ -288,7 +288,7 @@ Palette aus dem Ziel und trägt die Farben ein.
 3. **Ein Lauf ins Testverzeichnis:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.generate \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" generate \
      --mapping migration/mapping/mapping.json --overrides migration/mapping/overrides.json \
      --source migration/snapshots/<date>-<theme-id> --target-schemas <target-repo> \
      --out migration/build/out --lock migration/build/sources.lock

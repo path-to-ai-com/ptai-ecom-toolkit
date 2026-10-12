@@ -63,5 +63,39 @@ class TestAbgleich(unittest.TestCase):
         self.assertEqual(rerun.orphaned_measures(backlog, PREVIOUS, self.CURRENT), [])
 
 
+class TestVerwaistJeStore(unittest.TestCase):
+    """Spec 2026-10-08, Abschnitt 11: nur Befunde desselben Stores und Laufs."""
+
+    def setUp(self):
+        from tests import brand_support as bs
+        self.backlog = bs.fixture()
+
+    def test_der_nachlauf_in_uk_meldet_keine_massnahme_aus_eu(self):
+        # CRO-03 fällt weg. In EU trägt M-001 denselben Kurznamen, aber aus
+        # einem anderen Lauf; das ist ein anderer Befund.
+        previous = doc(("CRO-02", "a"), ("CRO-03", "b"))
+        orphans = rerun.orphaned_measures(self.backlog, previous, doc(("CRO-02", "a")),
+                                          shop="uk", run_id="2026-11-12-audit")
+        self.assertEqual(orphans, [])
+
+    def test_der_nachlauf_in_uk_meldet_die_eigene(self):
+        previous = doc(("CRO-02", "a"), ("TRU-04", "b"))
+        orphans = rerun.orphaned_measures(self.backlog, previous, doc(),
+                                          shop="uk", run_id="2026-11-12-audit")
+        self.assertEqual([(m["id"], m["shop"]) for m in orphans],
+                         [("M-001", "uk"), ("M-004", "uk")])
+
+    def test_nur_der_lauf_des_befunds_zaehlt(self):
+        previous = doc(("CNT-04", "a"))
+        self.assertEqual(rerun.orphaned_measures(self.backlog, previous, doc(),
+                                                 shop="eu", run_id="2026-10-15-report"), [])
+        self.assertEqual([m["id"] for m in rerun.orphaned_measures(
+            self.backlog, previous, doc(), shop="eu", run_id="2026-09-01-audit")], ["M-002"])
+
+    def test_ohne_store_bricht_es_ab(self):
+        with self.assertRaises(ValueError):
+            rerun.orphaned_measures(self.backlog, doc(), doc())
+
+
 if __name__ == "__main__":
     unittest.main()

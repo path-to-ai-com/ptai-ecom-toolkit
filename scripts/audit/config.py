@@ -120,6 +120,25 @@ def validate(config: dict) -> list[str]:
         errors.append(f"drive_path muss ein absoluter Pfad sein, ist {drive!r}. Den "
                       f"vollen Pfad zum Kundenordner eintragen, siehe /ptai-ecom:setup")
 
+    # Der Ordner der Marke, wenn ihre Stores eine gemeinsame Maßnahmenliste
+    # führen (Spec ptai-portal 2026-10-08, D11). Absolut aus demselben Grund
+    # wie drive_path: ein relativer Pfad zeigte aus einem Git-Worktree an eine
+    # andere Stelle, und dort entstünde eine zweite Liste.
+    brand_ws = config.get("brand_workspace")
+    if brand_ws is not None and (not isinstance(brand_ws, str)
+                                 or not os.path.isabs(os.path.expanduser(brand_ws))):
+        errors.append(f"brand_workspace muss ein absoluter Pfad zum Ordner der Marke "
+                      f"sein, ist {brand_ws!r}")
+
+    # Der Referenz-Store für "Abweichung zu …" (Spec ptai-portal 2026-10-08,
+    # Abschnitt 10). Ein Slug wie im Cockpit, weil er als Ordner unter dem
+    # Ordner der Marke gesucht wird. Ob es den Ordner der Marke gibt, prüft erst
+    # `audit.consistency`: der Pfad kann je Rechner in config.local.json stehen.
+    reference = config.get("reference_shop")
+    if reference is not None:
+        if not isinstance(reference, str) or not re.match(r"^[a-z0-9][a-z0-9-]{0,47}$", reference):
+            errors.append(f"reference_shop muss der Slug eines Stores sein (etwa \"eu\"), ist {reference!r}")
+
     budget = config.get("dfs_budget_usd")
     if budget is not None:
         try:
@@ -202,7 +221,7 @@ def validate(config: dict) -> list[str]:
 
 THEME_MIGRATION_KEYS = ("live_theme_id", "source_theme", "target_theme", "target_repo",
                         "draft_theme_id", "file_prefix", "access", "page_sample", "freeze",
-                        "report_paths", "acceptance_checklist")
+                        "report_paths", "acceptance_checklist", "people")
 THEME_ACCESS_READ = ("cli-grant", "portal", "staff")
 THEME_ACCESS_WRITE = ("cli-theme", "admin-api")
 THEME_ARCHITECTURES = ("os2", "vintage")
@@ -239,6 +258,12 @@ def theme_migration_errors(block) -> list[str]:
     target = block.get("target_theme")
     if target is not None and not isinstance(target, dict):
         errors.append("theme_migration.target_theme muss ein Objekt sein")
+    # Seit 0.3.11: wer an einem Gate oder auf eine Frage entscheiden darf, mit Namen, nie als Sammelname.
+    # `freeze` bleibt für ältere Configs erlaubt; `run_state upgrade` entfernt ihn.
+    people = block.get("people")
+    if people is not None and not (isinstance(people, list)
+                                   and all(isinstance(p, str) and p.strip() for p in people)):
+        errors.append("theme_migration.people muss eine Liste von Namen sein")
     prefix = block.get("file_prefix")
     if prefix is not None and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(prefix)):
         errors.append(f"theme_migration.file_prefix muss kleingeschrieben in kebab-case sein "

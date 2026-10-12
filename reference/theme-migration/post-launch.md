@@ -46,7 +46,7 @@ stehen im Shop, nicht im Ziel-Repo. Ein erneuter Generatorlauf oder ein Upstream
 1. Das live laufende Ziel-Theme sichern:
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.snapshot --theme live --out migration/snapshots
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" snapshot --theme live --out migration/snapshots
    ```
 
 2. Die neue Sicherung gegen das Ziel-Repo diffen, JSON normalisiert. Unterschiede in

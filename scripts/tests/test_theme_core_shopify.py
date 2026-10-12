@@ -4,6 +4,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -99,6 +100,48 @@ class TestCliTransport(unittest.TestCase):
     def test_nur_eine_myshopify_domain_ist_ein_store(self):
         with self.assertRaises(shopify.ShopifyError):
             shopify.CliTransport("beispielshop.example")
+
+    def test_cli_ausgabe_mit_fortschrittszeilen_wird_gelesen(self):
+        payload = {"data": {"themes": {"nodes": [{"id": "a"}, {"id": "b"}]}}}
+        noise = ("Fetching store beispiel.myshopify.com ...\n[1/2] Running query\n"
+                 '{"level": "warn", "message": "CLI-Version veraltet"}\n\u280b Lädt\r')
+        for stdout in (noise + json.dumps(payload, indent=2) + "\n",
+                       noise.replace("\n", "\r\n") + json.dumps(payload) + "\r\n",
+                       json.dumps(payload) + "\nWarnung: Update verfügbar\n"):
+            with self.subTest(stdout=stdout[:40]):
+                runner = FakeRunner((0, stdout, ""))
+                self.assertEqual(self.transport(runner).execute(QUERY), payload["data"])
+
+    def test_abgeschnittene_cli_antwort_nach_einer_warnung_ist_ein_fehler(self):
+        stdout = '{"level": "warn"}\n' + json.dumps({"data": {"themes": {"nodes": [{"id": "a"}]}}}, indent=2)[:30]
+        with self.assertRaisesRegex(shopify.ShopifyError, "abgeschnitten"):
+            self.transport(FakeRunner((0, stdout, ""))).execute(QUERY)
+        with self.assertRaisesRegex(shopify.ShopifyError, "kein JSON"):
+            self.transport(FakeRunner((0, "Fetching ...\n[1/2] fertig\n", ""))).execute(QUERY)
+
+    def test_cli_wird_als_shopify_cmd_gefunden(self):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"themes": {"nodes": []}}), "")
+
+        for found in ({"shopify.cmd": r"C:\npm\shopify.cmd"},
+                      {"shopify": r"C:\npm\shopify", "shopify.cmd": r"C:\npm\shopify.cmd"}):
+            with self.subTest(found=sorted(found)), mock.patch.object(shopify, "IS_WINDOWS", True), \
+                    mock.patch.object(shopify.shutil, "which", side_effect=found.get), \
+                    mock.patch.object(shopify.subprocess, "run", side_effect=fake_run):
+                calls.clear()
+                data = shopify.CliTransport("beispiel.myshopify.com", sleep=self.slept.append).execute(QUERY)
+                self.assertEqual(data, {"themes": {"nodes": []}})
+                cmd, kwargs = calls[0]
+                self.assertEqual(cmd[0], r"C:\npm\shopify.cmd")
+                self.assertEqual(cmd[1:5], ["store", "execute", "--store", "beispiel.myshopify.com"])
+                self.assertEqual((kwargs["encoding"], kwargs["errors"]), ("utf-8", "replace"))
+        with mock.patch.object(shopify, "IS_WINDOWS", True), mock.patch.object(shopify.shutil, "which",
+                                                                               return_value=None):
+            with self.assertRaisesRegex(shopify.ShopifyError, "shopify.cmd nicht im PATH"):
+                shopify.CliTransport("beispiel.myshopify.com").execute(QUERY)
 
 
 class TestPortalTransport(unittest.TestCase):

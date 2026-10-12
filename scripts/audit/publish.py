@@ -18,9 +18,26 @@ Kunde kann mehrere Shops fuehren; ohne diese Trennung braeuchte dieselbe Person
 je Shop einen eigenen Zugang, und der zweite Shop waere eine Migration statt
 eines Ordners.
 
+**Dateien der Marke** (Spec `ptai-portal` 2026-10-08, Abschnitt 5.1 und 11).
+Steht `brand_workspace` in der Config, liegen `measures.json`, `measures.md`
+und `feedback.json` einmal je Marke. Sie gehen nach `brands/<slug>/` und
+stehen im Manifest unter `files` an der Wurzel; je Store gehen nur noch
+Baseline und Läufe hoch. Vor dem Kopieren prüft `publish` die Liste der Marke
+(`shops` und `by_shop` passen zusammen, jeder `finding_id` steht in seinem
+Lauf `finding_run`, wenn der Lauf hier liegt). Die Vorschau geht dann je Marke
+in eine eigene Testmarke `portal-test-<marke>` (D11), sonst überschrieben sich
+die Listen zweier Marken in `portal-test`.
+
+**Das Manifest unter Sperre und mit Zähler** (D12). Lesen, Ändern und Schreiben
+des Manifests laufen unter der Sperre der Marke, und das Manifest trägt an der
+Wurzel `revision`. Vor dem Hochladen holt `publish` das Manifest noch einmal
+aus dem Bucket: hat es sich seit dem Lesen geändert, bricht es ab, statt den
+Lauf eines anderen Stores aus dem Verzeichnis zu werfen.
+
 CLI:
     python3 -m audit.publish --workspace . --run-id 2026-09-08-audit \\
         --target ~/tmp/bucket        # lokal, solange kein Bucket steht
+    python3 -m audit.publish --workspace . --brand-only --target <leer> --upload
 """
 from __future__ import annotations
 
@@ -32,7 +49,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from audit import brand as brand_mod
 from audit import manifest
+from audit import measures
 
 #: Dateien auf Workspace-Ebene, die zum Shop gehoeren und nicht zu einem
 #: einzelnen Lauf: der Massnahmen-Backlog bewegt sich ueber Laeufe hinweg, die
@@ -51,17 +70,17 @@ SHOP_DIRS = ("baseline",)
 #: bewegt: aus einer vermuteten wird eine bestaetigte.
 SNAPSHOT_FILES = ("measures.json", "feedback.json")
 
-#: Aus "Beispielshop" wird "beispielshop", aus "Nord & Stein" wird "nord-stein".
-_NON_SLUG_CHARS = re.compile(r"[^a-z0-9]+")
+#: Was die Marke einmal für alle Stores führt. Liegt im Bucket unter
+#: `brands/<slug>/` und im Manifest unter `files` an der Wurzel.
+BRAND_FILES = brand_mod.BRAND_FILES
+
+#: Vorsilbe der Testmarke je echter Marke (D11).
+PREVIEW_PREFIX = "portal-test-"
 
 
 def slugify(name: str) -> str:
     """Ein Shop-Name als Pfadsegment."""
-    umlauts = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
-               "Ä": "ae", "Ö": "oe", "Ü": "ue"}
-    for umlaut, replacement in umlauts.items():
-        name = name.replace(umlaut, replacement)
-    return _NON_SLUG_CHARS.sub("-", name.lower()).strip("-")
+    return brand_mod.slugify(name)
 
 
 def destination(config: dict, account_slug: str | None = None) -> tuple[str, str]:
@@ -84,6 +103,10 @@ def run_kind(run_id: str, state: dict) -> tuple[str, str | None]:
     """Lauf-Art und Kadenz. Die Lauf-ID traegt sie im Namen (`<datum>-<kadenz>`),
     der Zustand bestaetigt sie."""
     cadence = state.get("cadence") or (run_id.rsplit("-", 1)[-1] if "-" in run_id else None)
+    # Ein Lauf der Kadenz `week` ist der Wochenpuls (Spec Wächter und Wirkung
+    # im Repo `ptai-portal`, Abschnitt 3.2).
+    if cadence == "week":
+        return "pulse", cadence
     kind = cadence if cadence in manifest.KINDS else "report"
     return kind, cadence
 
@@ -142,6 +165,104 @@ def manifest_key(brand: str) -> str:
     return f"brands/{brand}/manifest.json"
 
 
+def preview_slug(brand: str) -> str:
+    """Die Testmarke einer echten Marke: `portal-test-<marke>`."""
+    return f"{PREVIEW_PREFIX}{brand}"
+
+
+def check_preview_target(config: dict, account_slug: str | None,
+                         brand_files: bool) -> None:
+    """Mit Dateien der Marke geht eine Vorschau nur in deren eigene Testmarke.
+
+    Die Liste der Marke liegt im Bucket unter `brands/<slug>/measures.json`.
+    Zwei Marken in derselben Testmarke `portal-test` überschrieben sich dort
+    gegenseitig, und die Vorschau zeigte die Maßnahmen der falschen Marke (D11).
+    """
+    real = brand_mod.brand_slug(config)
+    if not brand_files or not account_slug or account_slug == real:
+        return
+    expected = preview_slug(real)
+    if account_slug != expected:
+        raise SystemExit(
+            f"--account-slug {account_slug}: diese Marke führt ihre Maßnahmen in "
+            "einer Datei der Marke, und die läge in der Testmarke neben der "
+            f"Liste anderer Marken. Vorschau mit --account-slug {expected}. "
+            "Nichts kopiert.")
+
+
+def brand_problems(workspace, backlog: dict, brand_reporting: Path,
+                   config: dict) -> list[str]:
+    """Die Prüfung vor `publish` für die Liste einer Marke (Spec 5.1, Abschnitt 11).
+
+    Regel 2 (`shops` und `by_shop` passen zusammen) und dass jeder Befund in
+    seinem Lauf steht: `finding_id` in `finding_run`, sofern dieser Lauf auf
+    diesem Rechner liegt. Ein Lauf eines anderen Stores, der hier nicht liegt,
+    ist kein Fehler, nur nicht prüfbar.
+    """
+    problems = measures.consistency_problems(backlog)
+    own_shop = brand_mod.shop_slug(config)
+    cache: dict[Path, set] = {}
+    for measure in backlog.get("measures") or []:
+        for shop, entry in (measure.get("by_shop") or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            fid, frun = entry.get("finding_id"), entry.get("finding_run")
+            if not fid:
+                continue
+            if not frun:
+                problems.append(f"{measure.get('id')}: by_shop.{shop} nennt "
+                                f"Befund {fid} ohne finding_run")
+                continue
+            runs = brand_mod.store_runs_dir(brand_reporting, shop, workspace, own_shop)
+            run_dir = runs / frun
+            if not run_dir.is_dir():
+                continue
+            if run_dir not in cache:
+                cache[run_dir] = brand_mod.finding_ids(run_dir)
+            if fid not in cache[run_dir]:
+                problems.append(f"{measure.get('id')}: by_shop.{shop} zeigt auf "
+                                f"{fid} im Lauf {frun}, dort gibt es ihn nicht")
+    return problems
+
+
+def _check_brand_files(workspace, config: dict, brand_reporting: Path) -> None:
+    """Bricht vor dem Kopieren ab, wenn die Liste der Marke nicht passt."""
+    backlog = measures.peek(workspace)
+    if not measures.is_v2(backlog):
+        raise SystemExit(f"{brand_reporting / 'measures.json'} ist keine Liste im "
+                         "Format v2. Nichts kopiert.")
+    problems = brand_problems(workspace, backlog, brand_reporting, config)
+    if problems:
+        raise SystemExit("Die Liste der Marke passt nicht, nichts kopiert:\n  "
+                         + "\n  ".join(problems))
+
+
+def _load_manifest(target: Path, brand: str, config: dict) -> tuple[Path, dict, int | None]:
+    """Manifest aus dem Ziel, dazu sein Zähler vor dieser Änderung.
+
+    `None` als Zähler heißt: es gab noch kein Manifest. Ein Manifest aus der
+    Zeit vor dem Zähler zählt als 0.
+    """
+    manifest_path = target / manifest_key(brand)
+    if manifest_path.exists():
+        data = manifest.load(manifest_path)
+        return manifest_path, data, int(data.get("revision") or 0)
+    return manifest_path, manifest.empty(brand, config.get("brand") or brand), None
+
+
+def _copy_brand_files(brand_reporting: Path, target: Path, brand: str) -> dict:
+    """Legt die Dateien der Marke unter `brands/<slug>/` ab und gibt ihre Größen."""
+    files = {}
+    for name in BRAND_FILES:
+        source = brand_reporting / name
+        if source.exists():
+            dest = target / "brands" / brand / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, dest)
+            files[name] = source.stat().st_size
+    return files
+
+
 def prepare(workspace, run_id: str, target, today: date | None = None,
             note: str | None = None, replace: bool = False,
             visible: bool = False, account_slug: str | None = None) -> dict:
@@ -157,9 +278,15 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
     (Spec `ptai-portal` 2026-10-02, Abschnitt 17, Punkt 2). `account_slug`
     schickt den Lauf an eine andere Marke, etwa die Testmarke `portal-test`,
     damit wir ihn dort ansehen, bevor der Kunde ihn sieht.
+
+    Mit Dateien der Marke (`brand_workspace`) gehen diese nach `brands/<slug>/`
+    statt je Store, die Kopie im Lauf ist die Liste der Marke, und die Vorschau
+    braucht `portal-test-<marke>`.
     """
     workspace, target = Path(workspace), Path(target)
     config = load_config(workspace)
+    brand_reporting = brand_mod.brand_reporting_dir(workspace, config)
+    check_preview_target(config, account_slug, brand_reporting is not None)
     brand, shop = destination(config, account_slug)
 
     run_dir = workspace / "reporting" / "runs" / run_id
@@ -175,86 +302,142 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
     if problems:
         raise SystemExit("Belegbilder unvollständig, nichts kopiert:\n  " + "\n  ".join(problems))
 
-    # **Das Manifest wird vor dem Kopieren gelesen**, weil der Zielpfad an der
-    # Fassungsnummer haengt und die nur das Manifest kennt.
-    manifest_path = target / manifest_key(brand)
-    manifest_data = (manifest.load(manifest_path) if manifest_path.exists()
-                     else manifest.empty(brand, config.get("brand") or brand))
-    existing = next((r for r in manifest_data.get("runs") or []
-                     if r["shop"] == shop and r["run_id"] == run_id), None)
-    if existing and existing.get("released") and not visible:
-        raise SystemExit(
-            f"Lauf {run_id} ist für den Kunden sichtbar, eine neue Fassung wäre es "
-            "sofort auch. Mit --visible hochladen, wenn sie das sein soll, oder "
-            "vorher mit --account-slug an eine Testmarke. Nichts kopiert.")
-    revision = manifest.next_revision(manifest_data, shop, run_id, replace=replace)
+    # Lesen, Prüfen, Kopieren und das Manifest schreiben am Stück unter der
+    # Sperre: ein Lauf eines anderen Stores schreibt sonst dazwischen die
+    # Liste der Marke, und die Kopie im Lauf zeigte einen halben Stand (D4).
+    with brand_mod.lock(workspace):
+        if brand_reporting is not None:
+            _check_brand_files(workspace, config, brand_reporting)
+        backlog_dir = measures.file_path(workspace).parent
 
-    run_target = target / manifest.path_for(brand, shop, run_id, revision)
-    if run_target.exists():
-        shutil.rmtree(run_target)
-    for rel in files:
-        source, dest = run_dir / rel, run_target / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, dest)
+        # **Das Manifest wird vor dem Kopieren gelesen**, weil der Zielpfad an
+        # der Fassungsnummer haengt und die nur das Manifest kennt.
+        manifest_path, manifest_data, base_revision = _load_manifest(target, brand, config)
+        existing = next((r for r in manifest_data.get("runs") or []
+                         if r["shop"] == shop and r["run_id"] == run_id), None)
+        # Der Wochenpuls ist immer sichtbar; eine neue Version am selben Tag
+        # braucht deshalb kein --visible.
+        if existing and existing.get("released") and not visible and kind != "pulse":
+            raise SystemExit(
+                f"Lauf {run_id} ist für den Kunden sichtbar, eine neue Fassung wäre es "
+                "sofort auch. Mit --visible hochladen, wenn sie das sein soll, oder "
+                "vorher mit --account-slug an eine Testmarke. Nichts kopiert.")
+        revision = manifest.next_revision(manifest_data, shop, run_id, replace=replace)
 
-    # Liegt im Lauf schon eine eigene Fassung, gilt seine: der Schnappschuss
-    # ergaenzt, er ueberschreibt nie.
-    for name in SNAPSHOT_FILES:
-        snapshot_source = workspace / "reporting" / name
-        if name not in files and snapshot_source.exists():
-            shutil.copy2(snapshot_source, run_target / name)
-            files[name] = snapshot_source.stat().st_size
-
-    # Der Backlog und die Baseline gehoeren dem Shop, nicht dem Lauf. Sie
-    # wandern bei jedem publish mit, weil sie sich zwischen den Laeufen
-    # bewegen: eine Massnahme wechselt ihren Status, ein Baseline-Block wird
-    # nachgetragen.
-    shop_target = target / manifest.path_for(brand, shop)
-    shop_files = {}
-    for name in SHOP_FILES:
-        source = workspace / "reporting" / name
-        if source.exists():
-            dest = shop_target / name
+        run_target = target / manifest.path_for(brand, shop, run_id, revision)
+        if run_target.exists():
+            shutil.rmtree(run_target)
+        for rel in files:
+            source, dest = run_dir / rel, run_target / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, dest)
-            shop_files[name] = source.stat().st_size
-    for name in SHOP_DIRS:
-        source = workspace / "reporting" / name
-        if not source.is_dir():
-            continue
-        for path in sorted(source.rglob("*")):
-            if not path.is_file():
-                continue
-            rel = path.relative_to(workspace / "reporting").as_posix()
-            dest = shop_target / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, dest)
-            shop_files[rel] = path.stat().st_size
 
-    # Der Shop bekommt seinen Anzeigenamen, damit die App ihn nennen kann,
-    # ohne den Slug zu verschoenern.
-    manifest_data.setdefault("shops", {})[shop] = {
-        "name": config.get("brand") or shop,
-        "domain": config.get("domain"),
-        "path": manifest.path_for(brand, shop),
-        "files": shop_files,
-    }
-    manifest_data = manifest.add_run(manifest_data, shop=shop, run_id=run_id,
-                                     kind=kind, cadence=cadence,
-                                     period=state.get("period"),
-                                     run_date=run_id[:10], files=files,
-                                     revision=revision, note=note,
-                                     title=state.get("title"), today=today)
-    manifest.save(manifest_path, manifest_data)
+        # Liegt im Lauf schon eine eigene Fassung, gilt seine: der Schnappschuss
+        # ergaenzt, er ueberschreibt nie. Bei einer Marke ist es die Liste der
+        # Marke zur Zeit dieses Laufs (Spec 5.4, D12).
+        # Der Wochenpuls bekommt keinen Schnappschuss der Maßnahmen: er ist
+        # keine Prüfung, und ein Lauf mit `measures.json` gilt im Cockpit als
+        # letzte Prüfung.
+        for name in (() if kind == "pulse" else SNAPSHOT_FILES):
+            snapshot_source = backlog_dir / name
+            if name not in files and snapshot_source.exists():
+                shutil.copy2(snapshot_source, run_target / name)
+                files[name] = snapshot_source.stat().st_size
+
+        # Der Backlog und die Baseline gehoeren dem Shop, nicht dem Lauf. Sie
+        # wandern bei jedem publish mit, weil sie sich zwischen den Laeufen
+        # bewegen: eine Massnahme wechselt ihren Status, ein Baseline-Block wird
+        # nachgetragen. Bei einer Marke gehen Maßnahmen und Anforderungen an
+        # die Wurzel der Marke, je Store bleibt nur die Baseline.
+        shop_target = target / manifest.path_for(brand, shop)
+        shop_files = {}
+        brand_files = None
+        if brand_reporting is not None:
+            brand_files = _copy_brand_files(brand_reporting, target, brand)
+        else:
+            for name in SHOP_FILES:
+                source = workspace / "reporting" / name
+                if source.exists():
+                    dest = shop_target / name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, dest)
+                    shop_files[name] = source.stat().st_size
+        for name in SHOP_DIRS:
+            source = workspace / "reporting" / name
+            if not source.is_dir():
+                continue
+            for path in sorted(source.rglob("*")):
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(workspace / "reporting").as_posix()
+                dest = shop_target / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest)
+                shop_files[rel] = path.stat().st_size
+
+        # Der Shop bekommt seinen Anzeigenamen, damit die App ihn nennen kann,
+        # ohne den Slug zu verschoenern.
+        manifest_data.setdefault("shops", {})[shop] = {
+            "name": config.get("brand") or shop,
+            "domain": config.get("domain"),
+            "path": manifest.path_for(brand, shop),
+            "files": shop_files,
+        }
+        if brand_files is not None:
+            manifest_data["files"] = brand_files
+        manifest_data = manifest.add_run(manifest_data, shop=shop, run_id=run_id,
+                                         kind=kind, cadence=cadence,
+                                         period=state.get("period"),
+                                         run_date=run_id[:10], files=files,
+                                         revision=revision, note=note,
+                                         title=state.get("title"), today=today)
+        # Der Wochenpuls ist die benannte Ausnahme von "hochgeladen ist nicht
+        # sichtbar": er enthält nur Meldungen, keine Befunde und keine
+        # Maßnahmen, und trägt im Cockpit "automatisch erstellt".
+        if kind == "pulse":
+            manifest_data = manifest.release(manifest_data, shop, run_id, today=today)
+        manifest_data["revision"] = (base_revision or 0) + 1
+        manifest.save(manifest_path, manifest_data)
     # Eine Freigabe bleibt über neue Fassungen erhalten (`manifest.add_run`).
     # Gemeldet wird deshalb der Stand aus dem Manifest, nicht ein fester Wert.
     entry = next(r for r in manifest_data["runs"]
                  if r["shop"] == shop and r["run_id"] == run_id)
     return {"brand": brand, "shop": shop, "run_id": run_id,
             "files": len(files), "shop_files": len(shop_files),
+            "brand_files": len(brand_files or {}),
             "revision": revision,
+            "manifest_revision": manifest_data["revision"],
+            "manifest_base_revision": base_revision,
             "path": str(run_target), "manifest": str(manifest_path),
             "released": entry["released"]}
+
+
+def prepare_brand_only(workspace, target, account_slug: str | None = None) -> dict:
+    """Nur die Dateien der Marke und das Manifest, kein Lauf.
+
+    Für den Umzug einer Marke (Spec Abschnitt 12, A3): nach `brand_migrate`
+    liegt die Liste bei der Marke, und das Cockpit soll sie lesen, ohne dass
+    ein Lauf neu hochgeht.
+    """
+    workspace, target = Path(workspace), Path(target)
+    config = load_config(workspace)
+    brand_reporting = brand_mod.brand_reporting_dir(workspace, config)
+    if brand_reporting is None:
+        raise SystemExit("--brand-only braucht brand_workspace in reporting/config.json: "
+                         "ohne Ordner der Marke gibt es keine Dateien der Marke.")
+    check_preview_target(config, account_slug, True)
+    brand, _shop = destination(config, account_slug)
+    with brand_mod.lock(workspace):
+        _check_brand_files(workspace, config, brand_reporting)
+        manifest_path, manifest_data, base_revision = _load_manifest(target, brand, config)
+        brand_files = _copy_brand_files(brand_reporting, target, brand)
+        manifest_data["files"] = brand_files
+        manifest_data["revision"] = (base_revision or 0) + 1
+        manifest.save(manifest_path, manifest_data)
+    return {"brand": brand, "brand_files": len(brand_files),
+            "manifest": str(manifest_path),
+            "manifest_revision": manifest_data["revision"],
+            "manifest_base_revision": base_revision}
 
 
 #: Wie eine Datei im Bucket ausgeliefert wird. Ohne den richtigen Typ laedt der
@@ -305,6 +488,43 @@ def upload(local_root, url: str, service_key: str, bucket: str = "runs") -> dict
     return {"uploaded": uploaded, "errors": errors}
 
 
+def _download_manifest(brand: str, url: str, service_key: str,
+                       bucket: str = "runs") -> bytes | None:
+    """Das Manifest aus dem Bucket, `None`, wenn die Brand dort keines hat.
+
+    Jeder andere Fehler bricht ab: ein Manifest, das sich nicht lesen ließ, ist
+    kein leeres.
+    """
+    import urllib.error
+    import urllib.request
+
+    object_key = manifest_key(brand)
+    request = urllib.request.Request(
+        f"{url.rstrip('/')}/storage/v1/object/{bucket}/{object_key}",
+        headers={"Authorization": f"Bearer {service_key}",
+                 "apikey": service_key})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        # Supabase Storage antwortet bei einem fehlenden Objekt nicht mit dem
+        # äußeren HTTP-Status 404, sondern mit HTTP 400 und `NoSuchKey` im
+        # JSON-Body. Nur dieser benannte 400-Fall bedeutet "neue Brand"; ein
+        # anderer 400er bleibt ein Abbruch, damit kein bestehendes Manifest
+        # versehentlich durch ein leeres ersetzt wird.
+        error_body = exc.read()
+        exc.close()
+        missing = (exc.code == 404 or
+                   (exc.code == 400 and b'"code":"NoSuchKey"' in error_body))
+        if missing:
+            return None
+        raise SystemExit(f"Manifest {object_key} nicht aus dem Bucket lesbar: "
+                         f"HTTP {exc.code}. Abgebrochen, nichts hochgeladen.")
+    except OSError as exc:
+        raise SystemExit(f"Manifest {object_key} nicht aus dem Bucket lesbar: "
+                         f"{exc}. Abgebrochen, nichts hochgeladen.")
+
+
 def fetch_manifest(target, brand: str, url: str, service_key: str,
                    bucket: str = "runs") -> str:
     """Holt das Manifest aus dem Bucket ins Ziel, bevor `prepare()` darauf aufbaut.
@@ -319,46 +539,48 @@ def fetch_manifest(target, brand: str, url: str, service_key: str,
     Brand ist neu). Jeder andere Fehler bricht ab, bevor etwas hochgeht: ein
     Manifest, das sich nicht lesen ließ, ist kein leeres.
     """
-    import urllib.error
-    import urllib.request
-
-    object_key = manifest_key(brand)
-    path = Path(target) / object_key
+    path = Path(target) / manifest_key(brand)
     if path.exists():
         return "local"
-    request = urllib.request.Request(
-        f"{url.rstrip('/')}/storage/v1/object/{bucket}/{object_key}",
-        headers={"Authorization": f"Bearer {service_key}",
-                 "apikey": service_key})
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            body = response.read()
-    except urllib.error.HTTPError as exc:
-        # Supabase Storage antwortet bei einem fehlenden Objekt nicht mit dem
-        # äußeren HTTP-Status 404, sondern mit HTTP 400 und `NoSuchKey` im
-        # JSON-Body. Nur dieser benannte 400-Fall bedeutet "neue Brand"; ein
-        # anderer 400er bleibt ein Abbruch, damit kein bestehendes Manifest
-        # versehentlich durch ein leeres ersetzt wird.
-        error_body = exc.read()
-        exc.close()
-        missing = (exc.code == 404 or
-                   (exc.code == 400 and b'"code":"NoSuchKey"' in error_body))
-        if missing:
-            return "new"
-        raise SystemExit(f"Manifest {object_key} nicht aus dem Bucket lesbar: "
-                         f"HTTP {exc.code}. Abgebrochen, nichts hochgeladen.")
-    except OSError as exc:
-        raise SystemExit(f"Manifest {object_key} nicht aus dem Bucket lesbar: "
-                         f"{exc}. Abgebrochen, nichts hochgeladen.")
+    body = _download_manifest(brand, url, service_key, bucket)
+    if body is None:
+        return "new"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(body)
     return "remote"
 
 
+def check_manifest_unchanged(brand: str, base_revision: int | None, url: str,
+                             service_key: str, bucket: str = "runs") -> None:
+    """Bricht ab, wenn sich das Manifest im Bucket seit dem Lesen geändert hat (D12).
+
+    `base_revision` ist der Zähler des Manifests, auf dem `prepare()` aufgebaut
+    hat, `None` für eine Brand ohne Manifest. Steht im Bucket inzwischen ein
+    anderer Zähler, hat ein zweites `publish` dazwischen geschrieben; dessen
+    Lauf verschwände mit dem Hochladen aus dem Verzeichnis.
+    """
+    body = _download_manifest(brand, url, service_key, bucket)
+    remote = None
+    if body is not None:
+        try:
+            remote = int(json.loads(body.decode("utf-8")).get("revision") or 0)
+        except (ValueError, AttributeError) as exc:
+            raise SystemExit(f"Manifest {manifest_key(brand)} im Bucket ist kein "
+                             f"lesbares JSON ({exc}). Abgebrochen, nichts hochgeladen.")
+    if remote != base_revision:
+        seen = "keins" if base_revision is None else f"Zähler {base_revision}"
+        now = "keins" if remote is None else f"Zähler {remote}"
+        raise SystemExit(
+            f"Das Manifest von {brand} hat sich im Bucket geändert (gelesen: {seen}, "
+            f"jetzt: {now}). Ein anderes publish hat dazwischen geschrieben. "
+            "Abgebrochen, nichts hochgeladen. Mit einem leeren --target neu starten.")
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--workspace", default=".")
-    p.add_argument("--run-id", required=True)
+    p.add_argument("--run-id",
+                   help="der Lauf; entfällt nur mit --brand-only")
     p.add_argument("--target", required=True,
                    help="Ordner, in dem der Lauf fuer den Upload vorbereitet wird")
     p.add_argument("--note",
@@ -373,13 +595,22 @@ def main(argv=None) -> int:
                         "hochladen; sie ist danach sofort beim Kunden sichtbar")
     p.add_argument("--account-slug",
                    help="an diese Marke statt an die aus reporting/config.json, "
-                        "etwa portal-test fuer eine Vorschau")
+                        "etwa portal-test fuer eine Vorschau; mit Dateien der "
+                        "Marke nur portal-test-<marke>")
+    p.add_argument("--brand-only", action="store_true",
+                   help="nur die Dateien der Marke (Massnahmen, Anforderungen) "
+                        "und das Manifest, kein Lauf; fuer den Umzug einer Marke")
     p.add_argument("--upload", action="store_true",
                    help="danach in den Bucket laden, braucht SUPABASE_URL und "
                         "SUPABASE_SERVICE_ROLE_KEY in der Umgebung; liegt im "
                         "Ziel kein Manifest, kommt es vorher aus dem Bucket")
     a = p.parse_args(argv)
+    if not a.brand_only and not a.run_id:
+        p.error("--run-id fehlt (nur mit --brand-only verzichtbar)")
+    if a.brand_only and a.run_id:
+        p.error("--brand-only lädt keinen Lauf, --run-id weglassen")
 
+    url = key = None
     if a.upload:
         import os
         url = os.environ.get("SUPABASE_URL")
@@ -392,34 +623,54 @@ def main(argv=None) -> int:
                   "Umgebung. Nichts vorbereitet, nichts hochgeladen.",
                   file=sys.stderr)
             return 1
-        origin = fetch_manifest(a.target,
-                                destination(load_config(a.workspace), a.account_slug)[0],
-                                url, key)
-        print({"local": "Manifest lag schon im Ziel und bleibt, wie es ist",
-               "remote": "Manifest aus dem Bucket übernommen",
-               "new": "Brand ist neu im Bucket, das Manifest beginnt leer"}[origin])
 
-    result = prepare(a.workspace, a.run_id, a.target,
-                     note=a.note, replace=a.replace,
-                     visible=a.visible, account_slug=a.account_slug)
-    print(f"{result['files']} Dateien nach {result['path']}")
-    if result["revision"] > 1:
-        print(f"Fassung {result['revision']:02d}"
-              + (f": {a.note}" if a.note else ": Korrektur ohne Notiz"))
-    if a.replace:
-        print("--replace: in die laufende Fassung geschrieben, kein Eintrag "
-              "im Verlauf.")
-    print(f"{result['shop_files']} Dateien auf Shop-Ebene "
-          "(Massnahmen und Baseline, sie gelten ueber Laeufe hinweg)")
-    print(f"Manifest: {result['manifest']}")
-    if a.upload:
-        upload_result = upload(a.target, url, key)
-        print(f"{upload_result['uploaded']} Objekte im Bucket")
-        for line in upload_result["errors"][:10]:
-            print(f"  FEHLER {line}", file=sys.stderr)
-        if upload_result["errors"]:
-            return 1
+    # Holen, Vorbereiten, Prüfen und Hochladen unter einer Sperre: zwei
+    # publish desselben Rechners laufen nacheinander, und gegen eines von
+    # einem anderen Rechner hilft der Zähler im Manifest (D12).
+    with brand_mod.lock(a.workspace):
+        config = load_config(a.workspace)
+        check_preview_target(config, a.account_slug,
+                             brand_mod.has_brand_files(a.workspace, config))
+        brand = destination(config, a.account_slug)[0]
+        if a.upload:
+            origin = fetch_manifest(a.target, brand, url, key)
+            print({"local": "Manifest lag schon im Ziel und bleibt, wie es ist",
+                   "remote": "Manifest aus dem Bucket übernommen",
+                   "new": "Brand ist neu im Bucket, das Manifest beginnt leer"}[origin])
 
+        if a.brand_only:
+            result = prepare_brand_only(a.workspace, a.target,
+                                        account_slug=a.account_slug)
+            print(f"{result['brand_files']} Dateien der Marke nach "
+                  f"{Path(a.target) / 'brands' / result['brand']}")
+        else:
+            result = prepare(a.workspace, a.run_id, a.target,
+                             note=a.note, replace=a.replace,
+                             visible=a.visible, account_slug=a.account_slug)
+            print(f"{result['files']} Dateien nach {result['path']}")
+            if result["revision"] > 1:
+                print(f"Fassung {result['revision']:02d}"
+                      + (f": {a.note}" if a.note else ": Korrektur ohne Notiz"))
+            if a.replace:
+                print("--replace: in die laufende Fassung geschrieben, kein Eintrag "
+                      "im Verlauf.")
+            if result["brand_files"]:
+                print(f"{result['brand_files']} Dateien der Marke (Massnahmen und "
+                      "Anforderungen, sie gelten fuer alle Stores)")
+            print(f"{result['shop_files']} Dateien auf Shop-Ebene "
+                  "(Baseline, bei einem Store ohne Marke auch die Massnahmen)")
+        print(f"Manifest: {result['manifest']} (Zähler {result['manifest_revision']})")
+        if a.upload:
+            check_manifest_unchanged(brand, result["manifest_base_revision"], url, key)
+            upload_result = upload(a.target, url, key)
+            print(f"{upload_result['uploaded']} Objekte im Bucket")
+            for line in upload_result["errors"][:10]:
+                print(f"  FEHLER {line}", file=sys.stderr)
+            if upload_result["errors"]:
+                return 1
+
+    if a.brand_only:
+        return 0
     if result["released"]:
         print("Freigabe: ja, übernommen. Der Kunde sieht diese Fassung.")
     else:

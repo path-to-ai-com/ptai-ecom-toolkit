@@ -131,6 +131,25 @@ class TestCli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(summary["complete"])
 
+    def test_gitattributes_bekommt_die_zeile_genau_einmal(self):
+        ws = fake.temp_workspace(self)
+        attributes = ws / ".gitattributes"
+        argv = ["--theme", "live", "--out", str(ws / "migration/snapshots"), "--workspace", str(ws)]
+        _, summary = self.run_main(argv, fake.shop_with_live())
+        self.assertTrue(summary["gitattributes_updated"])
+        self.assertEqual(attributes.read_bytes(), b"migration/snapshots/** -text\n")
+        _, summary = self.run_main(argv, fake.shop_with_live())
+        self.assertFalse(summary["gitattributes_updated"])
+        self.assertEqual(attributes.read_bytes(), b"migration/snapshots/** -text\n")
+        # Vorhandener Inhalt bleibt Byte für Byte, die Zeile kommt mit seinem Zeilenende dazu.
+        attributes.write_bytes(b"*.png binary\r\n*.liquid text eol=lf")
+        self.assertTrue(snapshot.ensure_gitattributes(ws))
+        self.assertEqual(attributes.read_bytes(),
+                         b"*.png binary\r\n*.liquid text eol=lf\r\nmigration/snapshots/** -text\r\n")
+        self.assertFalse(snapshot.ensure_gitattributes(ws))
+        attributes.write_bytes(b"migration/snapshots/**   -text\n")
+        self.assertFalse(snapshot.ensure_gitattributes(ws), "andere Leerzeichen sind dieselbe Zeile")
+
     def test_original_aus_zip_ohne_oberordner_und_ohne_fremddateien(self):
         ws = fake.temp_workspace(self)
         archive = ws / "beispiel-original.zip"

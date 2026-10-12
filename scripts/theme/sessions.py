@@ -10,7 +10,15 @@ Repo der Marke neben `state.json` und `journal.jsonl`.
 Abgelegt wird nach `reporting/runs/<run-id>/sessions/`:
 
 - `<session-id>.jsonl.gz` je Session und `<session-id>/subagents/<agent>.jsonl.gz`
-- `index.json` mit Beginn, Ende, Zahl der Eingaben, Subagents und Schwärzungen
+- `index.json` mit Beginn, Ende, Zahl der Eingaben, Subagents und Schwärzungen,
+  ein Eintrag je `session_id`, mit dem bisherigen Stand zusammengeführt
+
+Zugeordnet wird über das `cwd` der Zeilen einer Session, nicht über Freitext: bis
+zum 12.10.2026 reichte es, den Workspace-Pfad irgendwo zu nennen. Dadurch landeten
+Scratch-Sitzungen (auch private) im Archiv, während echte Sitzungen unter Windows
+fehlten, weil der Pfad dort JSON-escaped, in anderer Schreibweise, mit
+Laufwerksbuchstabe oder als UNC-Pfad steht. Ein Lauf ohne Treffer hatte zudem einen
+gefüllten Index geleert.
 
 Vor dem Schreiben werden bekannte Geheimnis-Formate geschwärzt (Shopify-, GitHub-,
 Google- und Anthropic-Token, private Schlüssel, Felder wie `access_token`). Das
@@ -22,8 +30,10 @@ Aufruf:
         [--projects ~/.claude/projects]
 """
 import argparse
+import functools
 import gzip
 import json
+import os
 import re
 import sys
 import time
@@ -63,21 +73,136 @@ def redact(text: str) -> tuple[str, int]:
     return text, count + n
 
 
-def belongs_to(transcript: Path, roots: list[Path]) -> bool:
-    """Eine Session gehört zum Lauf, wenn sie in einem der Ordner lief oder ihn nennt.
+# Präfixe von Windows-Gerätepfaden: `\\?\C:\` und `\\.\C:\` meinen `C:\`,
+# `\\?\UNC\server\share` meint `\\server\share`. Nach dem Tausch von `\` gegen `/`.
+DEVICE_PREFIX = re.compile(r"^//[?.]/(unc/)?", re.I)
+DRIVE = re.compile(r"^([a-z]):(?=/|$)")
 
-    Das Nennen fängt Sessions, die im übergeordneten Ordner gestartet wurden und das
-    Repo der Marke erst in Phase 0 geklont haben.
+
+def normalize_path(path: str) -> str:
+    """Schreibweise eines Pfads für den Vergleich, ohne das Dateisystem zu fragen.
+
+    Groß- und Kleinschreibung egal, `/` und `\\` gleich, doppelte Trenner (auch aus
+    nicht entschlüsseltem JSON) zusammengefasst, Gerätepräfix weg, kein Trenner am Ende.
+    Ein UNC-Pfad behält seine zwei führenden Trenner, damit er nicht wie ein
+    Unix-Pfad aussieht.
     """
-    names = [str(root) for root in roots]
+    text = path.strip().replace("\\", "/")
+    unc = text.startswith("//")
+    match = DEVICE_PREFIX.match(text)
+    if match:
+        unc = bool(match.group(1))
+        text = text[match.end():]
+    parts = [part for part in text.split("/") if part and part != "."]
+    lead = "//" if unc else ("/" if text.startswith("/") else "")
+    return (lead + "/".join(parts)).lower()
+
+
+@functools.lru_cache(maxsize=None)
+def drive_target(letter: str) -> str | None:
+    """Wohin ein Laufwerksbuchstabe zeigt (Netzlaufwerk, subst), nur unter Windows.
+
+    Ein Workspace auf `Y:` und dieselbe Freigabe als `\\\\server\\share` sind ein Ort.
+    Claude Code legt Sessions aus beiden Schreibweisen getrennt ab, je nachdem, wie
+    die Sitzung gestartet wurde. Gefragt wird nur der Laufwerksstamm, nie der
+    Workspace selbst.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        target = normalize_path(os.path.realpath(f"{letter}:\\"))
+    except (OSError, ValueError):
+        return None
+    return target if target and target != f"{letter}:" else None
+
+
+def path_forms(path: str) -> set[str]:
+    """Normalisierte Schreibweisen eines Pfads, bei Laufwerksbuchstaben auch das Ziel."""
+    form = normalize_path(path)
+    forms = {form}
+    match = DRIVE.match(form)
+    if match:
+        target = drive_target(match.group(1))
+        if target:
+            forms.add(target.rstrip("/") + form[2:])
+    return forms
+
+
+def is_within(path: str, root: str) -> bool:
+    """Ob ein normalisierter Pfad der Wurzel gleich ist oder darunter liegt."""
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def project_dir_name(form: str) -> str:
+    """Ordnername unter `~/.claude/projects/`, wie Claude Code ihn aus einem Pfad bildet."""
+    return re.sub(r"[^a-z0-9]", "-", form)
+
+
+def workspace_roots(workspace: Path) -> set[str]:
+    """Workspace und Ziel-Repo daneben (`<name>-horizon`) in allen Schreibweisen.
+
+    Verglichen wird ohne `resolve()`, weil das unter Windows ein Netzlaufwerk in
+    einen UNC-Pfad verwandelt und die Sessions mit Laufwerksbuchstaben dann nicht
+    mehr passen. Die aufgelöste Form kommt nur als zusätzliche Schreibweise dazu,
+    etwa für `/var` und `/private/var` unter macOS.
+    """
+    absolute = Path(os.path.abspath(workspace))
+    bases = {absolute}
+    try:
+        bases.add(absolute.resolve())
+    except (OSError, RuntimeError):
+        pass
+    roots: set[str] = set()
+    for base in bases:
+        for path in (base, base.parent / f"{base.name}-horizon"):
+            roots |= path_forms(str(path))
+    return roots
+
+
+def belongs_to(transcript: Path, roots: set[str]) -> bool:
+    """Eine Session gehört zum Lauf, wenn sie im Workspace oder im Ziel-Repo gearbeitet hat.
+
+    Entscheidend ist das `cwd` der Zeilen, nie Freitext. Es folgt jedem `cd`, deshalb
+    zählt nicht jedes `cwd`, sondern der Start der Session:
+
+    - startet sie im Workspace, einem Unterordner (auch Worktree) oder im Ziel-Repo,
+      gehört sie dazu;
+    - startet sie im übergeordneten Ordner oder in dem Projektordner, den Claude Code
+      für den Workspace anlegt, gehört sie dazu, sobald ein `cwd` hineinwechselt.
+      Das ist der Fall, in dem das Repo der Marke erst in Phase 0 geklont wird;
+    - startet sie anderswo (Scratch-Ordner, anderes Repo, Drive), gehört sie nicht
+      dazu, auch wenn sie kurz hineinwechselt. Geprüft am 12.10.2026: ein Wechsel
+      allein hätte über ein Viertel der Sessions eines Workspaces aus fremden Repos,
+      dem Drive und Scratch-Ordnern zugeordnet.
+
+    Der Projektordner allein entscheidet nur, wenn keine Zeile ein `cwd` trägt. Seine
+    Kodierung ist verlustbehaftet (`a-b` und `a/b` ergeben denselben Namen) und
+    reicht deshalb nie ohne ein passendes `cwd`, sobald es eines gibt.
+    """
+    name = transcript.parent.name.lower()
+    in_project_dir = any(name == project_dir_name(root) for root in roots)
+    parents = {root.rsplit("/", 1)[0] for root in roots if "/" in root.strip("/")}
+    seen: set[str] = set()
     try:
         with transcript.open(encoding="utf-8", errors="replace") as handle:
             for line in handle:
-                if any(name in line for name in names):
+                if '"cwd"' not in line:
+                    continue
+                try:
+                    cwd = json.loads(line).get("cwd")
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if not isinstance(cwd, str) or cwd in seen:
+                    continue
+                forms = path_forms(cwd)
+                if any(is_within(form, root) for form in forms for root in roots):
                     return True
+                if not seen and not (forms & parents or in_project_dir):
+                    return False
+                seen.add(cwd)
     except OSError:
         return False
-    return False
+    return not seen and in_project_dir
 
 
 def summarize(lines: list[str]) -> dict:
@@ -104,15 +229,67 @@ def write_gz(path: Path, text: str) -> None:
         handle.write(text.encode("utf-8"))
 
 
+def load_index(path: Path) -> list[dict]:
+    """Bestehender Index; ein unlesbarer bricht ab, statt beim Schreiben verloren zu gehen."""
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{path} ist nicht lesbar ({exc}), Index bleibt unangetastet.") from exc
+    if not isinstance(data, list):
+        raise ValueError(f"{path} ist keine Liste, Index bleibt unangetastet.")
+    return [entry for entry in data if isinstance(entry, dict) and entry.get("session_id")]
+
+
+def merge_index(existing: list[dict], fresh: list[dict]) -> list[dict]:
+    """Ein Eintrag je `session_id`: der neue Lauf ersetzt seine Sessions, alle anderen bleiben.
+
+    Ältere Läufe haben dieselbe Session doppelt eingetragen, wenn sie in zwei
+    Projektordnern lag. Von solchen Dubletten bleibt die vollständigere (späteres
+    Ende, dann mehr Bytes).
+    """
+    merged: dict[str, dict] = {}
+    for entry in existing:
+        known = merged.get(entry["session_id"])
+        if known is None or completeness(entry) > completeness(known):
+            merged[entry["session_id"]] = entry
+    for entry in fresh:
+        merged[entry["session_id"]] = entry
+    return sorted(merged.values(), key=lambda e: (e.get("started") or "", e["session_id"]))
+
+
+def completeness(entry: dict) -> tuple:
+    return entry.get("ended") or "", entry.get("bytes") or 0
+
+
+def pick_transcripts(projects: Path, roots: set[str], cutoff: float) -> list[Path]:
+    """Je Session ein Transkript.
+
+    Dieselbe `session_id` kann in zwei Projektordnern liegen, etwa im Repo und in
+    einem Worktree oder unter Laufwerksbuchstabe und UNC-Pfad. Abgelegt wird die
+    zuletzt geschriebene Fassung, bei Gleichstand die größere.
+    """
+    chosen: dict[str, tuple[float, int, Path]] = {}
+    for transcript in sorted(projects.glob("*/*.jsonl")):
+        stat = transcript.stat()
+        if stat.st_mtime < cutoff or not belongs_to(transcript, roots):
+            continue
+        rank = (stat.st_mtime, stat.st_size, transcript)
+        known = chosen.get(transcript.stem)
+        if known is None or rank[:2] > known[:2]:
+            chosen[transcript.stem] = rank
+    return [rank[2] for _, rank in sorted(chosen.items())]
+
+
 def archive(workspace: Path, run_id: str, projects: Path, days: int, now: float | None = None) -> dict:
-    workspace = workspace.resolve()
-    roots = [workspace, workspace.parent / f"{workspace.name}-horizon"]
-    out = workspace / "reporting" / "runs" / run_id / "sessions"
+    roots = workspace_roots(workspace)
+    out = Path(os.path.abspath(workspace)) / "reporting" / "runs" / run_id / "sessions"
+    index_path = out / "index.json"
+    existing = load_index(index_path)
     cutoff = (now or time.time()) - days * 86400
     index = []
-    for transcript in sorted(projects.glob("*/*.jsonl")):
-        if transcript.stat().st_mtime < cutoff or not belongs_to(transcript, roots):
-            continue
+    for transcript in pick_transcripts(projects, roots, cutoff):
         session_id = transcript.stem
         text, hits = redact(transcript.read_text(encoding="utf-8", errors="replace"))
         write_gz(out / f"{session_id}.jsonl.gz", text)
@@ -124,11 +301,16 @@ def archive(workspace: Path, run_id: str, projects: Path, days: int, now: float 
             entry["subagents"] += 1
             entry["redactions"] += agent_hits
         index.append(entry)
-    index.sort(key=lambda e: e["started"] or "")
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "index.json").write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    merged = merge_index(existing, index)
+    # Ein Lauf ohne Treffer (falscher Workspace, Transkripte zu alt, anderer Rechner)
+    # schreibt nichts: ein gefüllter Index darf nie durch einen leeren ersetzt werden.
+    written = bool(index) or not index_path.exists()
+    if written:
+        out.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return {"out": str(out), "sessions": len(index), "subagents": sum(e["subagents"] for e in index),
-            "redactions": sum(e["redactions"] for e in index)}
+            "redactions": sum(e["redactions"] for e in index), "indexed": len(merged),
+            "index_written": written}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,7 +330,12 @@ def main(argv: list[str] | None = None) -> int:
     if not projects.is_dir():
         print(json.dumps({"error": f"Kein Ordner mit Transkripten: {projects}"}, ensure_ascii=False))
         return 2
-    print(json.dumps(archive(workspace, run_id, projects, args.days), ensure_ascii=False))
+    try:
+        result = archive(workspace, run_id, projects, args.days)
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+        return 2
+    print(json.dumps(result, ensure_ascii=False))
     return 0
 
 

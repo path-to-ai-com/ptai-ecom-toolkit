@@ -8,8 +8,8 @@ einrichten"). Kommt der Zugang später, läuft nur diese eine Analyse neu, und
 ihr Ergebnis muss in denselben Lauf zurück: in die Befunde, in den Backlog und
 in den Gesamtreport. Ein Ordner daneben reicht nicht, den liest niemand mit.
 
-**Die Kennungen sind die Naht.** Eine Maßnahme zeigt über `finding_ref` auf
-einen Befund. Nummeriert die neue Analyse wieder ab 01, zeigt die alte
+**Die Kennungen sind die Naht.** Eine Maßnahme zeigt über `finding_ref` (v1)
+oder `finding_run` und `finding_id` (Liste einer Marke) auf einen Befund. Nummeriert die neue Analyse wieder ab 01, zeigt die alte
 Maßnahme auf einen fremden Befund, und im Portal stünde unter "Lesezugang
 einrichten" plötzlich die Analyse der Conversion-Aktionen. Im ersten Nachlauf
 überhaupt, am 02.10.2026, hatte die Analyse genau so wieder ab 01 gezählt;
@@ -36,6 +36,9 @@ import json
 import re
 import sys
 from pathlib import Path
+
+from audit import brand as brand_mod
+from audit import measures
 
 #: Maßnahmen in diesen Zuständen hat noch niemand abgeschlossen. Nur sie können
 #: verwaisen; eine erledigte oder verworfene Maßnahme bleibt, wie sie ist.
@@ -99,16 +102,33 @@ def dropped_findings(previous: dict, current: dict) -> list[dict]:
     return [f for f in _findings(previous) if f["id"] not in now]
 
 
-def orphaned_measures(backlog: dict, previous: dict, current: dict) -> list[dict]:
+def orphaned_measures(backlog: dict, previous: dict, current: dict,
+                      shop: str | None = None,
+                      run_id: str | None = None) -> list[dict]:
     """Offene Maßnahmen, deren Befund in der neuen Fassung fehlt.
 
     Jede davon braucht ein Urteil: erledigt, weil der Nachlauf die Lücke
     geschlossen hat, oder hinfällig, weil die Analyse den Befund nicht mehr
     trägt. Beides geht über `measures.set_status()` mit `run_id` und `note`,
     damit im Portal steht, woran es gemessen wurde.
+
+    **In der Liste einer Marke** sind Befund-IDs nur innerhalb eines Laufs
+    eindeutig: CRO-03 in EU ist ein anderer Befund als CRO-03 in UK. Verwaist
+    ist deshalb nur eine Maßnahme dieses Stores (`shop`), deren Befund aus
+    genau diesem Lauf stammt (`finding_run == run_id`, `finding_id`), und
+    zurück kommt ihre Sicht auf diesen Store (`measures.project()`).
     """
     gone = {f["id"] for f in dropped_findings(previous, current)}
-    return [m for m in (backlog or {}).get("measures") or []
+    backlog = backlog or {}
+    if measures.is_v2(backlog):
+        if not shop or not run_id:
+            raise ValueError("In der Liste einer Marke braucht orphaned_measures() "
+                             "den Store und den Lauf (shop, run_id).")
+        return [m for m in measures.project(backlog, shop)["measures"]
+                if m.get("finding_run") == run_id
+                and m.get("finding_id") in gone
+                and m.get("status") in OPEN_STATUS]
+    return [m for m in backlog.get("measures") or []
             if m.get("finding_ref") in gone and m.get("status") in OPEN_STATUS]
 
 
@@ -128,9 +148,8 @@ def main(argv=None) -> int:
                     / f"{args.discipline}.json")
     previous = json.loads(Path(args.previous).read_text(encoding="utf-8"))
     current = json.loads(current_path.read_text(encoding="utf-8"))
-    backlog_path = workspace / "reporting" / "measures.json"
-    backlog = (json.loads(backlog_path.read_text(encoding="utf-8"))
-               if backlog_path.exists() else {"measures": []})
+    backlog = measures.peek(workspace)
+    shop = brand_mod.shop_slug(brand_mod.read_config(workspace))
 
     try:
         check_ids(previous, current)
@@ -145,8 +164,9 @@ def main(argv=None) -> int:
     for finding in dropped_findings(previous, current):
         print(f"  {finding['id']}  {finding.get('statement')}")
     print("Verwaiste Maßnahmen, je ein Urteil nötig (implemented oder obsolete):")
-    for measure in orphaned_measures(backlog, previous, current):
-        print(f"  {measure['id']}  {measure.get('finding_ref')}  {measure.get('title')}")
+    for measure in orphaned_measures(backlog, previous, current,
+                                     shop=shop, run_id=args.run_id):
+        print(f"  {measure['id']}  {measures.finding_of(measure)}  {measure.get('title')}")
     return 0
 
 

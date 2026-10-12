@@ -115,8 +115,9 @@ def _first_word(cell: str) -> str:
 def parse_markdown_report(text: str, source: str) -> list:
     """Punkte aus den Abschnitten "Vor dem Launch" und "Blocker" eines Markdown-Berichts.
 
-    Je Punkt `{"source", "section", "label", "state", "deferral"}`, `state` ist
-    `done`, `deferred` oder `open`.
+    Je Punkt `{"source", "section", "label", "state", "deferral", "raw", "status_text",
+    "owner"}`, `state` ist `done`, `deferred` oder `open`. `raw` ist die ganze Zeile
+    oder der ganze Listenpunkt; daraus liest `open_items` die Kennung eines Punkts.
     """
     items = []
     level, section = None, None
@@ -162,7 +163,8 @@ def parse_markdown_report(text: str, source: str) -> list:
                 deferral = _deferral(status or row_text, owner)
                 state = "deferred" if deferral else "open"
             items.append({"source": source, "section": section, "label": _label(cells, header, {status_col, owner_col}),
-                          "state": state, "deferral": deferral})
+                          "state": state, "deferral": deferral, "raw": row_text, "status_text": status,
+                          "owner": owner})
             continue
         header = None
         item = LIST_ITEM.match(line)
@@ -189,7 +191,7 @@ def parse_markdown_report(text: str, source: str) -> list:
             state = "deferred" if deferral else "open"
         out.append({"source": entry["source"], "section": entry["section"],
                     "label": re.sub(r"\s+", " ", text.replace("**", ""))[:100], "state": state,
-                    "deferral": deferral})
+                    "deferral": deferral, "raw": text, "status_text": "", "owner": ""})
     return out
 
 

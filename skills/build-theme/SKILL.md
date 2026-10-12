@@ -56,7 +56,7 @@ git -C <target-repo> show <ref>:config/settings_schema.json
 ### 2. Erzeugen, zuerst in ein Testverzeichnis
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.generate \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" generate \
   --mapping migration/mapping/mapping.json \
   --overrides migration/mapping/overrides.json \
   --source migration/snapshots/<date>-<theme-id> \
@@ -121,7 +121,7 @@ Tags, kein `og:image` ohne Seitenbild, `og:type website` auf Kategorien, keine B
 mit genau diesen Lücken live. Deshalb kommen sie beim Bau ins Theme, nicht nach der Abnahme:
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base install --target-repo <target-repo> --prefix <file_prefix>
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" horizon_base install --target-repo <target-repo> --prefix <file_prefix>
 ```
 
 - Vier Snippets `snippets/<file_prefix>-*.liquid`; eine abweichende vorhandene Datei bleibt ohne
@@ -135,7 +135,7 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base install
 - Prüfen, in Schritt 6 mit:
 
   ```bash
-  PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base check --target-repo <target-repo> --prefix <file_prefix> [--without-hreflang]
+  "${CLAUDE_PLUGIN_ROOT}/bin/theme" horizon_base check --target-repo <target-repo> --prefix <file_prefix> [--without-hreflang]
   ```
 
 - Was das alte Theme darüber hinaus ausgab (eigene Typen, `Organization` mit `sameAs`, Breadcrumbs),
@@ -153,8 +153,8 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.horizon_base install
 
 ```bash
 shopify theme check --path <target-repo>
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.limits check --theme-dir <target-repo>
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.customizations check \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" limits check --theme-dir <target-repo>
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" customizations check \
   --target-repo <target-repo> --prefix <file_prefix> --register migration/customizations.md
 ```
 
@@ -179,7 +179,7 @@ Aktualisieren im Ziel-Repo per `git merge upstream/<ref>`, nie über den Update-
 Shopify-Admin. Vorher:
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.customizations check \
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" customizations check \
   --target-repo <target-repo> --prefix <file_prefix> --register migration/customizations.md \
   --against upstream/<ref>
 ```

@@ -100,6 +100,9 @@ Holt den Produktkatalog über die Shopify CLI und berechnet einen aggregierten S
   "products_with_missing_alt": ["..."],
   "products_without_cost": ["..."],
   "products_sold_out": ["..."],
+  "products_index": [{"handle": "...", "skus": ["SKU-1"], "status": "ACTIVE", "vendor": "...",
+                      "seo_title": true, "seo_description": false, "images": 4,
+                      "images_with_alt": 2, "variants": 3}],
   "duplicate_descriptions": [{"count": 4, "handles": ["handle", "..."]}],
   "duplicate_descriptions_truncated": false,
   "notes": ["..."]
@@ -114,6 +117,10 @@ Holt den Produktkatalog über die Shopify CLI und berechnet einen aggregierten S
   - Gezählt nur unter aktiven Produkten; der Text kommt nicht in den Snapshot.
   - Höchstens fünf Handles je Gruppe, Liste auf 50 Gruppen gekappt.
   - Meist übernommener Herstellertext (Kriterium `con.duplicate-product-copy`).
+- **`products_index`: ein Eintrag je Produkt mit SKU, ungekappt** (seit 11.10.2026).
+  - Nur Zustände und Zähler, kein Text und kein Preis.
+  - Leser: `audit.consistency`, der Vergleich mit dem Referenz-Store über die gemeinsame SKU (Meta-Description, Alt-Texte, Stammdaten).
+  - Ein Katalog von vor diesem Datum hat den Index nicht; der Vergleich nennt die drei Bereiche dann "nicht verglichen".
 - **Ausverkauft = keine Variante verkäuflich** (`availableForSale`), nur unter aktiven Produkten.
   - Fehlt das Feld in den Rohdaten: `products_sold_out` = `null`, nicht 0.
   - Ausverkauft ist ein Betriebszustand, kein Befund. Die Analyse prüft nur die technische Behandlung (Kriterium `tec.sold-out-handling`).

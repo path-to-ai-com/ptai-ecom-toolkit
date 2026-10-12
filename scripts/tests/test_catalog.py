@@ -221,6 +221,20 @@ class TestAntwortform(unittest.TestCase):
             self.assertEqual(catalog_build.products_from_pages([kaputt]), [])
 
 
+class TestProductsIndex(unittest.TestCase):
+    """Index je Produkt für den Vergleich mit dem Referenz-Store (audit.consistency)."""
+
+    def test_one_entry_per_product_with_sku_without_text_or_price(self):
+        rows = [catalog_build.flatten(product("a", variants=(("S-2", "10.00", None), ("S-1", "12.00", None)))),
+                catalog_build.flatten(product("b", variants=((None, "9.00", None),)))]
+        index = catalog_build.build(rows, [])["products_index"]
+        self.assertEqual([p["handle"] for p in index], ["a"])
+        self.assertEqual(index[0]["skus"], ["S-1", "S-2"])
+        self.assertEqual(set(index[0]), set(catalog_build.INDEX_FIELDS))
+        self.assertNotIn("price_min", index[0])
+        self.assertNotIn("title", index[0])
+
+
 if __name__ == "__main__":
     unittest.main()
 

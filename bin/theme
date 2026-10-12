@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Starter für die Bausteine der Theme-Migration, auf macOS, Linux und in Git Bash
+# unter Windows.
+#
+# Aufruf:
+#   bin/theme <modul> [argumente ...]
+#   bin/theme run_state show            # python -m theme.run_state show
+#
+# Sucht ein Python ab 3.10 in der Reihenfolge python3, python, py -3, setzt
+# PYTHONPATH auf <plugin>/scripts und PYTHONUTF8=1 und startet
+# python -m theme.<modul> mit den übrigen Argumenten. Die Plugin-Wurzel kommt aus
+# dem Pfad dieses Starters (auch über einen Symlink); nur wenn dort kein
+# scripts/theme liegt, gilt CLAUDE_PLUGIN_ROOT.
+#
+# Exit-Code: der des Moduls; 2, wenn kein passendes Python da ist, das Modul
+# fehlt oder der Aufruf unvollständig ist.
+#
+# Nur Builtins bis zum Start von Python: der Starter läuft auch mit einem PATH,
+# in dem nichts außer dem Interpreter liegt.
+set -euo pipefail
+
+fail() {
+  printf 'Fehler: %s\n' "$1" >&2
+  exit 2
+}
+
+# Pfad dieses Starters, Symlinks aufgelöst.
+source_path="${BASH_SOURCE[0]}"
+while [[ -L "$source_path" ]]; do
+  link_dir="$(cd -P "${source_path%/*}" && pwd)"
+  source_path="$(readlink "$source_path")"
+  [[ "$source_path" == /* ]] || source_path="${link_dir}/${source_path}"
+done
+case "$source_path" in
+  */*) bin_dir="${source_path%/*}" ;;
+  *) bin_dir="." ;;
+esac
+plugin_root="$(cd -P "${bin_dir}/.." && pwd)"
+
+if [[ ! -d "${plugin_root}/scripts/theme" ]]; then
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" && -d "${CLAUDE_PLUGIN_ROOT}/scripts/theme" ]]; then
+    plugin_root="$CLAUDE_PLUGIN_ROOT"
+  else
+    fail "scripts/theme nicht gefunden, weder neben ${bin_dir} noch unter CLAUDE_PLUGIN_ROOT"
+  fi
+fi
+
+if [[ $# -eq 0 ]]; then
+  printf 'Aufruf: bin/theme <modul> [argumente ...]\nModule:' >&2
+  for module_file in "${plugin_root}"/scripts/theme/*.py; do
+    module_name="${module_file##*/}"
+    module_name="${module_name%.py}"
+    [[ "$module_name" == __* ]] || printf ' %s' "$module_name" >&2
+  done
+  printf '\n' >&2
+  exit 2
+fi
+module="$1"
+shift
+[[ "$module" =~ ^[a-z_][a-z0-9_]*$ ]] || fail "Modulname nicht zulässig: ${module}"
+[[ -f "${plugin_root}/scripts/theme/${module}.py" ]] || fail "Modul theme.${module} gibt es nicht"
+
+# Erster Interpreter ab 3.10. Der Store-Platzhalter von Windows (python.exe ohne
+# Python) scheitert schon an der Versionsabfrage und wird übersprungen.
+python_cmd=()
+python_os=""
+too_old=""
+for spec in "python3" "python" "py -3"; do
+  read -r -a candidate <<< "$spec"
+  command -v "${candidate[0]}" >/dev/null 2>&1 || continue
+  probe="$("${candidate[@]}" -c 'import os, sys; print("%d %d %s" % (sys.version_info[0], sys.version_info[1], os.name))' 2>/dev/null)" || continue
+  probe="${probe//$'\r'/}"
+  [[ "$probe" =~ ^([0-9]+)\ ([0-9]+)\ ([a-z]+)$ ]] || continue
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  if (( major > 3 || (major == 3 && minor >= 10) )); then
+    python_cmd=("${candidate[@]}")
+    python_os="${BASH_REMATCH[3]}"
+    break
+  fi
+  too_old="${too_old} ${spec} (${major}.${minor})"
+done
+
+if [[ ${#python_cmd[@]} -eq 0 ]]; then
+  {
+    printf 'Fehler: kein Python ab 3.10 gefunden (gesucht: python3, python, py -3).\n'
+    [[ -z "$too_old" ]] || printf 'Zu alt:%s\n' "$too_old"
+    printf 'Installieren:\n'
+    printf '  Windows: winget install Python.Python.3.12, danach ein neues Terminal öffnen\n'
+    printf '  macOS:   brew install python\n'
+    printf '  Linux:   über die Paketverwaltung, etwa apt install python3\n'
+  } >&2
+  exit 2
+fi
+
+scripts_dir="${plugin_root}/scripts"
+# Ein Windows-Python versteht Pfade wie /c/Projekte/... aus Git Bash nicht.
+if [[ "$python_os" == "nt" ]] && command -v cygpath >/dev/null 2>&1; then
+  scripts_dir="$(cygpath -w "$scripts_dir")"
+fi
+
+export PYTHONPATH="$scripts_dir"
+export PYTHONUTF8=1
+exec "${python_cmd[@]}" -m "theme.${module}" "$@"

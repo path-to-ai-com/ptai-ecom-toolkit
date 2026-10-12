@@ -39,7 +39,7 @@ der API-Version ändern.
 2. **Sichern:**
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.snapshot \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" snapshot \
      --theme live --out migration/snapshots
    ```
 
@@ -63,7 +63,7 @@ der API-Version ändern.
 5. **Commit im Workspace**, Dateien unverändert, nie formatieren, namentlich gestagt:
 
    ```bash
-   git add migration/snapshots/<date>-<theme-id>
+   git add .gitattributes migration/snapshots/<date>-<theme-id>
    git commit -m "Snapshot theme <theme-id> (<theme-name>) as of <date>"
    ```
 
@@ -87,7 +87,7 @@ dieser Reihenfolge:
 2. **Ein ZIP vom Team** (vom Theme-Anbieter, in der laufenden Version):
 
    ```bash
-   PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m theme.snapshot \
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" snapshot \
      --theme live --out migration/snapshots --original-zip <path-to-original.zip>
    ```
 

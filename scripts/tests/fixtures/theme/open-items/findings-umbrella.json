@@ -1,0 +1,18 @@
+{
+  "findings": [
+    {"id": "TP-06", "source_ids": ["LC-2.7"], "title": "Sterne an den Produktkacheln fehlen",
+     "severity": "before_launch", "status": "open",
+     "links": [{"label": "Entwurf", "url": "https://beispielshop.example/collections/ringe?preview_theme_id=1"}]},
+    {"id": "TP-07", "source_ids": ["LC-2.7"], "title": "Menü springt auf dem Handy",
+     "severity": "before_launch", "status": "fixed", "evidence": "Abruf Entwurf 2026-10-07: Menü stabil"},
+    {"id": "AB-01", "source_ids": ["LC-2.7"], "title": "Gutscheinfeld im Warenkorb fehlt",
+     "severity": "blocker", "status": "open"},
+    {"id": "AB-09", "source_ids": ["LC-2.7"], "title": "Größentabelle als Bild statt Text",
+     "severity": "before_launch", "status": "open",
+     "deferred_by": "Beispiel Person", "deferred_at": "2026-10-20"},
+    {"id": "AB-10", "source_ids": ["LC-2.7"], "title": "Filter Material ohne Übersetzung",
+     "severity": "before_launch", "status": "open"},
+    {"id": "AB-11", "source_ids": ["LC-2.7"], "title": "Newsletter-Formular ohne Hinweis zum Datenschutz",
+     "severity": "before_launch", "status": "done", "evidence": "Hinweistext im Entwurf ergänzt"}
+  ]
+}

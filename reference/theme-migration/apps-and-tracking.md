@@ -97,6 +97,20 @@ per Asset-API ins Theme geschrieben hat, bleibt liegen.
   `dialog::backdrop`. Nach dem Einbinden jede Abdunklung im Bild prüfen.
 - Vor jeder Neu-Anbindung den entschiedenen Stand im Inventar nachlesen, nie aus dem Gedächtnis. Was
   ein entfernter Verteiler wie der Tag Manager geladen hat, braucht einen eigenen Weg.
+- **Was vorher gemessen wurde, misst nach dem Launch weiter.** Ein Ausfall wird nicht in Kauf
+  genommen, er wird vor dem Launch behoben. Ein bewusster Wegfall braucht eine ausdrückliche
+  Entscheidung des Betreibers, die die Folge benennt: welche Conversion-Aktion, welches Konto, welche
+  Zielgruppe. "Läuft auf Analyzify-Ereignisse" ist keine solche Benennung.
+- **Bleibt der Tag Manager, zählt nicht der Container, sondern wer ihm die Ereignisse liefert.** Jeder
+  Auslöser auf ein eigenes dataLayer-Ereignis (`ee_*`, `sh_info` und ähnliche) braucht im neuen Theme
+  denselben Absender. In einem Pilot schrieb ein Analyzify-Block im Theme-Code die Ereignisse; im
+  neuen Theme lud der Tag Manager, bekam sie aber nicht, und Produktansicht, Warenkorb und
+  Kassenstart in Google Ads standen fast einen Tag still (07.10.2026). Lösung dort: den Block als
+  eigene Datei übernehmen, ohne seinen Tag-Manager-Lader.
+- **Conversion-Tags feuern nur mit Einwilligung.** Ein Mitschnitt ohne Einwilligung kann ihren Ausfall
+  nicht zeigen. Vor dem Launch deshalb auch mit Einwilligung über den Kaufpfad (Produkt, In den
+  Warenkorb, Warenkorb, Zur Kasse) mitschneiden und je Werbekonto jedes Conversion-Label und
+  Remarketing-Ereignis von alt gegen neu halten.
 
 ## Neu-Anbindung im Ziel-Theme
 

@@ -33,7 +33,7 @@ VERSION = 1
 #: konkrete Tracking-Architektur und nimmt chronologische Kommentare auf.
 #: `test` ist die Testrunde vor einem Launch (`test.json`): je Punkt ein Stand
 #: aus festen Optionen und Rueckmeldungen des Teams, seit dem 24.09.2026.
-KINDS = ("audit", "report", "light", "inventory", "tracking", "test")
+KINDS = ("audit", "report", "light", "inventory", "tracking", "test", "pulse")
 
 #: Dateien, die nie in den Bucket gehen. **Ausschlussliste, keine Auswahlliste**
 #: (Spec Abschnitt 5): alles andere geht hoch, denn es sind die Daten des
