@@ -33,13 +33,18 @@ VERSION = 1
 #: konkrete Tracking-Architektur und nimmt chronologische Kommentare auf.
 #: `test` ist die Testrunde vor einem Launch (`test.json`): je Punkt ein Stand
 #: aus festen Optionen und Rueckmeldungen des Teams, seit dem 24.09.2026.
-KINDS = ("audit", "report", "light", "inventory", "tracking", "test", "pulse")
+#: `migration` ist der Stand einer Theme-Migration (`migration.json`), `setup`
+#: das Setup eines Stores (`setup.json`); beide tragen nur diese eine Datei und
+#: sind wie der Puls sofort sichtbar (entschieden am 12.10.2026).
+KINDS = ("audit", "report", "light", "inventory", "tracking", "test", "pulse",
+         "migration", "setup")
 
 #: Dateien, die nie in den Bucket gehen. **Ausschlussliste, keine Auswahlliste**
 #: (Spec Abschnitt 5): alles andere geht hoch, denn es sind die Daten des
 #: Kunden. Wer eine Auswahlliste pflegt, vergisst die Datei, die der Kunde
-#: gerade sucht.
-EXCLUDED = ("dfs-ledger.jsonl",)
+#: gerade sucht. `session.lock` ist die Sperre einer Claude-Sitzung auf dem
+#: Rechner des Teams und sagt dem Kunden nichts.
+EXCLUDED = ("dfs-ledger.jsonl", "session.lock")
 
 
 def path_for(brand: str, shop: str, run_id: str = "", revision: int = 1) -> str:

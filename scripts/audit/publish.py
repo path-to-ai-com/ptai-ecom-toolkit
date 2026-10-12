@@ -10,7 +10,11 @@ keine Auswahlliste: im Zweifel hoch, denn es sind die Daten des Kunden.
 Ein hochgeladener Lauf liegt im Bucket und ist für den Kunden unsichtbar, bis
 `release` ihn sichtbar macht. Das hält das menschliche Gate aus dem
 Audit-Design intakt: kein Lauf erreicht den Kunden, bevor der Betreiber ihn
-gelesen hat.
+gelesen hat. Benannte Ausnahmen sind der Wochenpuls, der Stand einer
+Theme-Migration (`migration`) und das Setup eines Stores (`setup`): sie tragen
+keine Befunde und keine Maßnahmen und sind sofort sichtbar. Migration und Setup
+laden nur ihre eine Datei hoch und schreiben immer in dieselbe Fassung
+(entschieden am 12.10.2026).
 
 **Zwei Ebenen, zwei Bedeutungen.** `account_slug` aus der Config ist der Kunde
 und damit die Login-Ebene, `brand` ist der Shop und damit die Ablage-Ebene. Ein
@@ -77,6 +81,15 @@ BRAND_FILES = brand_mod.BRAND_FILES
 #: Vorsilbe der Testmarke je echter Marke (D11).
 PREVIEW_PREFIX = "portal-test-"
 
+#: Lauf-Arten, die nur eine Datei tragen. Von ihnen geht genau diese Datei hoch:
+#: kein Transkript aus `sessions/`, kein Journal, kein `state.json`. Das Cockpit
+#: liest nur sie, und alles andere im Lauf ist Werkstatt des Teams.
+SINGLE_FILE_KINDS = {"migration": "migration.json", "setup": "setup.json"}
+
+#: Lauf-Arten, die mit dem Hochladen sichtbar sind (benannte Ausnahme von
+#: "hochgeladen ist nicht sichtbar"): sie tragen weder Befunde noch Maßnahmen.
+AUTO_RELEASED = ("pulse", *SINGLE_FILE_KINDS)
+
 
 def slugify(name: str) -> str:
     """Ein Shop-Name als Pfadsegment."""
@@ -102,6 +115,10 @@ def destination(config: dict, account_slug: str | None = None) -> tuple[str, str
 def run_kind(run_id: str, state: dict) -> tuple[str, str | None]:
     """Lauf-Art und Kadenz. Die Lauf-ID traegt sie im Namen (`<datum>-<kadenz>`),
     der Zustand bestaetigt sie."""
+    # Der Stand einer Theme-Migration hat keine Kadenz, er nennt seine Art
+    # selbst (`run_state.new`).
+    if state.get("kind") == "migration":
+        return "migration", None
     cadence = state.get("cadence") or (run_id.rsplit("-", 1)[-1] if "-" in run_id else None)
     # Ein Lauf der Kadenz `week` ist der Wochenpuls (Spec Wächter und Wirkung
     # im Repo `ptai-portal`, Abschnitt 3.2).
@@ -282,6 +299,10 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
     Mit Dateien der Marke (`brand_workspace`) gehen diese nach `brands/<slug>/`
     statt je Store, die Kopie im Lauf ist die Liste der Marke, und die Vorschau
     braucht `portal-test-<marke>`.
+
+    Ein Lauf der Art `migration` oder `setup` lädt nur `migration.json` bzw.
+    `setup.json` hoch, immer in dieselbe Fassung (`replace`), und ist danach
+    sichtbar. Fehlt die Datei, bricht `prepare` ab, bevor etwas kopiert ist.
     """
     workspace, target = Path(workspace), Path(target)
     config = load_config(workspace)
@@ -295,7 +316,16 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
     state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
     kind, cadence = run_kind(run_id, state)
 
-    files = manifest.collect_files(run_dir)
+    single = SINGLE_FILE_KINDS.get(kind)
+    if single:
+        if not (run_dir / single).is_file():
+            raise SystemExit(f"Lauf {run_id} ist ein Lauf der Art {kind}, aber {single} fehlt "
+                             f"unter {run_dir}. Nichts kopiert.")
+        files = {single: (run_dir / single).stat().st_size}
+        # Eine lebende Fassung: jede neue ersetzt die alte, statt v02, v03 zu öffnen.
+        replace = True
+    else:
+        files = manifest.collect_files(run_dir)
     if not files:
         raise SystemExit(f"Lauf {run_id} hat keine Dateien zum Hochladen")
     problems = proof_problems(run_dir, files)
@@ -315,9 +345,9 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
         manifest_path, manifest_data, base_revision = _load_manifest(target, brand, config)
         existing = next((r for r in manifest_data.get("runs") or []
                          if r["shop"] == shop and r["run_id"] == run_id), None)
-        # Der Wochenpuls ist immer sichtbar; eine neue Version am selben Tag
-        # braucht deshalb kein --visible.
-        if existing and existing.get("released") and not visible and kind != "pulse":
+        # Wochenpuls, Migration und Setup sind immer sichtbar; eine neue
+        # Version braucht deshalb kein --visible.
+        if existing and existing.get("released") and not visible and kind not in AUTO_RELEASED:
             raise SystemExit(
                 f"Lauf {run_id} ist für den Kunden sichtbar, eine neue Fassung wäre es "
                 "sofort auch. Mit --visible hochladen, wenn sie das sein soll, oder "
@@ -335,10 +365,10 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
         # Liegt im Lauf schon eine eigene Fassung, gilt seine: der Schnappschuss
         # ergaenzt, er ueberschreibt nie. Bei einer Marke ist es die Liste der
         # Marke zur Zeit dieses Laufs (Spec 5.4, D12).
-        # Der Wochenpuls bekommt keinen Schnappschuss der Maßnahmen: er ist
-        # keine Prüfung, und ein Lauf mit `measures.json` gilt im Cockpit als
-        # letzte Prüfung.
-        for name in (() if kind == "pulse" else SNAPSHOT_FILES):
+        # Wochenpuls, Migration und Setup bekommen keinen Schnappschuss der
+        # Maßnahmen: sie sind keine Prüfung, und ein Lauf mit `measures.json`
+        # gilt im Cockpit als letzte Prüfung.
+        for name in (() if kind in AUTO_RELEASED else SNAPSHOT_FILES):
             snapshot_source = backlog_dir / name
             if name not in files and snapshot_source.exists():
                 shutil.copy2(snapshot_source, run_target / name)
@@ -391,10 +421,10 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
                                          run_date=run_id[:10], files=files,
                                          revision=revision, note=note,
                                          title=state.get("title"), today=today)
-        # Der Wochenpuls ist die benannte Ausnahme von "hochgeladen ist nicht
-        # sichtbar": er enthält nur Meldungen, keine Befunde und keine
-        # Maßnahmen, und trägt im Cockpit "automatisch erstellt".
-        if kind == "pulse":
+        # Wochenpuls, Migration und Setup sind die benannte Ausnahme von
+        # "hochgeladen ist nicht sichtbar": sie enthalten keine Befunde und
+        # keine Maßnahmen. Der Puls trägt im Cockpit "automatisch erstellt".
+        if kind in AUTO_RELEASED:
             manifest_data = manifest.release(manifest_data, shop, run_id, today=today)
         manifest_data["revision"] = (base_revision or 0) + 1
         manifest.save(manifest_path, manifest_data)

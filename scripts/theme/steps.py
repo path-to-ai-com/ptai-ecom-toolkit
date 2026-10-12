@@ -14,7 +14,7 @@ import subprocess
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from theme import policies, questions
+from theme import ConfigError, load_config, policies, questions
 
 STEPS = (
     ("backup", "Shop gesichert"),
@@ -34,6 +34,12 @@ OWNER = {"backup": "plugin", "inventory": "plugin", "build": "plugin", "upload":
 #: Die neun Prüfer von `verify-theme`, feste Ordnernamen unter `migration/verify/<date>/`.
 CHECKERS = ("structure", "content", "seo", "design", "function", "apps_tracking", "languages", "performance",
             "accessibility")
+#: Deutsche Namen der Prüfer für die Notiz von Schritt 5, die der Kunde im Cockpit liest.
+CHECKER_LABELS = {
+    "structure": "Struktur", "content": "Inhalt", "seo": "SEO", "design": "Gestaltung", "function": "Funktion",
+    "apps_tracking": "Apps und Tracking", "languages": "Sprachen", "performance": "Performance",
+    "accessibility": "Barrierefreiheit",
+}
 #: Ordnernamen aus Läufen vor 0.3.11, die Teams selbst gewählt haben.
 CHECKER_ALIASES = {
     "struktur": ("structure",), "inhalt": ("content",), "gestaltung": ("design",), "funktion": ("function",),
@@ -201,7 +207,8 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
     ran = checkers_run(workspace)
     missing = [c for c in CHECKERS if c not in ran]
     status = state_of("6-verify")
-    note = f"{len(ran)} von {len(CHECKERS)} Prüfern gelaufen" + (f"; offen: {', '.join(missing)}" if missing else "")
+    note = f"{len(ran)} von {len(CHECKERS)} Prüfern gelaufen" + \
+        (f"; offen: {', '.join(CHECKER_LABELS[c] for c in missing)}" if missing else "")
     if blockers:
         note += f"; {len(blockers)} Blocker offen"
     if status == "done" and (missing or blockers):
@@ -289,8 +296,22 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
     }
 
 
+def _portal_shop(workspace) -> str | None:
+    """Der Slug des Stores im Cockpit (`portal.shop` der Config), sonst `None`."""
+    try:
+        portal = load_config(workspace).get("portal")
+    except ConfigError:
+        return None
+    shop = portal.get("shop") if isinstance(portal, dict) else None
+    return shop if isinstance(shop, str) and shop.strip() else None
+
+
 def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
-    """Der Inhalt von `migration.json`, wie ihn das Cockpit liest."""
+    """Der Inhalt von `migration.json`, wie ihn das Cockpit liest.
+
+    `people` sind die Personen aus `theme_migration.people`, die Fragen beantworten und Gates entscheiden;
+    `shop` ist der Store im Cockpit (`portal.shop`), damit die Karte ihn ohne Manifest zuordnen kann.
+    """
     result = compute(workspace, data, **kwargs)
     values = data.get("values") or {}
     return {
@@ -298,6 +319,8 @@ def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
         "run_id": data["run_id"],
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "plugin_version": plugin_version,
+        "shop": _portal_shop(workspace),
+        "people": questions.people(workspace),
         "live_theme_id": values.get("live_theme_id"),
         "draft_theme_id": values.get("draft_theme_id"),
         "last_sync": values.get("last_sync"),

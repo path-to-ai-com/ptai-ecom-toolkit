@@ -39,6 +39,24 @@ Die Vorgaben liegen beim Betreiber im Workspace der Marke (`policies.json`, Form
   zweimal ändert nichts.
 - Eine offene Vorgabe (`rule: open`) entscheidet der Betreiber; sie hält die Vorbereitung nicht an.
 
+## Ins Cockpit
+
+Den Stand der Migration und das Setup eines Stores veröffentlicht der Betreiber mit `audit.publish`, Aufruf
+wie in der `CLAUDE.md` des Cockpits (`ptai-portal`, Abschnitt "Lauf hochladen und freigeben"):
+
+```bash
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.publish --workspace <store-workspace> \
+  --run-id <lauf-id> --target "$(mktemp -d)" --upload
+```
+
+- Migration: `<lauf-id>` ist der Migrationslauf (`<datum>-migration`). Hoch geht nur `migration.json`, die
+  `run_state` nach jedem Befehl schreibt.
+- Setup: zuerst den Lauf anlegen, `"${CLAUDE_PLUGIN_ROOT}/bin/theme" setup from-shop-tech --path
+  <shop-tech.json> --shop <slug>` (Format `${CLAUDE_PLUGIN_ROOT}/reference/setup-format.md`), dann
+  `<datum>-setup` hochladen. Hoch geht nur `setup.json`.
+- Beide sind sofort sichtbar, ohne `release` und ohne `--visible`, und ersetzen die vorige Fassung.
+  Transkripte, Journal und `session.lock` bleiben im Repo. Fehlt die Datei im Lauf, bricht `publish` ab.
+
 ## Testrunde ins Cockpit
 
 Die Testrunde entsteht im Repo des Stores (`theme-migration`, Phase 8). Der Betreiber prüft sie und

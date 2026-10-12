@@ -69,6 +69,16 @@ class StepsTest(Workspace):
         self.assertIn("3 von 9", verify["note"])
         self.assertFalse(result["ready_for_test_round"]["met"])
 
+    def test_offene_pruefer_stehen_mit_deutschem_namen_in_der_notiz(self):
+        # Die Notiz liest der Kunde im Cockpit; die Schlüssel bleiben englisch.
+        state = self.state_until_verify()
+        self.all_checkers(("structure", "seo", "design", "function", "languages", "performance", "accessibility"))
+        self.one_language()
+        note = steps.compute(self.ws, state.data, git_status=CLEAN_GIT)["steps"][4]["note"]
+        self.assertIn("offen: Inhalt, Apps und Tracking", note)
+        self.assertNotIn("apps_tracking", note)
+        self.assertEqual(set(steps.CHECKER_LABELS), set(steps.CHECKERS))
+
     def test_aeltere_ordnernamen_der_pruefer_werden_gezaehlt(self):
         for name in ("struktur", "inhalt", "seo-recheck", "gestaltung-funktion"):
             write(self.ws / "migration" / "verify" / "2026-01-02" / name / "findings.md", "x")
@@ -281,6 +291,22 @@ class RunStateSince0311Test(Workspace):
         self.assertEqual(data["current_step"], 1)
         self.assertEqual(len(data["steps"]), 9)
         self.assertIn("plugin_version", data)
+        self.assertEqual(data["people"], ["Beispielperson"])
+        self.assertIsNone(data["shop"])
+
+    def test_migration_json_nennt_den_store_im_cockpit(self):
+        write(self.ws / "reporting" / "config.json",
+              {"portal": {"brand": "beispielmarke", "shop": "beispielshop"},
+               "theme_migration": {"people": ["Beispielperson", "Zweite Person"]}})
+        data = steps.export(self.ws, run_state.new(self.ws, RUN).data, "0.0.0", git_status=CLEAN_GIT)
+        self.assertEqual(data["shop"], "beispielshop")
+        self.assertEqual(data["people"], ["Beispielperson", "Zweite Person"])
+
+    def test_ohne_personen_ist_die_liste_leer(self):
+        write(self.ws / "reporting" / "config.json", {})
+        data = steps.export(self.ws, run_state.new(self.ws, RUN).data, "0.0.0", git_status=CLEAN_GIT)
+        self.assertEqual(data["people"], [])
+        self.assertIsNone(data["shop"])
 
     def test_zweite_sitzung_wird_abgewiesen(self):
         with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "sitzung-a"}):
