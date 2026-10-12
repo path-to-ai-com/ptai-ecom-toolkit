@@ -25,8 +25,8 @@ Aufruf im Kunden-Workspace:
 """
 import argparse
 import json
-import subprocess
 import sys
+import tempfile
 import urllib.parse
 from datetime import date, timedelta
 from pathlib import Path
@@ -41,6 +41,7 @@ from audit import config as run_config, env, gsc_scope, portal  # noqa: E402
 from audit.shop_hosts import (NOT_SET, bare_host, classify_campaigns,  # noqa: E402
                               is_shop_host, with_www)
 from google_token import get_access_token  # noqa: E402
+from shopify_cli import parse_cli_json, run_cli  # noqa: E402
 
 #: Tage, über die der Check misst, bis gestern.
 WINDOW_DAYS = 28
@@ -250,12 +251,18 @@ def read_shopify(config: dict, workspace: Path, period: dict) -> dict:
         if target.get("brand") and target.get("shop"):
             return portal.shopify_execute(target["brand"], target["shop"], query, None,
                                           "audit.scope", workspace)
-        result = subprocess.run(["shopify", "store", "execute", "--store",
-                                 config.get("shopify_store") or "", "--json", "--query", query],
-                                capture_output=True, text=True, timeout=120)
+        # Die Abfrage als Datei, nie als Argument: unter Windows läuft die CLI
+        # über cmd.exe, und dort brächen Zeilenumbruch und `>=` den Aufruf.
+        with tempfile.TemporaryDirectory(prefix="ptai-scope-") as tmp:
+            query_file = Path(tmp) / "query.graphql"
+            query_file.write_text(query, encoding="utf-8")
+            result = run_cli(["shopify", "store", "execute", "--store",
+                              config.get("shopify_store") or "", "--json",
+                              "--query-file", str(query_file)],
+                             capture_output=True, encoding="utf-8", errors="replace", timeout=120)
         if result.returncode:
             raise RuntimeError((result.stderr or "shopify store execute fehlgeschlagen")[-300:])
-        return json.loads(result.stdout)
+        return parse_cli_json(result.stdout)
 
     try:
         section = parse_shopify(execute(SHOPIFY_QUERY))

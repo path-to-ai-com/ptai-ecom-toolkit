@@ -9,6 +9,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import shopify_cli  # noqa: E402
 from theme import shopify  # noqa: E402
 
 QUERY = "query ThemeList { themes(first: 250) { nodes { id } } }"
@@ -128,9 +129,9 @@ class TestCliTransport(unittest.TestCase):
 
         for found in ({"shopify.cmd": r"C:\npm\shopify.cmd"},
                       {"shopify": r"C:\npm\shopify", "shopify.cmd": r"C:\npm\shopify.cmd"}):
-            with self.subTest(found=sorted(found)), mock.patch.object(shopify, "IS_WINDOWS", True), \
-                    mock.patch.object(shopify.shutil, "which", side_effect=found.get), \
-                    mock.patch.object(shopify.subprocess, "run", side_effect=fake_run):
+            with self.subTest(found=sorted(found)), mock.patch.object(shopify_cli, "IS_WINDOWS", True), \
+                    mock.patch.object(shopify_cli.shutil, "which", side_effect=found.get), \
+                    mock.patch.object(shopify_cli.subprocess, "run", side_effect=fake_run):
                 calls.clear()
                 data = shopify.CliTransport("beispiel.myshopify.com", sleep=self.slept.append).execute(QUERY)
                 self.assertEqual(data, {"themes": {"nodes": []}})
@@ -138,8 +139,8 @@ class TestCliTransport(unittest.TestCase):
                 self.assertEqual(cmd[0], r"C:\npm\shopify.cmd")
                 self.assertEqual(cmd[1:5], ["store", "execute", "--store", "beispiel.myshopify.com"])
                 self.assertEqual((kwargs["encoding"], kwargs["errors"]), ("utf-8", "replace"))
-        with mock.patch.object(shopify, "IS_WINDOWS", True), mock.patch.object(shopify.shutil, "which",
-                                                                               return_value=None):
+        with mock.patch.object(shopify_cli, "IS_WINDOWS", True), mock.patch.object(shopify_cli.shutil, "which",
+                                                                                   return_value=None):
             with self.assertRaisesRegex(shopify.ShopifyError, "shopify.cmd nicht im PATH"):
                 shopify.CliTransport("beispiel.myshopify.com").execute(QUERY)
 

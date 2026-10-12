@@ -19,12 +19,8 @@ Eine Mutation wird nur wiederholt, wenn die Meldung ausdrücklich Drosselung
 nennt; bei einem anderen Fehler weiß niemand, ob sie schon gewirkt hat, und
 ein zweites `themeCreate` legte ein zweites Theme an.
 
-**Windows.** npm legt die CLI dort als `shopify.cmd` ab, und `subprocess` ohne
-Shell findet sie unter dem bloßen Namen nicht; `find_cli` sucht deshalb über
-`shutil.which` und nimmt unter Windows auch `shopify.cmd`. Die Ausgabe wird als
-UTF-8 gelesen, nicht in der Codepage der Konsole. Steht vor dem JSON eine
-Fortschritts- oder Warnzeile, liest `parse_cli_json` das letzte vollständige
-Objekt oder Array.
+**Windows.** Suche und Lesen der CLI (`find_cli`, `run_cli`, `parse_cli_json`)
+liegen in `shopify_cli`, gemeinsam mit dem Audit.
 
 Für Tests wird `runner` (statt `run_cli`) beziehungsweise `execute_fn`
 injiziert; kein Test geht ins Netz.
@@ -32,26 +28,17 @@ injiziert; kein Test geht ins Netz.
 import json
 import os
 import re
-import shutil
-import subprocess
 import tempfile
 import time
 from pathlib import Path
 
+from shopify_cli import ShopifyError, parse_cli_json, run_cli
 from theme import migration_config
 
 THEME_GID = "gid://shopify/OnlineStoreTheme/"
 
 #: Wartezeiten vor den Wiederholungen, wie in pull-shopify belegt.
 DEFAULT_WAITS = (20, 40)
-
-#: Unter Windows startet `subprocess` ohne Shell nur Dateien mit diesen Endungen.
-IS_WINDOWS = os.name == "nt"
-WINDOWS_RUNNABLE = (".exe", ".cmd", ".bat", ".com")
-
-
-class ShopifyError(RuntimeError):
-    """Eine Abfrage ist gescheitert, gedrosselt geblieben oder unzulässig."""
 
 
 class ThrottledError(ShopifyError):
@@ -109,64 +96,6 @@ def unwrap(payload, *, source: str = "Shopify") -> dict:
             raise ShopifyError(f"{source}: Antwort ohne Daten")
         return data
     return payload
-
-
-def find_cli(name: str = "shopify") -> str:
-    """Voller Pfad der Shopify CLI über `shutil.which`, unter Windows auch `shopify.cmd`.
-
-    Ein Treffer ohne ausführbare Endung ist unter Windows das Shell-Skript, das
-    npm neben `shopify.cmd` ablegt; das startet `subprocess` nicht, deshalb wird
-    dann weitergesucht.
-    """
-    candidates = [name]
-    if IS_WINDOWS and not name.lower().endswith(WINDOWS_RUNNABLE):
-        candidates.append(name + ".cmd")
-    for candidate in candidates:
-        path = shutil.which(candidate)
-        if path and (not IS_WINDOWS or path.lower().endswith(WINDOWS_RUNNABLE)):
-            return path
-    raise ShopifyError(f"Shopify CLI nicht gefunden ({' oder '.join(candidates)} nicht im PATH); "
-                       "installieren mit npm install -g @shopify/cli")
-
-
-def run_cli(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """`subprocess.run` mit dem aufgelösten Pfad der CLI an erster Stelle."""
-    return subprocess.run([find_cli(cmd[0]), *cmd[1:]], **kwargs)
-
-
-#: Ein Kandidat beginnt am Anfang einer Zeile, ohne Einrückung. Eingerückte
-#: Klammern gehören zum Inneren eines Objekts, und ein Teilobjekt einer
-#: abgeschnittenen Antwort darf nie als ganze Antwort gelten.
-_JSON_START = re.compile(r"(?:^|(?<=[\r\n]))[\[{]")
-
-
-def parse_cli_json(text: str):
-    """JSON aus der Ausgabe der CLI, auch mit Fortschritts- oder Warnzeilen davor.
-
-    Erst die ganze Ausgabe; scheitert das, das letzte vollständige Objekt oder
-    Array, das am Zeilenanfang beginnt. Beginnt danach noch ein Objekt, das
-    nicht vollständig ist, ist die Antwort abgeschnitten, und das ist ein
-    Fehler statt eines älteren Treffers. `ValueError`, wenn nichts passt.
-    """
-    try:
-        return json.loads(text)
-    except ValueError:
-        pass
-    decoder = json.JSONDecoder()
-    found, pos = None, 0
-    while (match := _JSON_START.search(text, pos)) is not None:
-        start = match.start()
-        try:
-            value, end = decoder.raw_decode(text, start)
-        except ValueError:
-            if found is not None and text[start] == "{":
-                raise ValueError("Antwort nach dem letzten vollständigen JSON abgeschnitten")
-            pos = start + 1
-            continue
-        found, pos = (value,), end
-    if found is None:
-        raise ValueError("kein JSON-Objekt in der Ausgabe")
-    return found[0]
 
 
 class CliTransport(Transport):

@@ -115,6 +115,14 @@ class StepsTest(Workspace):
         self.assertEqual(result["steps"][2]["note"], "Vorgaben der Marke nicht eingetragen")
         self.assertEqual(result["owner"], "operator")
 
+    def test_vorgaben_ohne_belegten_neubau_danach_heisst_nacharbeiten(self):
+        state = self.state_until_verify()
+        write(self.ws / "migration" / "policies.json", {"version": "2026-01-05.1", "rules": [],
+                                                         "applied_at": "2026-01-05T10:00:00+00:00"})
+        result = steps.compute(self.ws, state.data, git_status=CLEAN_GIT)
+        self.assertEqual(result["steps"][2]["status"], "rework")
+        self.assertIn("Neubau danach steht aus", result["steps"][2]["note"])
+
     def test_abgleich_vor_dem_launch_ist_hoechstens_sieben_tage_alt(self):
         state = self.state_until_verify()
         state.data["values"]["last_sync"] = "2026-01-01"
@@ -201,6 +209,19 @@ class PoliciesTest(Workspace):
         newer = {**self.SOURCE, "version": "2026-01-09.1"}
         self.assertFalse(policies.check(self.ws, newer)["current"])
         self.assertTrue(policies.check(self.ws, self.SOURCE)["current"])
+
+    def test_schreibweisen_desselben_dienstes_ergeben_keinen_falschen_blocker(self):
+        write(self.ws / "migration" / "inventory" / "apps.json",
+              {"services": [{"service_id": "banner-a", "decision": "keep"},
+                            {"service_id": "app:banner-b-alt", "decision": "keep"}]})
+        source = {**self.SOURCE, "rules": [
+            {"key": "cookie_banner", "rule": "same_as_reference", "target": "Banner A",
+             "keep": [["app:banner-a", "banner-a"]], "drop": [["app:banner-b", "app:banner-b-alt"]]}]}
+        result = policies.apply(self.ws, source)
+        self.assertEqual(result["open_items_added"], [])
+        apps = {s["service_id"]: s["decision"] for s in
+                json.loads((self.ws / "migration" / "inventory" / "apps.json").read_text())["services"]}
+        self.assertEqual(apps, {"banner-a": "keep", "app:banner-b-alt": "drop"})
 
     def test_keep_bei_offener_regel_ist_ungueltig(self):
         broken = {**self.SOURCE, "rules": [{"key": "x", "rule": "open", "keep": ["app:a"]}]}

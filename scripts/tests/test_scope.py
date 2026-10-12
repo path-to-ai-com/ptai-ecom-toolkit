@@ -5,11 +5,15 @@ Konten vom 07.10.2026, mit erfundenen Namen: eine Marke mit mehreren Stores
 in einer Property und einem Werbekonto, und ein Store, der in viele Länder
 verkauft und dessen Käufe in einer Connector-Property ohne Hostnamen stehen.
 """
+import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import shopify_cli  # noqa: E402
 from audit import scope  # noqa: E402
 
 SHOP = ["eu.beispielshop.test"]
@@ -52,6 +56,70 @@ class TestShopify(unittest.TestCase):
         self.assertEqual(shop["hosts"], ["eu.beispielshop.test", "beispielshop.at"])
         self.assertEqual(shop["countries"], ["AT", "DE"])
         self.assertEqual(shop["subfolders"], ["de"])
+
+
+class TestShopifyCli(unittest.TestCase):
+    """Der Weg über die Shopify CLI, wie unter Windows: `shopify.cmd`,
+    Fortschrittszeilen vor dem JSON, Umlaute in der Antwort."""
+
+    CONFIG = {"shopify_store": "beispiel.myshopify.com"}
+    PERIOD = {"startDate": "2026-01-01", "endDate": "2026-01-28"}
+    SHOP_ANSWER = {"shop": {"primaryDomain": {"host": "beispielshop.test"}, "currencyCode": "EUR"},
+                   "markets": {"nodes": [{"name": "Österreich", "enabled": True,
+                                          "regions": {"nodes": [{"code": "AT"}]},
+                                          "webPresences": {"nodes": [
+                                              {"domain": {"host": "beispielshop.at"}}]}}]}}
+
+    def setUp(self):
+        self.calls = []
+
+    def fake_run(self, cmd, **kwargs):
+        query = Path(cmd[cmd.index("--query-file") + 1]).read_text(encoding="utf-8")
+        self.calls.append({"cmd": cmd, "kwargs": kwargs, "query": query})
+        answer = {"ordersCount": {"count": 42}} if "ordersCount" in query else self.SHOP_ANSWER
+        stdout = ("Fetching store beispiel.myshopify.com ...\n"
+                  '{"level": "warn", "message": "Update verfügbar"}\n'
+                  + json.dumps(answer, ensure_ascii=False, indent=2) + "\n")
+        return subprocess.CompletedProcess(cmd, 0, stdout, "")
+
+    def read(self, found):
+        with mock.patch.object(shopify_cli, "IS_WINDOWS", True), \
+                mock.patch.object(shopify_cli.shutil, "which", side_effect=found.get), \
+                mock.patch.object(shopify_cli.subprocess, "run", side_effect=self.fake_run):
+            return scope.read_shopify(self.CONFIG, Path("."), self.PERIOD)
+
+    def test_scope_findet_die_cli_als_shopify_cmd(self):
+        for found in ({"shopify.cmd": r"C:\npm\shopify.cmd"},
+                      {"shopify": r"C:\npm\shopify", "shopify.cmd": r"C:\npm\shopify.cmd"}):
+            with self.subTest(found=sorted(found)):
+                self.calls.clear()
+                section = self.read(found)
+                self.assertNotIn("note", section)
+                self.assertEqual([c["cmd"][0] for c in self.calls], [r"C:\npm\shopify.cmd"] * 2)
+                self.assertEqual(self.calls[0]["cmd"][1:5],
+                                 ["store", "execute", "--store", "beispiel.myshopify.com"])
+
+    def test_scope_liest_die_antwort_als_utf8_nach_fortschrittszeilen(self):
+        section = self.read({"shopify.cmd": r"C:\npm\shopify.cmd"})
+        self.assertEqual(section["hosts"], ["beispielshop.test", "beispielshop.at"])
+        self.assertEqual(section["countries"], ["AT"])
+        self.assertEqual(section["orders"], 42)
+        for call in self.calls:
+            self.assertEqual((call["kwargs"]["encoding"], call["kwargs"]["errors"]), ("utf-8", "replace"))
+
+    def test_scope_gibt_die_abfrage_als_datei_und_nie_als_argument(self):
+        self.read({"shopify.cmd": r"C:\npm\shopify.cmd"})
+        self.assertIn("created_at:>=2026-01-01", self.calls[1]["query"])
+        for call in self.calls:
+            self.assertNotIn("--query", call["cmd"])
+            for arg in call["cmd"]:
+                self.assertFalse(set(arg) & set('\n"<>'), arg)
+
+    def test_scope_meldet_eine_fehlende_cli_als_nicht_abrufbar(self):
+        section = self.read({})
+        self.assertEqual(self.calls, [])
+        self.assertIn("Shopify nicht abrufbar", section["note"])
+        self.assertIn("shopify.cmd nicht im PATH", section["note"])
 
 
 class TestCampaigns(unittest.TestCase):

@@ -46,6 +46,10 @@ SYNC_MAX_AGE_DAYS = 7
 DONE = ("done", "skipped")
 
 
+def _questions(n: int) -> str:
+    return f"{n} Frage an euch offen" if n == 1 else f"{n} Fragen an euch offen"
+
+
 def checkers_run(workspace) -> list:
     """Welche Prüfer in irgendeiner Runde unter `migration/verify/` ein Ergebnis hinterlassen haben."""
     root = Path(workspace) / "migration" / "verify"
@@ -166,10 +170,10 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
     note = ""
     if status == "done" and not gates.get("G1-decisions"):
         status = "running"
-        note = (f"{len(q_by_gate['G1-decisions'])} Fragen an euch offen" if q_by_gate["G1-decisions"]
+        note = (_questions(len(q_by_gate['G1-decisions'])) if q_by_gate["G1-decisions"]
                 else "wartet auf Gate G1")
     elif status == "done" and q_by_gate["G1-decisions"]:
-        status, note = "rework", f"{len(q_by_gate['G1-decisions'])} Fragen an euch offen"
+        status, note = "rework", _questions(len(q_by_gate['G1-decisions']))
     steps.append((status, note))
     # 3 Neubau
     status = state_of("3-mapping", "4-build")
@@ -180,10 +184,11 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
         built = _journal_time(workspace, data["run_id"], "4-build", "done") or ""
         if policy["required"] and not policy["applied"]:
             status, note = "rework", "Vorgaben der Marke nicht eingetragen"
-        elif policy["applied"] and built and built < (policy["applied_at"] or ""):
+        elif policy["applied"] and (not built or built < (policy["applied_at"] or "")):
+            # Ohne Zeitpunkt des Neubaus im Journal ist nicht belegt, dass er die Vorgaben schon gelesen hat.
             status, note = "rework", f"Vorgaben {policy['version']} eingetragen, Neubau danach steht aus"
         elif q_by_gate["G2-mapping"]:
-            status, note = "rework", f"{len(q_by_gate['G2-mapping'])} Fragen an euch offen"
+            status, note = "rework", _questions(len(q_by_gate['G2-mapping']))
         elif policy["applied"]:
             note = f"nach Vorgaben {policy['version']}"
     steps.append((status, note))
@@ -208,7 +213,7 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
     status = state_of("8-test-round")
     if status == "done" and not gates.get("G4-acceptance"):
         status = "running"
-    note = (f"{len(q_by_gate['G4-acceptance'])} Fragen aus der Testrunde offen"
+    note = (_questions(len(q_by_gate['G4-acceptance'])) + " zur Testrunde"
             if q_by_gate["G4-acceptance"] else "")
     early = status != "open" and not all(s == "done" for s, _ in steps[:5])
     if early:

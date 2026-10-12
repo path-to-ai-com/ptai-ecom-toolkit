@@ -17,7 +17,7 @@ der Betreiber wendet diese Entscheidungen auf den Lauf jedes Stores an (`theme.p
       "subject": "Cookie-Banner",
       "rule": "same_as_reference",
       "target": "Banner A",
-      "keep": ["app:banner-a"],
+      "keep": [["banner-a", "app:banner-a"]],
       "drop": ["app:banner-b"],
       "note": "Wechsel in der Migration"
     },
@@ -36,7 +36,7 @@ der Betreiber wendet diese Entscheidungen auf den Lauf jedes Stores an (`theme.p
 | `rules[].subject` | Bezeichnung für Menschen |
 | `rules[].rule` | `same_as_reference`, `open` oder `may_differ` |
 | `rules[].target` | Zielwert in Worten, erscheint im Cockpit als "bis zum Launch: …" |
-| `rules[].keep`, `rules[].drop` | Dienst-IDs wie in `apps.json` (`app:<handle>`), nur bei `same_as_reference` |
+| `rules[].keep`, `rules[].drop` | Dienst-IDs wie in `apps.json` (`app:<handle>`), nur bei `same_as_reference`. Ein Eintrag darf eine Liste von Schreibweisen desselben Dienstes sein, etwa `["cookiefirst", "app:cookiefirst-cookie-consent"]`, weil die Inventare der Stores ihn verschieden benennen. Beim Behalten genügt eine vorhandene Schreibweise; fehlt jede, entsteht ein Punkt zum Einbauen |
 | `rules[].note` | Begründung oder offene Frage |
 
 ## Was `apply` im Lauf eines Stores tut

@@ -8,7 +8,9 @@ ein, und niemand sah, welcher Stand wo galt.
 Die Datei `policies.json` liegt nicht im Plugin, sondern beim Betreiber im Workspace der Marke. Format in
 `reference/theme-migration/policies-format.md`. Je Merkmal eine Regel:
 
-- `same_as_reference`: wie im Referenz-Store der Marke; mit `keep` und `drop` (Dienst-IDs aus `apps.json`)
+- `same_as_reference`: wie im Referenz-Store der Marke; mit `keep` und `drop` (Dienst-IDs aus `apps.json`).
+  Ein Eintrag ist eine ID oder eine Liste von Schreibweisen desselben Dienstes, weil die Inventare der Stores
+  einer Marke denselben Dienst verschieden benennen (`cookiefirst`, `app:cookiefirst-cookie-consent`).
 - `open`: noch nicht entschieden; hält die Vorbereitung nicht an, steht im Cockpit als Entscheidung beim Betreiber
 - `may_differ`: darf je Store abweichen
 
@@ -93,8 +95,10 @@ def validate(data) -> list:
             errors.append(f"{where}.rule muss eines von {RULES} sein")
         for field in ("keep", "drop"):
             value = rule.get(field, [])
-            if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
-                errors.append(f"{where}.{field} muss eine Liste von Dienst-IDs sein")
+            if not isinstance(value, list) or not all(
+                    (isinstance(v, str) and v) or (isinstance(v, list) and v and all(isinstance(a, str) and a for a in v))
+                    for v in value):
+                errors.append(f"{where}.{field} muss eine Liste von Dienst-IDs oder Listen von Schreibweisen sein")
         if rule.get("rule") != "same_as_reference" and (rule.get("keep") or rule.get("drop")):
             errors.append(f"{where}: keep und drop nur bei same_as_reference")
     return errors
@@ -120,6 +124,22 @@ def _decisions(workspace) -> tuple:
     raise PolicyError(f"{decisions_path(workspace)} hat eine unbekannte Form.")
 
 
+def _decide(decisions: list, rule: dict, decision: str, service_id: str, version: str, source: dict) -> str | None:
+    """Hängt eine Entscheidung aus der Vorgabe an. Gibt ihre ID zurück, `None`, wenn es sie schon gibt."""
+    ident = f"policy-{version}-{rule['key']}-{service_id}"
+    if any(d.get("id") == ident for d in decisions):
+        return None
+    earlier = [d["id"] for d in decisions
+               if d.get("service_id") == service_id and d.get("id")
+               and not any(d["id"] in (e.get("replaces") or []) for e in decisions)]
+    decisions.append({"id": ident, "subject": rule.get("subject") or rule["key"],
+                      "kind": "app" if service_id.startswith("app:") else "service", "decision": decision,
+                      "reason": f"Vorgabe der Marke, Version {version}: {rule.get('target') or rule.get('note') or decision}",
+                      "decided_by": source["decided_by"], "decided_at": source["decided_at"],
+                      "source": "policy", "service_id": service_id, "replaces": earlier})
+    return ident
+
+
 def apply(workspace, source: dict, now: datetime | None = None) -> dict:
     """Wendet die Vorgaben auf den Lauf eines Stores an. Gleiche Version zweimal ändert nichts."""
     from theme import open_items  # erst hier, damit der Import der Schritte leicht bleibt
@@ -133,27 +153,24 @@ def apply(workspace, source: dict, now: datetime | None = None) -> dict:
     for rule in source["rules"]:
         if rule["rule"] != "same_as_reference":
             continue
-        for decision, ids in (("keep", rule.get("keep", [])), ("drop", rule.get("drop", []))):
-            for service_id in ids:
-                ident = f"policy-{version}-{rule['key']}-{service_id}"
-                if any(d.get("id") == ident for d in decisions):
+        for decision, entries in (("keep", rule.get("keep", [])), ("drop", rule.get("drop", []))):
+            for entry_ids in entries:
+                aliases = [entry_ids] if isinstance(entry_ids, str) else list(entry_ids)
+                present = [a for a in aliases if a in services]
+                # Ein Dienst, den der Store nicht hat: beim Streichen nichts zu tun, beim Behalten ein Punkt zum
+                # Einbauen, und die Entscheidung gilt für die erste Schreibweise.
+                if not present and decision == "drop":
                     continue
-                earlier = [d["id"] for d in decisions
-                           if d.get("service_id") == service_id and d.get("id")
-                           and not any(d["id"] in (e.get("replaces") or []) for e in decisions)]
-                entry = {"id": ident, "subject": rule.get("subject") or rule["key"],
-                         "kind": "app" if service_id.startswith("app:") else "service", "decision": decision,
-                         "reason": f"Vorgabe der Marke, Version {version}: {rule.get('target') or rule.get('note') or decision}",
-                         "decided_by": source["decided_by"], "decided_at": source["decided_at"],
-                         "source": "policy", "service_id": service_id, "replaces": earlier}
-                decisions.append(entry)
-                added.append(ident)
-                replaced += earlier
-                if service_id in services:
-                    services[service_id].update({"decision": decision, "decision_source": "policy",
-                                                 "policy_version": version})
-                elif decision == "keep":
-                    missing.append((rule, service_id))
+                for service_id in present or aliases[:1]:
+                    added_id = _decide(decisions, rule, decision, service_id, version, source)
+                    if added_id:
+                        added.append(added_id)
+                        replaced += next(d for d in decisions if d["id"] == added_id)["replaces"]
+                    if service_id in services:
+                        services[service_id].update({"decision": decision, "decision_source": "policy",
+                                                     "policy_version": version})
+                if not present and decision == "keep":
+                    missing.append((rule, aliases[0]))
     _write(decisions_path(workspace), wrap(decisions))
     if apps is not None:
         _write(apps_path(workspace), apps)
