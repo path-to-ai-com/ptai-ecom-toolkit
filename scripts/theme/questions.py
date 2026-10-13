@@ -25,7 +25,8 @@ daneben, die erklärt, worum es geht. Deshalb trägt jede Frage, was die Person 
 
 Entscheidet eine Regel eine gestellte Frage doch ("wie heute", "wie im Referenz-Store", Vorgabe der Marke),
 zieht `withdraw` sie zurück: Status `withdrawn`, und ihr Ergebnis steht als Punkt in `migration/ruled.json`
-(Modul `ruled`), im Cockpit unter "Ohne Frage entschieden". Eine zurückgezogene Frage hält kein Gate an.
+(Modul `ruled`), im Cockpit unter "Entscheidungen" bei "Entschieden". Eine zurückgezogene Frage hält kein
+Gate an.
 
 Die Antworten aus dem Cockpit holt die Skill beim Start über das Werkzeug `get_migration` des Cockpits und trägt
 sie mit `import` ein: nur, wenn die Person in `theme_migration.people` steht und die Frage im Repo noch offen ist.
@@ -166,7 +167,7 @@ def _compare(entries) -> list:
 def ask(workspace, gate: str, text: str, *, context: str, reason: str, recommendation: str | None,
         options: list | None = None, other: str | None = None, compare: list | None = None,
         decider: list | None = None, now: datetime | None = None) -> dict:
-    """Legt eine Frage an. `recommendation=None` heißt ausdrücklich keine Empfehlung; `reason` sagt dann, warum."""
+    """Legt eine Frage an. `recommendation=None` heißt ausdrücklich keine Empfehlung; `reason` sagt dann, worauf es bei der Entscheidung ankommt."""
     if gate not in GATES:
         raise QuestionError(f"unbekanntes Gate {gate!r}, erlaubt sind {GATES}")
     text = _text(text, "Die Frage")
@@ -206,7 +207,7 @@ def ask(workspace, gate: str, text: str, *, context: str, reason: str, recommend
 def _not_open(found: dict) -> str:
     """Warum eine Frage nicht mehr offen ist, in einem Satz."""
     if found["status"] == "withdrawn":
-        return (f"Frage {found['id']} ist zurückgezogen und steht unter Ohne Frage entschieden "
+        return (f"Frage {found['id']} ist zurückgezogen und steht im Cockpit unter Entschieden "
                 f"({found.get('ruled_id')}).")
     return f"Frage {found['id']} ist schon beantwortet ({found.get('answered_by')}); die Antwort im Repo gilt."
 

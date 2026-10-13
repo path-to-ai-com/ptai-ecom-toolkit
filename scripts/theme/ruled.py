@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Ohne Frage entschieden: was eine Regel statt einer Person entscheidet, eine Datei je Lauf.
+"""Entschieden ohne Frage: was eine Regel statt einer Person entscheidet, eine Datei je Lauf.
 
 Seit 0.3.14. Die Regel für Fragen an das Team lautet: Standard ist "wie heute", "wie im Referenz-Store" oder
 die Vorgabe der Marke. Gefragt wird nur bei einem echten Zielkonflikt. Was eine Regel entscheidet, verschwindet
-aber nicht still: es steht im Cockpit unter "Ohne Frage entschieden", mit seiner Herkunft, und das Team kann
-einen Einwand schreiben. Ohne diese Liste sähe das Team nicht, was Claude für es entschieden hat.
+aber nicht still: es steht im Cockpit unter "Entscheidungen" bei "Entschieden", mit seiner Herkunft, und das
+Team kann dort "Änderung anfragen". Ohne diese Liste sähe das Team nicht, was Claude für es entschieden hat.
 
 Ein Punkt entsteht auf zwei Wegen: `questions withdraw` zieht eine gestellte Frage zurück und schreibt ihr
-Ergebnis hierher, `ruled add` hält einen Punkt fest, der nie gefragt wurde. Führt ein Einwand doch zu einer
-Frage, nimmt `revoke` den Punkt mit Grund zurück; er bleibt in der Datei und erscheint nicht mehr im Cockpit.
+Ergebnis hierher, `ruled add` hält einen Punkt fest, der nie gefragt wurde. Führt eine angefragte Änderung doch
+zu einer Frage, nimmt `revoke` den Punkt mit Grund zurück; er bleibt in der Datei und erscheint nicht mehr im Cockpit.
 
-Herkunft (`source`):
-- `policy`: Vorgabe der Marke
-- `as_today`: wie heute
-- `as_reference`: wie im Referenz-Store
-- `operator`: vom Betreiber eingetragen
-- `check`: Prüfung im Shop
+Herkunft (`source`), in Klammern wie das Cockpit sie zeigt:
+- `policy`: Vorgabe der Marke ("Vorgabe")
+- `as_today`: wie heute ("Unverändert")
+- `as_reference`: wie im Referenz-Store ("Referenz-Store")
+- `operator`: vom Betreiber eingetragen ("Path to AI")
+- `check`: Prüfung im Shop ("Im Shop festgestellt")
 
 Aufruf:
     python3 -m theme.ruled add --source <source> --text <text>
@@ -93,10 +93,10 @@ def add(workspace, text: str, source: str, question_id: str | None = None, now: 
 
 
 def revoke(workspace, ruled_id: str, reason: str, now: datetime | None = None) -> dict:
-    """Nimmt einen Punkt zurück, etwa wenn ein Einwand des Teams doch eine Frage nötig macht."""
+    """Nimmt einen Punkt zurück, etwa wenn eine vom Team angefragte Änderung doch eine Frage nötig macht."""
     reason = str(reason or "").strip()
     if not reason:
-        raise RuledError("Ein Punkt wird nur mit Grund zurückgenommen, etwa dem Einwand des Teams.")
+        raise RuledError("Ein Punkt wird nur mit Grund zurückgenommen, etwa der vom Team angefragten Änderung.")
     entries = load(workspace)
     found = next((e for e in entries if e["id"] == ruled_id), None)
     if found is None:

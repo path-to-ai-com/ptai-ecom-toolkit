@@ -117,9 +117,11 @@ bei `appInstallations` beweist nichts. Jede Quelle hat im Ergebnis eine Abdeckun
    - Konfiguration der Consent-App
    - je Zeile in `before_consent`, ob der Dienst ohne Einwilligung sendet
 
-10. **Admin-Liste beim Team anfordern**, wenn sie fehlt: Apps im Admin und Kundenereignisse (getrennte
-    Pixel stehen nur dort). Nur so sind reine Backend-Apps sichtbar. Ohne die Liste steht die Quelle als
-    `not_readable`.
+10. **Admin-Liste im Browser lesen:** Apps im Admin (Einstellungen > Apps) und Kundenereignisse (getrennte
+    Pixel und ihr Inhalt stehen nur dort), im Browser der Person, die die Migration führt und im Admin
+    angemeldet ist. Die Admin-API gibt beides einer fremden App nicht heraus. Nur so sind reine
+    Backend-Apps sichtbar. Geht das nicht (kein Browser, Konto ohne Recht auf Apps), die Liste bei der
+    Person anfordern; ohne sie steht die Quelle als `not_readable`.
 
 11. **Jeden unbekannten Host auflösen.** Jede fremde Domain bekommt Anbieter und Zweck, recherchiert,
     nie weggelassen. Ein Host mit `unknown` blockiert Gate G1. Allgemein gültige Zuordnungen (öffentlicher

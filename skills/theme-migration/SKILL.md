@@ -1,6 +1,6 @@
 ---
 name: theme-migration
-description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "bereit für die Testrunde", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Testrunde, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als ohne Frage entschieden fest, wendet die Vorgaben der Marke an, ohne nachzufragen, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
+description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "bereit für die Testrunde", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Testrunde, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als entschieden mit Herkunft fest, übernimmt beim Start die im Setup des Cockpits entschiedenen Vorgaben der Marke (get_setup, policies import) und wendet die Vorgaben an, ohne nachzufragen, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # theme-migration: die Migration führen
@@ -41,17 +41,20 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   Fehler, der sich nicht selbst beheben lässt.
 - **Standard statt Frage.** Was zu entscheiden ist, entscheidet zuerst die Regel: wie heute, wie im
   Referenz-Store der Marke oder nach den Vorgaben der Marke. Gefragt wird nur bei einem echten
-  Zielkonflikt, den keine Regel auflöst. Was eine Regel entscheidet, steht als "Ohne Frage entschieden"
-  im Cockpit (`ruled add`), mit Herkunft; das Team kann dort einen Einwand schreiben.
+  Zielkonflikt, den keine Regel auflöst. Was eine Regel entscheidet, steht im Cockpit unter
+  "Entscheidungen" bei "Entschieden" (`ruled add`), mit Herkunft ("Vorgabe", "Unverändert",
+  "Referenz-Store", "Path to AI", "Im Shop festgestellt"); das Team kann dort "Änderung anfragen".
 - **Fragen an das Team nur über `questions`**, höchstens zehn je Gate, jede mit Erklärung, Vergleich
   heute und Entwurf, wo es einen sichtbaren Unterschied gibt, und Empfehlung mit Grund (Abschnitt
   "Fragen an das Team"). Beantwortet werden sie im Cockpit; Claude stellt sie nicht in der Sitzung zur
-  Antwort, sondern verweist auf das Blatt der Migration im Cockpit. Antworten trägt nur eine Person aus
-  `theme_migration.people` ein; "Team", "vorläufig" oder "später" ist keine Antwort, die Frage bleibt
-  offen. Claude entscheidet nie an Stelle der Person.
-- **Die Vorgaben der Marke gelten als entschieden.** `migration/policies.json` legt der Betreiber ins
-  Repo (`theme.policies apply`). Sie überholen frühere Entscheidungen des Laufs und öffnen keine Frage an
-  das Team; ihre Folgen sind Bau- und Prüfarbeit.
+  Antwort, sondern verweist auf das Blatt der Migration im Cockpit (Reiter "Entscheidungen", Gruppe
+  "Ausstehend"). Antworten trägt nur eine Person aus `theme_migration.people` ein; "Team", "vorläufig"
+  oder "später" ist keine Antwort, die Frage bleibt offen. Claude entscheidet nie an Stelle der Person.
+- **Die Vorgaben der Marke gelten als entschieden.** `migration/policies.json` kommt mit
+  `theme.policies apply` ins Repo: beim Start der Migration, sobald die Marke eine Vorgabe im Setup des
+  Cockpits entschieden hat, sonst durch den Betreiber. Sie überholen frühere Entscheidungen des Laufs und
+  öffnen keine Frage an das Team; ihre Folgen sind Bau- und Prüfarbeit. Offene Vorgaben entscheidet die
+  Marke im Cockpit unter Setup, Karte "Vorgaben der Marke", nicht in der Sitzung.
 - **`state.json` schreibt nur diese Skill**, keine Fachskill und kein Subagent.
 - **Jede Aussage über den Shop verlinkt die betroffene Seite**, bei einem Unterschied Entwurf und Live,
   beide mit `?preview_theme_id=<id>`. Auch der Link auf den heutigen Shop enthält seine ID, weil Shopify
@@ -222,13 +225,13 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   --recommendation "<A>" --reason "<Grund der Empfehlung>" \
   [--compare "<Seite>" "<Link heute mit preview_theme_id>" "<Link Entwurf mit preview_theme_id>"] \
   [--decider "<Name>"]
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" questions ask ... --no-recommendation --reason "<warum keine Empfehlung>"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" questions ask ... --no-recommendation --reason "<worauf es bei der Entscheidung ankommt>"
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions withdraw --id <Q-001> --source <as_today|as_reference|policy|operator|check> --text "<was gilt>"
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions import --file <antworten.json>
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions answer --id <Q-001> --by "<Name>" --text "<Antwort>"
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions list --status open
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" ruled add --source <as_today|as_reference|policy|operator|check> --text "<was gilt>"
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" ruled revoke --id <R-001> --reason "<Grund, etwa der Einwand>"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" ruled revoke --id <R-001> --reason "<Grund, etwa die angefragte Änderung>"
 ```
 
 - Dateien `migration/questions.json` und `migration/ruled.json`, Format in
@@ -250,14 +253,15 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   - `--compare` je betroffener Seite: Link heute und Link Entwurf, beide mit `?preview_theme_id=<id>`
   - `--option` je Antwort, `--other` für eine Antwort mit Freitext, etwa "Eine andere Person"
   - `--recommendation` mit einer der Optionen und `--reason` mit dem Grund, oder ausdrücklich
-    `--no-recommendation` und in `--reason`, warum keine
+    `--no-recommendation` und in `--reason`, worauf es bei der Entscheidung ankommt
   - `--decider`, wenn nicht jede Person aus `theme_migration.people` entscheiden soll
 - Ist eine gestellte Frage doch durch eine Regel entschieden, `questions withdraw` mit Herkunft und Text:
-  die Frage verschwindet aus dem Cockpit, ihr Ergebnis steht unter "Ohne Frage entschieden" und hält
+  die Frage verschwindet aus "Ausstehend", ihr Ergebnis steht unter "Entschieden" mit Herkunft und hält
   kein Gate an.
 - **Beantwortet wird im Cockpit.** Neue Fragen in der Sitzung nennen und auf das Blatt der Migration im
-  Cockpit verweisen, nicht auf eine Antwort warten; danach committen und pushen. Antwortet die Person
-  trotzdem in der Sitzung, `questions answer` wie bisher, mit ihrem Namen.
+  Cockpit verweisen (Reiter "Entscheidungen", Gruppe "Ausstehend"), nicht auf eine Antwort warten;
+  danach committen und pushen. Antwortet die Person trotzdem in der Sitzung, `questions answer` wie
+  bisher, mit ihrem Namen.
 - Antworten aus dem Cockpit übernimmt der Start der Migration (`questions import`). Eine im Repo
   eingetragene Antwort gilt; eine spätere im Cockpit ändert sie nicht.
 - Jede Frage zusätzlich als `question` ins Journal, jede Antwort als `answer`, mit Name und Herkunft
@@ -266,16 +270,25 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 ### Vorgaben der Marke
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies check
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies import --brand-workspace "<ordner mit policies.json>" --file -
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies apply --source "<ordner mit policies.json>/policies.json"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies check --source "<ordner mit policies.json>/policies.json"
 ```
 
-- `migration/policies.json` legt der Betreiber ins Repo (`policies apply --source <datei>`), committet
-  und pusht. Format: `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/policies-format.md`.
+- `policies.json` liegt im Ordner der Marke, nie im Plugin. Format:
+  `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/policies-format.md`.
+- Offene Vorgaben stehen als `policy_questions` im Setup des Referenz-Stores; die Marke entscheidet sie im
+  Cockpit unter Setup, Karte "Vorgaben der Marke" ("Abweichung erlauben" oder "An <Referenz-Store>
+  angleichen"). `import` trägt diese Antworten beim Start in `policies.json` ein (Abschnitt "Start der
+  Migration"), mit der Person an der Regel und neuer Version; eine angeglichene App behält die Regel
+  unter `keep`.
+- `migration/policies.json` im Repo des Stores schreibt `apply`, beim Start der Migration oder durch den
+  Betreiber; danach committen und pushen.
 - `apply` trägt jede Vorgabe in `decisions.json` (`source: policy`, ersetzt ältere) und `apps.json` ein,
   damit der nächste Neubau sie liest. Ein Dienst, der beibehalten werden soll und im Inventar fehlt,
   steht als `blocker` in der Liste offener Punkte.
-- Eine Vorgabe mit `rule: open` hält die Vorbereitung nicht an; sie steht im Cockpit als Entscheidung des
-  Betreibers.
+- Eine Vorgabe mit `rule: open` hält die Vorbereitung nicht an; entschieden wird sie im Cockpit auf der
+  Karte "Vorgaben der Marke".
 - Nach einem `apply` steht Schritt 3 auf `rework`, bis neu gebaut ist.
 
 ### Die Liste offener Punkte
@@ -349,11 +362,12 @@ Phase 0.
    aus einer neueren Version des Plugins als der installierten. Anhalten und sagen: "Der Lauf stammt aus
    ptai-ecom `<run_version>`, installiert ist `<installed_version>`. Bitte zuerst das Plugin
    aktualisieren und Claude Code neu starten." Nicht weiterarbeiten, auch nicht lesend an einer Phase.
-2. **Neuesten Stand holen** im Workspace und im Ziel-Repo (`theme_migration.target_repo`), je:
-   `git status --porcelain` muss leer sein, dann `git pull --ff-only`. Ungesicherte Änderungen oder ein
-   Pull, der nicht vorspulen kann (Konflikt, abweichende Commits): anhalten und sagen, in welchem Repo
-   und was dort steht. Nie stashen, zurücksetzen oder zusammenführen, ohne dass die Person es sagt. Hat
-   der Pull den Lauf geändert, Schritt 1 wiederholen.
+2. **Neuesten Stand holen** im Workspace, im Ziel-Repo (`theme_migration.target_repo`) und im Repo
+   des Ordners mit `policies.json` (Schritt 5), je: `git status --porcelain` muss leer sein, dann
+   `git pull --ff-only`. Ungesicherte Änderungen oder ein Pull, der nicht vorspulen kann (Konflikt,
+   abweichende Commits): anhalten und sagen, in welchem Repo und was dort steht. Nie stashen,
+   zurücksetzen oder zusammenführen, ohne dass die Person es sagt. Hat der Pull den Lauf geändert,
+   Schritt 1 wiederholen.
 3. **Verbindung zum Cockpit prüfen:** Gibt es in dieser Sitzung das Werkzeug `get_migration` des
    Cockpits? Wenn nicht, sagen: "Claude ist nicht mit dem Cockpit verbunden. Verbindet Claude unter
    `https://portal.path-to-ai.com/<brand>/connections`, damit ich eure Antworten aus dem Cockpit lesen
@@ -376,13 +390,53 @@ Phase 0.
    `theme_migration.people`). Jede übernommene Antwort als `answer` ins Journal, etwa "Q-004: Vor der
    Testrunde, Erika Muster, im Cockpit". Danach `run_state show`, damit `migration.json` die Antworten
    trägt.
-5. **Rückfragen und Einwände aufgreifen:** `get_migration` liefert `cockpit_questions` (Rückfragen zu
-   einer Frage) und `objections` (Einwände gegen einen Punkt ohne Frage), je mit Text, Person und Zeit.
-   Jede in der Sitzung nennen. Eine Rückfrage hier beantworten; danach kann die Person im Cockpit oder
-   gleich in der Sitzung antworten. Einen Einwand prüfen: Bleibt die Regel richtig, sagen warum. Zeigt
-   er, dass es doch ein echter Zielkonflikt ist, `ruled revoke --id <R-…> --reason "Einwand von <Name>:
+5. **Vorgaben der Marke übernehmen:** `get_setup` des Cockpits mit `brand` und dem eigenen Store als
+   `shop` aufrufen. Trägt das Setup keine `policy_questions`, `get_setup` für den Referenz-Store
+   (`reference_shop` in `policies.json`): die Fragen stehen in seinem Setup. Aus jeder Frage mit
+   `cockpit_answer` einen Eintrag aus `key`, `value`, `by`, `at` und `options`, `subject` und `app` der
+   Frage bilden und alle zusammen eintragen, auch ohne Antwort (`[]`), weil die Ausgabe zeigt, ob der
+   eigene Store die geltende Fassung hat:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies import --brand-workspace "<ordner mit policies.json>" --file - <<'JSON'
+   [{"key": "bundles", "value": "An Beispielshop angleichen", "by": "Erika Muster",
+     "at": "2026-01-13T09:12:00+00:00", "options": ["Abweichung erlauben", "An Beispielshop angleichen"],
+     "subject": "Beispielbundle", "app": "app:beispielbundle"}]
+   JSON
+   ```
+
+   - `<ordner mit policies.json>`: der Ordner der Marke aus `brand_workspace` (Umgebungsvariable
+     `PTAI_BRAND_WORKSPACE`, sonst `reporting/config.local.json`, sonst `reporting/config.json`), dort
+     oder in einem Ordner direkt darin. Liegt er nicht auf diesem Rechner, nichts übernehmen, der Person
+     sagen, dass der Betreiber die Entscheidungen aus dem Cockpit einträgt, und das in der Übergabe als
+     `--operator-task` festhalten.
+   - Ausgabe: `imported`, `unchanged`, `skipped` je mit Grund, `still_open` und `apply_needed`; Exit 1,
+     wenn etwas übersprungen wurde. Den Grund einer übersprungenen Antwort nennen. Jede übernommene
+     Antwort als `answer` ins Journal, etwa "Vorgabe bundles: An Beispielshop angleichen, Erika Muster,
+     im Cockpit".
+   - "An … angleichen" mit `app` heißt: die Regel behält die App (`keep`). Fehlt sie im Inventar des
+     eigenen Stores, legt das folgende `apply` einen Punkt `blocker` zum Einbauen an; er muss vor der
+     Testrunde erledigt sein.
+   - Hat `import` etwas übernommen: `policies.json` im Repo ihres Ordners committen und pushen, etwa
+     `policies: bundles decided in the cockpit`.
+   - Steht der eigene Store in `apply_needed` (`own: true`): `policies apply --source "<ordner mit
+     policies.json>/policies.json"`, dann `run_state show`, committen und pushen. Schritt 3 steht danach
+     auf nacharbeiten, bis neu gebaut ist. Andere Stores aus `apply_needed` nur nennen; sie übernehmen die
+     Fassung beim nächsten Start ihrer Migration.
+   - Offen sind die Fragen aus `policy_questions` ohne `cockpit_answer` und die Regeln aus `still_open`.
+     Sie betreffen jeden Store außer dem Referenz-Store. Ist der eigene Store nicht der Referenz-Store,
+     jede nennen und auf das Cockpit verweisen: entschieden wird unter Setup auf der Karte "Vorgaben der
+     Marke", Claude übernimmt die Entscheidung beim nächsten Start. Eine offene Vorgabe hält die Migration
+     nicht an.
+   - Ohne Verbindung zum Cockpit (Schritt 3) `import` mit `[]` aufrufen; dann zählt nur `apply_needed`.
+6. **Rückfragen und angefragte Änderungen aufgreifen:** `get_migration` liefert `cockpit_questions`
+   (Rückfragen zu einer Frage) und `objections` ("Änderung anfragen" zu einem entschiedenen Punkt), je
+   mit Text, Person und Zeit; `get_setup` liefert `cockpit_questions` zu den Vorgaben. Jede in der Sitzung
+   nennen. Eine Rückfrage hier beantworten; danach kann die Person im Cockpit oder gleich in der Sitzung
+   antworten. Eine angefragte Änderung prüfen: Bleibt die Regel richtig, sagen warum. Zeigt sie, dass es
+   doch ein echter Zielkonflikt ist, `ruled revoke --id <R-…> --reason "Änderung angefragt von <Name>:
    …"` und die Frage stellen.
-6. **Weiterarbeiten:** Einstieg wie unten.
+7. **Weiterarbeiten:** Einstieg wie unten.
 
 ### Einstieg und Wiederaufnahme
 
@@ -406,9 +460,9 @@ Bevor eine Sitzung endet, auch wenn sie an einer offenen Frage anhält:
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state show
 ```
 
-- `handover write` schreibt `migration/next.json` neu: `now` für die Zeile "Jetzt" im Cockpit, `after`
-  für "Danach", `operator_tasks` für das, was der Betreiber tun muss, bevor es weitergeht (ohne
-  `--operator-task` nichts). Die Datei trägt den aktuellen Schritt; steht der Lauf später in einem anderen
+- `handover write` schreibt `migration/next.json` neu: `now` für den Kopf des Blatts im Cockpit
+  ("Schritt 3 von 9: <now>"), `after` für den Text unter "Migration fortsetzen", `operator_tasks` für
+  das, was der Betreiber tun muss, bevor es weitergeht (ohne `--operator-task` nichts). Die Datei trägt den aktuellen Schritt; steht der Lauf später in einem anderen
   Schritt, gilt sie nicht mehr, und das Cockpit zeigt nur den Namen des Schritts.
 - `after` in der Sprache des Kunden, mit ihr und euch, jedes Fachwort erklärt, etwa: "Beantwortet
   die zwei Fragen im Cockpit und startet die Migration danach neu. Claude baut den Entwurf dann um und
@@ -524,7 +578,7 @@ Kein Host darf `unknown` sein. Jede Zeile trägt, woher ihre Entscheidung kommt:
 Marke), `rule` mit Regel (toter Code `drop`, Template ohne Objekt `drop`, genutzt und unstrittig `keep`)
 oder `question`. `question` wird eine Zeile nur bei echtem Zielkonflikt (Abschnitt "Fragen an das
 Team"); was wie heute, wie im Referenz-Store oder nach einer Vorgabe entschieden ist und ohne diese Regel
-eine Frage gewesen wäre, steht zusätzlich per `ruled add` unter "Ohne Frage entschieden". Nur die Zeilen
+eine Frage gewesen wäre, steht zusätzlich per `ruled add` unter "Entschieden". Nur die Zeilen
 `question` gehen als Fragen an das Team, höchstens zehn (`questions ask --gate G1-decisions`). Die Liste
 selbst wird nicht zur Abstimmung vorgelegt.
 
@@ -649,6 +703,11 @@ Betreiber mit der Person der Marke in `theme-launch`.
 - **Kein Werkzeug `get_migration`:** Claude ist nicht mit dem Cockpit verbunden. Hinweis mit dem Link aus
   "Start der Migration"; ohne Verbindung nur weiter, wenn keine Frage offen ist oder die Person in der
   Sitzung antwortet.
+- **`policies import` überspringt eine Antwort:** der Grund steht in `skipped`. Meist ist die Regel im
+  Repo später entschieden worden, oder die Antwort passt zu keiner der beiden Optionen. Die Regel im Repo
+  gilt; die Person auf die Karte "Vorgaben der Marke" verweisen, wenn sie neu entscheiden will.
+- **Ordner der Marke mit `policies.json` fehlt auf diesem Rechner:** die Entscheidungen aus dem Cockpit
+  nicht übernehmen, als `--operator-task` in der Übergabe festhalten und weiterarbeiten.
 - **`questions import` überspringt eine Antwort:** der Grund steht in `skipped`. Meist steht die Person
   nicht in `theme_migration.people`. In der Sitzung klären, ob sie für die Marke entscheidet; erst nach
   dem Ja eintragen und den Import wiederholen.

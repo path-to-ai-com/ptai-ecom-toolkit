@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Übergabe einer Sitzung: was jetzt ansteht, was danach passiert, was der Betreiber vorher tun muss.
 
-Seit 0.3.14. Das Cockpit zeigt je Store eine Zeile "Jetzt", einen Absatz "Danach" und, wenn der Betreiber
-etwas tun muss, bevor es weitergeht, seine Aufgaben. Diese Sätze kann nur die Sitzung schreiben, die weiß,
+Seit 0.3.14. Das Cockpit zeigt je Store im Kopf des Blatts den Schritt mit `now` ("Schritt 3 von 9: <now>"),
+unter "Migration fortsetzen" den Text `after` und, wenn der Betreiber etwas tun muss, bevor es weitergeht,
+seine Aufgaben. Diese Sätze kann nur die Sitzung schreiben, die weiß,
 was sie getan hat und was als Nächstes kommt; aus dem Stand lassen sie sich nicht berechnen. Deshalb schreibt
 die Skill am Ende jeder Sitzung `migration/next.json` neu, in der Sprache des Kunden (ihr, euch), und
 `steps.export` übernimmt die Datei in `migration.json`.
 
 Jeder Eintrag trägt den Schritt, in dem er geschrieben wurde. Steht der Lauf inzwischen in einem anderen
 Schritt, etwa weil eine Sitzung abbrach, bevor sie die Übergabe schrieb, gilt sie nicht mehr: dann steht
-"Jetzt" auf dem Namen des aktuellen Schritts, "Danach" ist leer, Aufgaben gibt es keine. Lieber nichts als
+`now` auf dem Namen des aktuellen Schritts, `after` ist leer, Aufgaben gibt es keine. Lieber nichts als
 ein Satz aus einem früheren Schritt.
 
 Aufruf:

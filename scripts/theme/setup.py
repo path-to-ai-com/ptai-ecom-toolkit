@@ -11,6 +11,10 @@ und `setup.json`. `audit.publish` lädt nur `setup.json` hoch und gibt sie sofor
 frei (entschieden am 12.10.2026). Ein zweiter Lauf am selben Tag überschreibt
 den ersten.
 
+Seit 0.3.15 trägt das Setup des Referenz-Stores optional `policy_questions`: Vorgaben der Marke, die noch
+keine Regel haben. Das Cockpit zeigt sie im Setup auf der Karte "Vorgaben der Marke"; die Antworten holt die
+Skill `theme-migration` beim Start über `get_setup` und trägt sie mit `theme.policies import` ein.
+
 `from_shop_tech` baut die Live-Ansicht aus `shop-tech.json` (Skill
 `pull-shopify-tech`): Theme, Tracking aus den inline gefundenen Kennungen,
 Sprachen und Märkte, Apps aus den Hosts der Fremdskripte. Ohne Crawl im
@@ -40,6 +44,9 @@ VIEWS = ("live", "draft")
 #: Feste Gruppenschlüssel, in der Reihenfolge, in der das Cockpit sie zeigt.
 GROUPS = ("theme", "tracking", "languages", "apps", "features")
 POLICY_KINDS = ("gap", "decide", "allowed")
+#: Die zwei Antworten einer Vorgabe im Cockpit, in dieser Reihenfolge: `options[0]` heißt in `policies.json`
+#: `may_differ`, `options[1]` heißt `same_as_reference` (Vertrag V14).
+POLICY_OPTIONS = 2
 DEFAULT_SOURCE = "aus dem Technik-Abzug des Shops"
 
 #: Kennungen, die `crawl-site` inline im Quelltext findet, je Zeile der Gruppe Tracking.
@@ -148,6 +155,51 @@ def _validate_view(view_data, view: str) -> list[str]:
     return errors
 
 
+def _validate_policy_question(question, where: str, seen: set) -> list[str]:
+    if not isinstance(question, dict):
+        return [f"{where}: kein Objekt"]
+    errors = []
+    for field in ("key", "text", "context", "reason"):
+        if not _text(question.get(field)):
+            errors.append(f"{where}: {field} fehlt")
+    key = question.get("key")
+    if _text(key):
+        if key in seen:
+            errors.append(f"{where}: Schlüssel {key!r} steht zweimal")
+        seen.add(key)
+    if question.get("subject") is not None and not _text(question["subject"]):
+        errors.append(f"{where}: subject ist kein Text")
+    options = question.get("options")
+    options_ok = (isinstance(options, list) and len(options) == POLICY_OPTIONS and all(_text(o) for o in options)
+                  and options[0].strip() != options[1].strip())
+    if not options_ok:
+        # Die Reihenfolge trägt die Bedeutung, deshalb genau zwei und nie gleich.
+        errors.append(f"{where}: options braucht genau zwei verschiedene Antworten, zuerst die Abweichung "
+                      "(may_differ), dann die Angleichung an den Referenz-Store (same_as_reference)")
+    if "recommendation" not in question:
+        errors.append(f"{where}: recommendation fehlt (null heißt ausdrücklich keine Empfehlung)")
+    elif question["recommendation"] is not None and (not options_ok or question["recommendation"] not in options):
+        errors.append(f"{where}: recommendation {question['recommendation']!r} ist keine der options")
+    app = question.get("app")
+    if app is not None and not (_text(app) and app.startswith("app:") and len(app.strip()) > len("app:")):
+        errors.append(f"{where}: app heißt app:<handle> wie die Zeile im Setup, nicht {app!r}")
+    return errors
+
+
+def _validate_policy_questions(data: dict) -> list[str]:
+    questions = data["policy_questions"]
+    if not isinstance(questions, list):
+        return ["policy_questions ist keine Liste"]
+    errors = []
+    # Die Vorgaben gelten für alle Stores der Marke; das Cockpit liest sie aus dem Setup des Referenz-Stores.
+    if not _text(data.get("reference_shop")) or data.get("reference_shop") != data.get("shop"):
+        errors.append("policy_questions gibt es nur im Setup des Referenz-Stores (shop gleich reference_shop)")
+    seen: set = set()
+    for index, question in enumerate(questions):
+        errors += _validate_policy_question(question, f"policy_questions[{index}]", seen)
+    return errors
+
+
 def validate(data) -> list[str]:
     """Die Fehler eines Setups gegen `reference/setup-format.md`, leer, wenn es passt."""
     if not isinstance(data, dict):
@@ -164,6 +216,8 @@ def validate(data) -> list[str]:
         errors.append("reference_shop ist kein Text")
     if "automatic" in data and not isinstance(data["automatic"], bool):
         errors.append("automatic ist nicht true oder false")
+    if data.get("policy_questions") is not None:
+        errors += _validate_policy_questions(data)
     views = data.get("views")
     if not isinstance(views, dict):
         return errors + ["views fehlt"]

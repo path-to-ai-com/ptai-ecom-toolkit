@@ -67,3 +67,37 @@ und legt den Lauf an. Ein ungültiges Setup landet nie in einem Lauf.
 | `rows[].compare` | `false` bei Mengen und Zählungen, die nie gleich sein müssen; Standard `true` |
 | `rows[].present` | nur bei Apps: eingebunden oder nicht; eine App, die in einem Store fehlt, gilt dort als nicht eingebunden |
 | `rows[].policy` | nur im Entwurf: Einordnung nach den Vorgaben der Marke, `kind` `gap` (bis zum Launch angleichen), `decide` (noch zu entscheiden) oder `allowed` (darf abweichen), `text` der Satz dazu. Das Cockpit zeigt sie nur, wo der Wert vom Referenz-Store abweicht |
+
+## Vorgaben ohne Regel: `policy_questions`
+
+Seit 0.3.15, optional und nur im Setup des Referenz-Stores (`shop` gleich `reference_shop`). Eine Vorgabe der Marke,
+die in `policies.json` noch keine Regel hat oder auf `open` steht, kommt hier als Frage hinein. Das Cockpit zeigt sie im
+Setup auf der Karte "Vorgaben der Marke" mit den Knöpfen "Abweichung erlauben" und "An <Referenz-Store> angleichen";
+entscheiden können alle Mitglieder der Marke. Die Antworten holt die Skill `theme-migration` beim Start über das
+Werkzeug `get_setup` des Cockpits und trägt sie mit `theme.policies import` in `policies.json` ein
+(`reference/theme-migration/policies-format.md`).
+
+```json
+"policy_questions": [
+  {"key": "bundles", "subject": "Beispielbundle", "app": "app:beispielbundle",
+   "text": "Beispielbundle: in allen Stores wie im Beispielshop?",
+   "context": "Beispielbundle bietet Bundles an. Im Einsatz ist es heute nur im Beispielshop, in 3 Vorlagen.",
+   "options": ["Abweichung erlauben", "An Beispielshop angleichen"],
+   "recommendation": "Abweichung erlauben",
+   "reason": "In den anderen Stores wäre es eine neue Funktion, keine Migration."}
+]
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `key` | Schlüssel der Regel in `policies.json`, eindeutig in der Liste |
+| `subject` | Bezeichnung für Menschen, optional; wird beim Anlegen der Regel ihr `subject` |
+| `app` | optional: Schlüssel der Zeile im Setup (`app:<handle>`), damit die Tabelle nach der Antwort die Einordnung zeigt. Bei "An <Referenz-Store> angleichen" behält die Regel diese App (`keep`); ein Store ohne sie bekommt einen Punkt zum Einbauen |
+| `text` | die Frage in einem Satz |
+| `context` | worum es geht und was schon feststeht, in der Sprache des Kunden. Pflicht |
+| `options` | genau zwei Antworten, die Reihenfolge trägt die Bedeutung: `options[0]` heißt in `policies.json` `may_differ`, `options[1]` heißt `same_as_reference` |
+| `recommendation` | eine der `options`, oder `null` für ausdrücklich keine Empfehlung. Das Feld steht immer |
+| `reason` | der Grund der Empfehlung, ohne Empfehlung worauf es ankommt. Pflicht |
+
+`get_setup` hängt an jede Frage `cockpit_answer` (`{value, by, at}`, die neueste Antwort im Cockpit, oder `null`) und
+gibt Rückfragen dazu als `cockpit_questions` zurück. Beides steht nie in `setup.json`.

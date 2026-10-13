@@ -20,20 +20,41 @@ sie beim nächsten Neubau liest. Ein Dienst, der beibehalten werden soll, aber i
 `blocker` in der Liste offener Punkte: er muss vor der Testrunde eingebaut sein. Der Betreiber committet und
 pusht; das Team zieht den Stand mit dem Repo. Eine Vorgabe öffnet nie eine Frage an das Team.
 
+Seit 0.3.15 entscheidet die Marke eine Vorgabe ohne Regel auch selbst, im Setup des Cockpits (Karte "Vorgaben der
+Marke", Fragen aus `policy_questions` im Setup des Referenz-Stores). `import` übernimmt diese Antworten aus
+`get_setup` in `policies.json`: `options[0]` heißt `may_differ`, `options[1]` `same_as_reference` mit dem Ziel
+"wie im Referenz-Store". Nennt die Frage eine App (`app:<handle>`), behält die angeglichene Regel sie
+(`keep`), und `apply` legt in jedem Store ohne die App einen Punkt zum Einbauen an. Die Regel trägt danach
+selbst `decided_by` und `decided_at`, die Datei eine neue Version.
+Entscheiden dürfen alle Mitglieder der Marke; das Plugin kennt sie nicht, und das Cockpit lässt nur Mitglieder
+antworten. Deshalb gilt jede Antwort aus dem Cockpit, und ihr Name steht an der Regel.
+
 Aufruf:
     python3 -m theme.policies apply --source <policies.json> [--workspace <ws>]
     python3 -m theme.policies check [--source <policies.json>] [--workspace <ws>]
+    python3 -m theme.policies import --brand-workspace <ordner mit policies.json> --file <antworten.json | ->
+        [--workspace <ws>]
 """
 import argparse
 import json
 import os
+import re
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from theme import ConfigError, load_config
 
 RULES = ("same_as_reference", "open", "may_differ")
+#: Die Regel je Antwort einer Vorgabe im Cockpit, in der Reihenfolge von `options` (Vertrag V14).
+OPTION_RULES = ("may_differ", "same_as_reference")
+#: Das Ziel einer Regel, die das Team im Cockpit an den Referenz-Store angleicht.
+REFERENCE_TARGET = "wie im Referenz-Store"
+#: Die Knöpfe im Cockpit, falls eine Antwort ihre `options` nicht mitbringt.
+MAY_DIFFER_LABEL = "Abweichung erlauben"
+ALIGN_LABEL = re.compile(r"^An .+ angleichen$")
+#: Version einer Fassung: Datum und laufende Nummer am Tag, etwa `2026-01-05.1`.
+VERSION = re.compile(r"^(\d{4}-\d{2}-\d{2})\.(\d+)$")
 
 
 class PolicyError(Exception):
@@ -101,6 +122,9 @@ def validate(data) -> list:
                 errors.append(f"{where}.{field} muss eine Liste von Dienst-IDs oder Listen von Schreibweisen sein")
         if rule.get("rule") != "same_as_reference" and (rule.get("keep") or rule.get("drop")):
             errors.append(f"{where}: keep und drop nur bei same_as_reference")
+        for field in ("decided_by", "decided_at"):
+            if field in rule and (not isinstance(rule[field], str) or not rule[field].strip()):
+                errors.append(f"{where}.{field} ist leer")
     return errors
 
 
@@ -135,17 +159,26 @@ def _decide(decisions: list, rule: dict, decision: str, service_id: str, version
     decisions.append({"id": ident, "subject": rule.get("subject") or rule["key"],
                       "kind": "app" if service_id.startswith("app:") else "service", "decision": decision,
                       "reason": f"Vorgabe der Marke, Version {version}: {rule.get('target') or rule.get('note') or decision}",
-                      "decided_by": source["decided_by"], "decided_at": source["decided_at"],
+                      # Eine im Cockpit entschiedene Regel trägt ihre Person selbst, sonst gilt die der Datei.
+                      "decided_by": rule.get("decided_by") or source["decided_by"],
+                      "decided_at": rule.get("decided_at") or source["decided_at"],
                       "source": "policy", "service_id": service_id, "replaces": earlier})
     return ident
 
 
 def apply(workspace, source: dict, now: datetime | None = None) -> dict:
-    """Wendet die Vorgaben auf den Lauf eines Stores an. Gleiche Version zweimal ändert nichts."""
+    """Wendet die Vorgaben auf den Lauf eines Stores an. Gleiche Version zweimal ändert nichts.
+
+    Auch `applied_at` bleibt dann stehen: Schritt 3 verlangt einen Neubau nach `applied_at`, und der Start jeder
+    Sitzung wendet die Vorgaben an. Mit neuem Zeitpunkt stünde der Neubau nach jedem Start auf nacharbeiten.
+    """
     from theme import open_items  # erst hier, damit der Import der Schritte leicht bleibt
 
-    stamp = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
     version = source["version"]
+    previous = _read(copy_path(workspace), default=None)
+    unchanged = (isinstance(previous, dict) and previous.get("version") == version
+                 and isinstance(previous.get("applied_at"), str) and bool(previous["applied_at"]))
+    stamp = previous["applied_at"] if unchanged else (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
     decisions, wrap = _decisions(workspace)
     apps = _read(apps_path(workspace), default=None)
     services = {s.get("service_id"): s for s in (apps or {}).get("services") or [] if isinstance(s, dict)}
@@ -189,8 +222,8 @@ def apply(workspace, source: dict, now: datetime | None = None) -> dict:
         items.save()
     copy = {**source, "applied_at": stamp}
     _write(copy_path(workspace), copy)
-    return {"version": version, "applied_at": stamp, "decisions_added": added, "decisions_replaced": replaced,
-            "open_items_added": items_added,
+    return {"version": version, "applied_at": stamp, "unchanged": unchanged, "decisions_added": added,
+            "decisions_replaced": replaced, "open_items_added": items_added,
             "open_rules": [r["key"] for r in source["rules"] if r["rule"] == "open"]}
 
 
@@ -219,19 +252,253 @@ def check(workspace, source: dict | None = None) -> dict:
     return result
 
 
+def source_path(brand_workspace) -> Path:
+    """`policies.json` im Ordner der Marke, der sie führt."""
+    return Path(brand_workspace) / "policies.json"
+
+
+def next_version(current, today: date) -> str:
+    """Die Version nach `current`: heute mit der nächsten Nummer, an einem neuen Tag `.1`.
+
+    Nie kleiner als die bestehende: liegt ihr Datum nach heute (andere Zeitzone), zählt dort weiter.
+    """
+    match = VERSION.match(current or "")
+    day = today.isoformat()
+    if match and match.group(1) >= day:
+        return f"{match.group(1)}.{int(match.group(2)) + 1}"
+    return f"{day}.1"
+
+
+def _instant(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _stamp(value, now: datetime) -> str:
+    """Zeitpunkt der Antwort aus dem Cockpit, wenn lesbar, sonst jetzt."""
+    if isinstance(value, str) and value.strip():
+        try:
+            return _instant(value).isoformat(timespec="seconds")
+        except ValueError:
+            pass
+    return now.isoformat(timespec="seconds")
+
+
+def _later(at: str, decided) -> bool:
+    """Ob eine Antwort nach der Entscheidung im Repo liegt. Ein Datum ohne Uhrzeit gilt für den ganzen Tag."""
+    if not isinstance(decided, str) or not decided.strip():
+        return True
+    decided = decided.strip()
+    if len(decided) == len("2026-01-05"):
+        return at[:10] > decided
+    try:
+        return _instant(at) > _instant(decided)
+    except ValueError:
+        return True
+
+
+def _rule_for(entry: dict, value: str) -> str:
+    """Die Regel zu einer Antwort: nach ihrer Stelle in `options`, ohne `options` nach den Knöpfen des Cockpits."""
+    options = entry.get("options")
+    if options is not None:
+        labels = [o.strip() for o in options if isinstance(o, str) and o.strip()] if isinstance(options, list) else []
+        if len(labels) != len(OPTION_RULES) or labels[0] == labels[1]:
+            raise PolicyError(f"options braucht genau zwei verschiedene Antworten wie in policy_questions: {options!r}")
+        if value not in labels:
+            raise PolicyError(f"{value!r} ist keine der Antworten ({', '.join(labels)}).")
+        return OPTION_RULES[labels.index(value)]
+    if value == MAY_DIFFER_LABEL:
+        return "may_differ"
+    if ALIGN_LABEL.match(value):
+        return "same_as_reference"
+    raise PolicyError(f"{value!r} ist weder {MAY_DIFFER_LABEL!r} noch \"An <Referenz-Store> angleichen\"; "
+                      "options aus get_setup mitgeben.")
+
+
+def _app_of(entry: dict) -> str | None:
+    """Die App der Frage als Zeilenschlüssel `app:<handle>`, `None` ohne App."""
+    app = entry.get("app")
+    if app is None or (isinstance(app, str) and not app.strip()):
+        return None
+    if not isinstance(app, str) or not app.strip().startswith("app:") or len(app.strip()) <= len("app:"):
+        raise PolicyError(f"app heißt app:<handle> wie die Zeile im Setup, nicht {app!r}.")
+    return app.strip()
+
+
+def _set_rule(rule: dict, new_rule: str, by: str, at: str, app: str | None = None) -> None:
+    """Setzt die Regel und wer sie wann entschieden hat; räumt auf, was zur neuen Regel nicht passt.
+
+    Eine angeglichene Regel mit App behält die App unter beiden Schreibweisen, die Inventare der Stores
+    kennen (`app:<handle>` und `<handle>`). Fehlt sie im Inventar eines Stores, macht `apply` daraus einen
+    Punkt `blocker` zum Einbauen.
+    """
+    rule["rule"] = new_rule
+    if new_rule == "same_as_reference":
+        rule.setdefault("target", REFERENCE_TARGET)
+        if app:
+            spellings = [app, app[len("app:"):]]
+            keep = rule.setdefault("keep", [])
+            known = {a for e in keep for a in ([e] if isinstance(e, str) else e)}
+            if not known.intersection(spellings):
+                keep.append(spellings)
+    else:
+        # Ziel, keep und drop gibt es nur bei same_as_reference; das Cockpit zeigte sonst "bis zum Launch: …".
+        for field in ("target", "keep", "drop"):
+            rule.pop(field, None)
+    rule["decided_by"], rule["decided_at"] = by, at
+
+
+def import_answers(brand_workspace, entries, workspace=None, now: datetime | None = None) -> dict:
+    """Trägt Antworten aus dem Cockpit in `policies.json` ein, `[{"key", "value", "by", "at"}]` aus `get_setup`.
+
+    Je Antwort: Regel anlegen oder ändern, mit `decided_by` und `decided_at` an der Regel. Die neueste Antwort im
+    Cockpit gilt, auch gegen eine frühere aus dem Cockpit; gegen eine Regel, die im Repo später entschieden wurde,
+    nicht. Eine Antwort, die schon so gilt, steht unter `unchanged`. Hat sich etwas geändert, bekommt die Datei eine
+    neue Version. `apply_needed` nennt die Stores, deren Kopie nicht auf dieser Version steht.
+    """
+    target = source_path(brand_workspace)
+    source = load_source(target)
+    if not isinstance(entries, list):
+        raise PolicyError('Erwartet eine Liste [{"key", "value", "by", "at"}] aus get_setup.')
+    now = now or datetime.now(timezone.utc)
+    rules = {r["key"]: r for r in source["rules"]}
+    imported, unchanged, skipped = [], [], []
+    for entry in entries:
+        entry = entry if isinstance(entry, dict) else {}
+        key = str(entry.get("key") or "").strip()
+        by = str(entry.get("by") or "").strip()
+        value = str(entry.get("value") or "").strip()
+        try:
+            if not key:
+                raise PolicyError("Antwort ohne key.")
+            if not value:
+                raise PolicyError(f"Antwort zu {key} ohne value.")
+            if not by:
+                raise PolicyError(f"Antwort zu {key} ohne Namen (by); eine Vorgabe trägt die Person, die entschied.")
+            new_rule = _rule_for(entry, value)
+            app = _app_of(entry)
+            at = _stamp(entry.get("at"), now)
+            rule = rules.get(key)
+            if rule is not None and rule["rule"] == new_rule:
+                unchanged.append({"key": key, "rule": new_rule, "value": value, "by": by})
+                continue
+            if rule is not None and rule["rule"] != "open" and not _later(
+                    at, rule.get("decided_at") or source.get("decided_at")):
+                raise PolicyError(f"Vorgabe {key} ist im Repo später entschieden ({rule['rule']}, "
+                                  f"{rule.get('decided_by') or source.get('decided_by')}); die Regel dort gilt.")
+        except PolicyError as error:
+            skipped.append({"key": key or None, "by": by or None, "reason": str(error)})
+            continue
+        previous = rule["rule"] if rule is not None else None
+        if rule is None:
+            subject = str(entry.get("subject") or "").strip() or key
+            rule = {"key": key, "subject": subject}
+            source["rules"].append(rule)
+            rules[key] = rule
+        _set_rule(rule, new_rule, by, at, app)
+        imported.append({"key": key, "rule": new_rule, "previous": previous, "value": value, "by": by, "at": at,
+                         "app": app})
+    previous_version = source["version"]
+    if imported:
+        source["version"] = next_version(previous_version, now.date())
+        errors = validate(source)
+        if errors:
+            raise PolicyError("policies.json gälte danach so nicht: " + "; ".join(errors))
+        _write(target, source)
+    return {"path": str(target), "version": source["version"], "previous_version": previous_version,
+            "imported": imported, "unchanged": unchanged, "skipped": skipped,
+            "still_open": [{"key": r["key"], "subject": r.get("subject") or r["key"]}
+                           for r in source["rules"] if r["rule"] == "open"],
+            "apply_needed": stores_needing_apply(brand_workspace, source, workspace)}
+
+
+def _shop_of(workspace: Path) -> str:
+    """Der Store im Cockpit (`portal.shop`), sonst der Name des Ordners."""
+    try:
+        portal = load_config(workspace).get("portal")
+    except ConfigError:
+        portal = None
+    shop = portal.get("shop") if isinstance(portal, dict) else None
+    return shop if isinstance(shop, str) and shop else workspace.name
+
+
+def stores_needing_apply(brand_workspace, source: dict, workspace=None) -> list:
+    """Die Stores, deren Kopie `migration/policies.json` nicht auf der Version von `source` steht.
+
+    Das Plugin führt keine Liste der Stores einer Marke. Gesucht wird deshalb dort, wo die Ablage sie vorsieht:
+    in den Ordnern im Ordner von `policies.json` und daneben, je mit einer Kopie derselben Marke (gleicher
+    `reference_shop`). Der eigene Workspace zählt auch ohne Kopie, sobald er einen Ordner `migration/` hat.
+    """
+    folder = Path(brand_workspace).resolve()
+    own = Path(workspace).resolve() if workspace is not None else None
+    candidates = [own] if own is not None else []
+    for base in (folder, folder.parent):
+        try:
+            candidates += sorted(child for child in base.iterdir() if child.is_dir())
+        except OSError:
+            continue
+    result, seen = [], set()
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        is_own = candidate == own
+        try:
+            copy = _read(copy_path(candidate), default=None)
+        except PolicyError:
+            if is_own:
+                raise
+            continue
+        if copy is None:
+            if not (is_own and (candidate / "migration").is_dir()):
+                continue
+        elif not isinstance(copy, dict) or (not is_own and copy.get("reference_shop") != source.get("reference_shop")):
+            continue
+        applied = copy.get("version") if isinstance(copy, dict) else None
+        if applied == source["version"]:
+            continue
+        result.append({"shop": _shop_of(candidate), "workspace": str(candidate), "applied_version": applied,
+                       "own": is_own})
+    return result
+
+
+def _read_answers(path: str | None):
+    """Die Antworten aus einer Datei oder, bei `-`, von stdin."""
+    if not path:
+        raise PolicyError("--file fehlt (Datei mit den Antworten aus get_setup oder - für stdin).")
+    try:
+        text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+        return json.loads(text)
+    except OSError as error:
+        raise PolicyError(f"{path} nicht lesbar: {error}") from error
+    except json.JSONDecodeError as error:
+        raise PolicyError(f"{path} ist kein JSON: {error}") from error
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="theme.policies")
-    parser.add_argument("command", choices=("apply", "check"))
+    parser.add_argument("command", choices=("apply", "check", "import"))
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--source")
+    parser.add_argument("--brand-workspace", help="Ordner mit policies.json der Marke (import)")
+    parser.add_argument("--file", help="Antworten aus get_setup als JSON-Datei, - für stdin (import)")
     args = parser.parse_args(argv)
     try:
+        if args.command == "import":
+            if not args.brand_workspace:
+                raise PolicyError("--brand-workspace fehlt (Ordner mit policies.json der Marke).")
+            result = import_answers(args.brand_workspace, _read_answers(args.file), workspace=args.workspace)
+            print(json.dumps(result, ensure_ascii=False))
+            # 1 heißt Befund: mindestens eine Antwort wurde nicht übernommen, der Grund steht unter skipped.
+            return 1 if result["skipped"] else 0
         source = load_source(args.source) if args.source else None
         if args.command == "apply":
             if source is None:
                 raise PolicyError("--source fehlt")
             result = apply(args.workspace, source)
-            _note_in_run(args.workspace, result)
+            if not result["unchanged"]:
+                _note_in_run(args.workspace, result)
         else:
             result = check(args.workspace, source)
     except PolicyError as error:

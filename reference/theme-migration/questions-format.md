@@ -18,8 +18,9 @@ angelegt zu werden.
 
 Standard ist "wie heute", "wie im Referenz-Store der Marke" oder die Vorgabe der Marke. Gefragt wird nur
 bei einem echten Zielkonflikt, den keine Regel auflöst, und dann immer mit Erklärung, Vergleich heute und
-Entwurf und Empfehlung mit Grund. Was eine Regel entscheidet, steht in `ruled.json` und im Cockpit unter
-"Ohne Frage entschieden", mit Herkunft; das Team kann dort einen Einwand schreiben.
+Entwurf und Empfehlung mit Grund. Was eine Regel entscheidet, steht in `ruled.json` und im Blatt der
+Migration im Cockpit unter "Entscheidungen" bei "Entschieden", mit Herkunft; das Team kann dort
+"Änderung anfragen". Offene Fragen stehen dort unter "Ausstehend".
 
 ## `questions.json`
 
@@ -62,7 +63,7 @@ Entwurf und Empfehlung mit Grund. Was eine Regel entscheidet, steht in `ruled.js
 | `options` | die Antworten zum Anklicken |
 | `other` | Beschriftung einer Antwort mit Freitext, etwa "Eine andere Person", sonst `null`. Zusammen mit `options` mindestens zwei Antworten |
 | `recommendation` | eine der `options`, oder `null` für ausdrücklich keine Empfehlung (`--no-recommendation`) |
-| `reason` | der Grund der Empfehlung, oder warum es keine gibt. Pflicht |
+| `reason` | der Grund der Empfehlung, ohne Empfehlung worauf es bei der Entscheidung ankommt. Pflicht |
 | `decider` | wer entscheidet, Namen aus `theme_migration.people`; leer heißt jede Person von dort |
 | `status` | `open`, `answered` oder `withdrawn` |
 | `answer`, `answered_by`, `answered_at` | die Antwort, die Person und der Zeitpunkt |
@@ -101,7 +102,7 @@ JSON, keine Liste).
     {"id": "R-001", "text": "Kontaktformular mit Betreff, Einwilligung und Captcha wie heute", "source": "as_today",
      "at": "2026-01-12T15:10:00+00:00", "question_id": "Q-002"},
     {"id": "R-002", "text": "Zuletzt angesehen entfällt", "source": "check", "at": "2026-01-12T15:12:00+00:00",
-     "revoked_at": "2026-01-13T10:00:00+00:00", "revoke_reason": "Einwand von Erika Muster: wird genutzt"}
+     "revoked_at": "2026-01-13T10:00:00+00:00", "revoke_reason": "Änderung angefragt von Erika Muster: wird genutzt"}
   ]
 }
 ```
@@ -110,10 +111,10 @@ JSON, keine Liste).
 |---|---|
 | `id` | `R-001`, fortlaufend je Lauf |
 | `text` | was gilt, in einem Satz für das Team |
-| `source` | `policy` (Vorgabe der Marke), `as_today` (wie heute), `as_reference` (wie im Referenz-Store), `operator` (vom Betreiber eingetragen), `check` (Prüfung im Shop) |
+| `source` | `policy` (Vorgabe der Marke), `as_today` (wie heute), `as_reference` (wie im Referenz-Store), `operator` (vom Betreiber eingetragen), `check` (Prüfung im Shop). Das Cockpit zeigt als Herkunft "Vorgabe", "Unverändert", "Referenz-Store", "Path to AI" und "Im Shop festgestellt" |
 | `at` | wann der Punkt entstand |
 | `question_id` | die zurückgezogene Frage, aus der er entstand; fehlt bei `ruled add` |
-| `revoked_at`, `revoke_reason` | wenn ein Einwand den Punkt doch zur Frage macht (`ruled revoke`) |
+| `revoked_at`, `revoke_reason` | wenn eine angefragte Änderung ("Änderung anfragen" im Cockpit, `objections` in `get_migration`) den Punkt doch zur Frage macht (`ruled revoke`) |
 
 Derselbe Text mit derselben Herkunft entsteht nur einmal. In `migration.json` stehen nur die geltenden
 Punkte, je `id`, `text` und `source`.
@@ -132,8 +133,8 @@ Punkte, je `id`, `text` und `source`.
 
 | Feld | Bedeutung |
 |---|---|
-| `now` | die Zeile "Jetzt" im Cockpit, meist der Name des aktuellen Schritts |
-| `after` | der Absatz "Danach", in der Sprache des Kunden (ihr, euch) |
+| `now` | im Kopf des Blatts nach dem Schritt ("Schritt 3 von 9: <now>"), meist der Name des aktuellen Schritts |
+| `after` | der Text unter "Migration fortsetzen", in der Sprache des Kunden (ihr, euch) |
 | `operator_tasks` | was der Betreiber tun muss, bevor es weitergeht; leer heißt nichts |
 | `step` | der Schritt (1 bis 9), in dem die Übergabe geschrieben wurde; `handover write` setzt ihn |
 | `written_at` | wann |

@@ -49,6 +49,25 @@ def valid() -> dict:
     }
 
 
+def policy_question(**changes) -> dict:
+    """Eine erfundene Vorgabe ohne Regel, wie im Beispiel der Format-Beschreibung."""
+    question = {"key": "bundles", "subject": "Beispielbundle", "app": "app:beispielbundle",
+                "text": "Beispielbundle: in allen Stores wie im Beispielshop?",
+                "context": "Beispielbundle bietet Bundles an. Im Einsatz ist es heute nur im Beispielshop.",
+                "options": ["Abweichung erlauben", "An Beispielshop angleichen"],
+                "recommendation": "Abweichung erlauben",
+                "reason": "In den anderen Stores wäre es eine neue Funktion, keine Migration."}
+    question.update(changes)
+    return question
+
+
+def with_questions(*questions) -> dict:
+    """Das gültige Setup als Referenz-Store mit Vorgaben ohne Regel."""
+    data = valid()
+    data["policy_questions"] = list(questions) or [policy_question()]
+    return data
+
+
 def shop_tech() -> dict:
     """Ein erfundener Technik-Abzug im Format von `shop_tech_build`."""
     return {
@@ -134,6 +153,63 @@ class Validate(unittest.TestCase):
         data = valid()
         data["views"]["live"]["groups"][1]["rows"][0]["key"] = "beispielmail"
         self.assertTrue(any("app:<handle>" in e for e in setup.validate(data)))
+
+
+class PolicyQuestions(unittest.TestCase):
+    def errors(self, *questions, **changes) -> str:
+        data = with_questions(*questions)
+        data.update(changes)
+        return " | ".join(setup.validate(data))
+
+    def test_das_beispiel_mit_vorgaben_ist_gueltig(self):
+        self.assertEqual(setup.validate(with_questions()), [])
+
+    def test_ohne_vorgaben_und_mit_null_bleibt_das_setup_gueltig(self):
+        data = valid()
+        data["policy_questions"] = None
+        self.assertEqual(setup.validate(data), [])
+
+    def test_keine_liste_wird_abgewiesen(self):
+        data = valid()
+        data["policy_questions"] = {"key": "bundles"}
+        self.assertIn("keine Liste", " | ".join(setup.validate(data)))
+
+    def test_nur_im_setup_des_referenz_stores(self):
+        self.assertIn("nur im Setup des Referenz-Stores", self.errors(reference_shop="anderershop"))
+        self.assertIn("nur im Setup des Referenz-Stores", self.errors(reference_shop=None))
+
+    def test_key_text_context_und_reason_sind_pflicht(self):
+        errors = self.errors(policy_question(key="", text=" ", context=None, reason=""))
+        for field in ("key fehlt", "text fehlt", "context fehlt", "reason fehlt"):
+            self.assertIn(field, errors)
+
+    def test_genau_zwei_verschiedene_optionen(self):
+        for options in (["Abweichung erlauben"], ["A", "B", "C"], ["Gleich", "Gleich"], ["A", ""], "A oder B"):
+            with self.subTest(options=options):
+                self.assertIn("genau zwei verschiedene", self.errors(policy_question(options=options)))
+
+    def test_empfehlung_ist_eine_der_optionen_oder_null(self):
+        self.assertIn("keine der options", self.errors(policy_question(recommendation="Vielleicht")))
+        self.assertEqual(setup.validate(with_questions(policy_question(recommendation=None))), [])
+
+    def test_ohne_feld_recommendation_fehlt_die_ausdrueckliche_entscheidung(self):
+        question = policy_question()
+        del question["recommendation"]
+        self.assertIn("recommendation fehlt", self.errors(question))
+
+    def test_app_ist_optional_und_heisst_sonst_app_doppelpunkt_handle(self):
+        question = policy_question()
+        del question["app"]
+        self.assertEqual(setup.validate(with_questions(question)), [])
+        for app in ("beispielbundle", "app:", 7):
+            with self.subTest(app=app):
+                self.assertIn("app:<handle>", self.errors(policy_question(app=app)))
+
+    def test_ein_schluessel_steht_nur_einmal(self):
+        self.assertIn("zweimal", self.errors(policy_question(), policy_question(text="Noch einmal?")))
+
+    def test_subject_ist_text_wenn_es_steht(self):
+        self.assertIn("subject ist kein Text", self.errors(policy_question(subject=3)))
 
 
 class WriteRun(unittest.TestCase):
