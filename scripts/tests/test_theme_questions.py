@@ -90,10 +90,10 @@ class AskTest(PeopleWorkspace):
 
 
 class AskCliTest(PeopleWorkspace):
-    BASE = ["ask", "--gate", "G2-mapping", "--text", "Gestaltung vor oder nach der Testrunde angleichen?",
+    BASE = ["ask", "--gate", "G2-mapping", "--text", "Gestaltung vor oder nach der Abnahme angleichen?",
             "--context", "Der Entwurf weicht an 12 Stellen sichtbar vom heutigen Shop ab.",
-            "--option", "Vor der Testrunde", "--option", "Nach der Testrunde",
-            "--reason", "Sonst meldet ihr in der Testrunde dieselben Abweichungen noch einmal."]
+            "--option", "Vor der Abnahme", "--option", "Nach der Abnahme",
+            "--reason", "Sonst meldet ihr in der Abnahme dieselben Abweichungen noch einmal."]
 
     def test_ohne_empfehlung_und_ohne_ausdruecklich_keine_wird_verweigert(self):
         code, result = run([*self.BASE, "--workspace", str(self.ws)])
@@ -101,16 +101,16 @@ class AskCliTest(PeopleWorkspace):
         self.assertIn("--no-recommendation", result["error"])
 
     def test_empfehlung_und_ausdruecklich_keine_zugleich_wird_verweigert(self):
-        code, _ = run([*self.BASE, "--workspace", str(self.ws), "--recommendation", "Vor der Testrunde",
+        code, _ = run([*self.BASE, "--workspace", str(self.ws), "--recommendation", "Vor der Abnahme",
                        "--no-recommendation"])
         self.assertEqual(code, 2)
 
     def test_ask_mit_allen_optionen(self):
-        code, result = run([*self.BASE, "--workspace", str(self.ws), "--recommendation", "Vor der Testrunde",
+        code, result = run([*self.BASE, "--workspace", str(self.ws), "--recommendation", "Vor der Abnahme",
                             "--compare", "Produktseite", LIVE, DRAFT, "--decider", "Erika Muster",
                             "--other", "Anders, und zwar"])
         self.assertEqual(code, 0, result)
-        self.assertEqual(result["recommendation"], "Vor der Testrunde")
+        self.assertEqual(result["recommendation"], "Vor der Abnahme")
         self.assertEqual(result["compare"][0]["draft_url"], DRAFT)
         self.assertEqual(result["decider"], ["Erika Muster"])
         self.assertEqual(result["other"], "Anders, und zwar")

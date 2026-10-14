@@ -319,6 +319,51 @@ def has_brand_files(workspace, config: dict | None = None) -> bool:
     return brand_reporting_dir(workspace, config) is not None
 
 
+# ---------------------------------------------------------------- Vorgaben
+
+#: Die Vorgaben der Marke für alle ihre Stores (seit 0.3.16, Vertrag V15) und der Ordner ihrer Bausteine
+#: daneben. Beide gehen mit den übrigen Dateien der Marke nach `brands/<slug>/`; das Cockpit gibt sie mit
+#: `get_policies` an die Stores weiter. Format: `reference/theme-migration/policies-format.md`.
+POLICIES_NAME = "policies.json"
+POLICY_MODULES_DIR = "policy-modules"
+
+
+def policies_dir(brand_dir) -> Path | None:
+    """Der Ordner mit `policies.json` der Marke, `None`, wenn die Marke keine Vorgaben führt.
+
+    Gesucht wird im Ordner der Marke, sonst in genau einem Ordner direkt darin: oft führt ein eigenes Repo
+    neben den Stores die Vorgaben, etwa `shared/`. Dieselbe Regel nennt die Skill `theme-migration` für den
+    Betreiber. Liegt `policies.json` in zwei Ordnern, bricht das ab; welche gilt, wäre geraten.
+    """
+    brand_dir = Path(brand_dir)
+    if (brand_dir / POLICIES_NAME).is_file():
+        return brand_dir
+    found = sorted(child for child in brand_dir.iterdir()
+                   if child.is_dir() and not child.name.startswith(".") and (child / POLICIES_NAME).is_file())
+    if len(found) > 1:
+        raise BrandFileError(
+            f"{POLICIES_NAME} liegt mehrfach im Ordner der Marke {brand_dir}: "
+            f"{', '.join(str(f / POLICIES_NAME) for f in found)}. Es gilt genau eine Datei; die übrigen "
+            "entfernen. Nichts kopiert.")
+    return found[0] if found else None
+
+
+def policy_files(folder) -> dict:
+    """`policies.json` und jede Datei unter `policy-modules/`, als Name unter `brands/<slug>/` auf Pfad.
+
+    Versteckte Dateien (`.DS_Store`, `.git`) gehören nicht dazu.
+    """
+    folder = Path(folder)
+    files = {POLICIES_NAME: folder / POLICIES_NAME}
+    modules = folder / POLICY_MODULES_DIR
+    if modules.is_dir():
+        for path in sorted(modules.rglob("*")):
+            rel = path.relative_to(folder)
+            if path.is_file() and not any(part.startswith(".") for part in rel.parts):
+                files[rel.as_posix()] = path
+    return files
+
+
 # ------------------------------------------------------------------- Sperre
 
 #: Sperren, die dieser Prozess gerade hält: Pfad der Sperrdatei auf

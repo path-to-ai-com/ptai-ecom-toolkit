@@ -20,7 +20,7 @@ UMBRELLA = ROOT / "scripts" / "tests" / "fixtures" / "theme" / "open-items"
 
 
 def test_round(items: list) -> dict:
-    return {"title": "Testrunde", "intro": "", "sections": [],
+    return {"title": "Abnahme", "intro": "", "sections": [],
             "groups": [{"id": "g1", "title": "Schwerpunkte", "items": items}]}
 
 
@@ -108,7 +108,7 @@ class TestStatus(Workspace):
         self.items.defer("B-01", "Beispiel Person", "2026-10-20")
         with self.assertRaises(oi.OpenItemsError):
             self.items.reopen("B-01", "")
-        item = self.items.reopen("B-01", "Rückmeldung aus der Testrunde")
+        item = self.items.reopen("B-01", "Rückmeldung aus der Abnahme")
         self.assertEqual(item["status"], "open")
         self.assertNotIn("deferred_by", item)
 

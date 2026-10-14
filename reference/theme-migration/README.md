@@ -58,7 +58,7 @@ Dazu kommen drei Ablagen, die eigene Bausteine des Toolkits pflegen:
 | 5 Upload | unveröffentlichtes Theme, Zurücklesen, Übersetzungen | `upload-theme` | |
 | 6 Prüfung | Prüfer je Disziplin, Befunde zurück in 3 bis 5 | `verify-theme` | |
 | 7 Abgleich | Live-Änderungen seit der Sicherung, beliebig oft | `sync-live-theme` | Entscheidung je Änderung |
-| 8 Testrunde | erst nach "bereit für die Testrunde"; Team testet im Cockpit | `verify-theme`, `test-round` | **G4** Abnahme (Betreiber) |
+| 8 Abnahme | erst nach "Bereit für die Abnahme"; Team testet im Cockpit | `verify-theme`, `test-round` | **G4** Ergebnis der Abnahme (Betreiber) |
 | 9 Launch | Abgleich vor dem Launch, Vergleichswerte, Go/No-Go, Veröffentlichen durch einen Menschen | `sync-live-theme`, `launch-check`, `theme-launch` | **G5** Go/No-Go (Betreiber) |
 | 10 Nachsorge | Prüfplan, Rückrichtung ins Repo | `theme-launch` | |
 
@@ -75,7 +75,7 @@ aufgeschrieben waren und trotzdem live gingen, weil sie in neun Listen standen u
 Schritt las:
 
 1. **Eine Liste je Projekt**, drei Status: `open`, `done` mit Beleg, `deferred` mit Person und Datum.
-   Prüfberichte, Prüfliste, Testrunde und Portal sind Ansichten darauf oder schreiben hinein
+   Prüfberichte, Prüfliste, Abnahme und Portal sind Ansichten darauf oder schreiben hinein
    (`open_items import`), sie führen keinen eigenen Stand.
 2. **Keine Liste ohne Verbraucher.** Jeder Punkt nennt das Gate, das ihn liest: `G4-acceptance`,
    `G5-go-live` oder `after_launch` (Abschluss der Nachsorge). Wer "vor dem Launch" schreibt, schreibt

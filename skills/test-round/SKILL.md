@@ -1,9 +1,9 @@
 ---
 name: test-round
-description: Schreibt die Testrunde vor einem Launch als `test.json` in den Workspace der Brand. Die Testrunde ist die Anleitung, nach der das Team des Kunden einen neuen Shop, ein neues Theme oder eine größere Änderung testet, mit den Schwerpunkten, die das Team bewertet und kommentiert. Regelt Anrede, Begriffe und die Prüfung vor dem Veröffentlichen. Auslöser sind "Testrunde", "Testanleitung", "test.json", "lass das Team testen" sowie jede Änderung an einer bestehenden Testrunde, auch das Ergänzen einer einzelnen Auflösung (`resolution`). Nicht verwenden für Audit und Monats-Report (ptai-ecom:audit, ptai-ecom:report).
+description: Schreibt die Abnahme vor einem Launch als `test.json` in den Workspace der Brand. Die Abnahme ist die Anleitung, nach der das Team des Kunden einen neuen Shop, ein neues Theme oder eine größere Änderung testet, mit den Schwerpunkten, die das Team bewertet und kommentiert. Regelt Anrede, Begriffe und die Prüfung vor dem Veröffentlichen. Auslöser sind "Abnahme", "Testrunde" (der frühere Name), "Testanleitung", "test.json", "lass das Team testen" sowie jede Änderung an einer bestehenden Abnahme, auch das Ergänzen einer einzelnen Auflösung (`resolution`). Nicht verwenden für Audit und Monats-Report (ptai-ecom:audit, ptai-ecom:report).
 ---
 
-# Testrunde
+# Abnahme
 
 - Lauf-Art `kind: test`, Lauf-ID `JJJJ-MM-TT-test`.
 - Datei: `reporting/runs/<run-id>/test.json` im Workspace der Brand.
@@ -25,31 +25,31 @@ description: Schreibt die Testrunde vor einem Launch als `test.json` in den Work
 
 ## Offene Punkte im Kundenprojekt
 
-1. Alles Offene eines Kundenprojekts, das das Team sehen soll, steht in der Testrunde: Aufgaben, Fragen, Entscheidungen, auch solche, die nur der Betreiber umsetzt.
+1. Alles Offene eines Kundenprojekts, das das Team sehen soll, steht in der Abnahme: Aufgaben, Fragen, Entscheidungen, auch solche, die nur der Betreiber umsetzt.
 2. Dafür keine Liste in Notion und kein Paperclip-Ticket. Paperclip nur für Arbeit, die Agents bauen.
 3. Das Team sieht alle Punkte. Die Punkte mit `status: decision` sind die Agenda des Termins mit dem Team.
-4. Auftrag "leg das in der Testrunde ab" oder "nimm das in der Testrunde mit auf": einen Punkt mit `status` schreiben. Gibt es schon einen passenden Punkt, diesen ergänzen, sonst einen neuen anlegen.
+4. Auftrag "leg das in der Abnahme ab" oder "nimm das in der Abnahme mit auf": einen Punkt mit `status` schreiben. Gibt es schon einen passenden Punkt, diesen ergänzen, sonst einen neuen anlegen.
 5. Neue Punkte entstehen nur hier, das Portal legt keine an; das Team kommentiert nur.
 6. Schreiben mehrere Sessions in dieselbe Datei: vor jedem Schreiben die Datei neu lesen und nur den eigenen Punkt ändern.
 
-## Die Testrunde in einer Migration
+## Die Abnahme in einer Migration
 
-In einer Theme-Migration gibt es eine Liste offener Punkte, `migration/open-items.json` (Skill `theme-migration`, Abschnitt "Die Liste offener Punkte"). Die Testrunde ist die Ansicht für das Team, der Stand steht in der Liste. Keine Liste ohne Verbraucher: die Punkte der Testrunde liest Gate G4, die Abnahme.
+In einer Theme-Migration gibt es eine Liste offener Punkte, `migration/open-items.json` (Skill `theme-migration`, Abschnitt "Die Liste offener Punkte"). Die Abnahme ist die Ansicht für das Team, der Stand steht in der Liste. Keine Liste ohne Verbraucher: die Testpunkte liest Gate G4, die Entscheidung über die Abnahme.
 
-1. Nach jedem Schreiben der Testrunde jeden Punkt mit `status` in die Liste übernehmen:
+1. Nach jedem Schreiben der Abnahme jeden Punkt mit `status` in die Liste übernehmen:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/bin/theme" open_items import --kind test-round --path reporting/runs/<run-id>/test.json
    ```
 
 2. Erledigt, verschoben oder wieder offen wird ein Punkt in der Liste (`open_items done`, `defer`, `reopen`), mit Beleg oder mit Person und Datum. Eine `resolution` allein erledigt nichts.
-3. Danach den Stand der Liste in die Testrunde zurückschreiben, damit das Portal dasselbe zeigt, und erst dann veröffentlichen:
+3. Danach den Stand der Liste in die Abnahme zurückschreiben, damit das Portal dasselbe zeigt, und erst dann veröffentlichen:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/bin/theme" open_items sync-test-round --path reporting/runs/<run-id>/test.json
    ```
 
-4. Ohne Migration (neuer Shop, größere Änderung ohne Theme-Wechsel) gilt die Testrunde allein, wie bisher.
+4. Ohne Migration (neuer Shop, größere Änderung ohne Theme-Wechsel) gilt die Abnahme allein, wie bisher.
 
 ## Umsetzungsstand
 
@@ -76,13 +76,13 @@ Jeder Punkt mit offener Arbeit bekommt `status`. Das Portal zeigt den Fortschrit
 
 ## Begriffe
 
-Die Testrunde verwendet dieselben Begriffe wie die Oberfläche des Portals.
+Die Abnahme verwendet dieselben Begriffe wie die Oberfläche des Portals.
 
 | Nicht | Sondern |
 |---|---|
 | Stand eines Punkts, "setzt den Stand" | Bewertung, "bewertet" |
 | Rückmeldung, "schreibt als Rückmeldung" | Kommentar, "kommentiert" |
-| Lauf | Testrunde |
+| Lauf | Abnahme |
 | freigegeben | veröffentlicht |
 
 - Muster für den `lead` einer Gruppe: "Bewertet jeden Schwerpunkt, sobald ihr ihn angeschaut habt, und schreibt Auffälligkeiten als Kommentar darunter."

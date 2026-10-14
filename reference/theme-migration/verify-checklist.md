@@ -85,7 +85,7 @@ erzeugten Datei. Danach laufen Neubau, Upload und die betroffenen Prüfer erneut
 
 Der Checkout wird nicht automatisch getestet: eine Testbestellung ist eine echte Bestellung, wenn
 kein Testmodus läuft, und der Testmodus nimmt andere Wege als der Echtbetrieb. Die Szenarien gehen
-als Punkte in die Testrunde: je Zahlart und Versandregel einmal, mit Rabattcode und Gutschein,
+als Punkte in die Abnahme: je Zahlart und Versandregel einmal, mit Rabattcode und Gutschein,
 eingeloggt und als Gast, mobil zuerst, Preis, Steuer und Versand je Markt, Bestätigungsmail,
 Weitergabe an angeschlossene Systeme. Testbestellungen werden danach storniert und erstattet, damit
 sie die Zahlen nach dem Launch nicht verfälschen.

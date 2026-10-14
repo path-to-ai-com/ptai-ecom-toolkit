@@ -646,3 +646,121 @@ class TestBrandFiles(unittest.TestCase):
     def test_brand_only_takes_no_run(self):
         with self.assertRaises(SystemExit):
             self._main("--brand-only", "--run-id", self.RUN)
+
+
+class TestBrandPolicies(unittest.TestCase):
+    """Vertrag V15: die Vorgaben der Marke mit ihren Bausteinen gehen als Dateien der Marke hoch."""
+
+    RUN = "2026-09-01-audit"
+    KEY = "brands/beispielmarke/manifest.json"
+    POLICIES = {
+        "version": "2026-01-13.1", "reference_shop": "eu", "decided_by": "Vorname Nachname",
+        "decided_at": "2026-01-05",
+        "rules": [{"key": "tag_manager", "subject": "Tag Manager", "rule": "same_as_reference",
+                   "target": "Tag Manager als eigener Code",
+                   "modules": [{"name": "Tag Manager", "path": "policy-modules/tag_manager/README.md",
+                                "description": "Einbindung wie im Referenz-Store"},
+                               {"name": "Tag Manager",
+                                "path": "policy-modules/tag_manager/snippets/tag-manager.liquid",
+                                "description": "Snippet mit Platzhalter"}]},
+                  {"key": "languages", "subject": "Sprachen", "rule": "may_differ"}],
+    }
+
+    def setUp(self):
+        from tests import brand_support as bs
+        self.bs = bs
+        self.brand_ws = bs.make_brand(self)
+        self.eu = self.brand_ws / "eu"
+        run = self.eu / "reporting" / "runs" / self.RUN
+        bs.write_json(run / "state.json", {"run_id": self.RUN, "cadence": "audit"})
+        bs.write_json(run / "findings" / "conversion.json", {"findings": [
+            {"id": "CRO-03"}, {"id": "CRO-05"}]})
+        bs.write_json(run / "findings" / "content-brand.json", {"findings": [{"id": "CNT-04"}]})
+        bs.write_json(run / "findings" / "data-quality.json", {"findings": [{"id": "MES-11"}]})
+        self.target = self.brand_ws.parent / "bucket"
+
+    def write_policies(self, folder: Path, data: dict | None = None) -> Path:
+        self.bs.write_json(folder / "policies.json", data or self.POLICIES)
+        modules = folder / "policy-modules" / "tag_manager"
+        (modules / "snippets").mkdir(parents=True, exist_ok=True)
+        (modules / "README.md").write_text("# Tag Manager\n", encoding="utf-8")
+        (modules / "snippets" / "tag-manager.liquid").write_text("{% comment %} GTM {% endcomment %}\n",
+                                                                 encoding="utf-8")
+        return folder
+
+    def brand_files(self) -> list:
+        return sorted(manifest.load(self.target / self.KEY)["files"])
+
+    EXPECTED = ["measures.json", "policies.json", "policy-modules/tag_manager/README.md",
+                "policy-modules/tag_manager/snippets/tag-manager.liquid"]
+
+    def test_brand_only_laedt_vorgaben_und_bausteine_hoch(self):
+        self.write_policies(self.brand_ws)
+        result = publish.prepare_brand_only(self.eu, self.target)
+        self.assertEqual(self.brand_files(), self.EXPECTED)
+        self.assertEqual(result["brand_files"], 4)
+        root = self.target / "brands" / "beispielmarke"
+        self.assertEqual(self.bs.read(root / "policies.json"), self.POLICIES)
+        self.assertEqual((root / "policy-modules/tag_manager/README.md").read_text(encoding="utf-8"),
+                         "# Tag Manager\n")
+
+    def test_vorgaben_in_einem_ordner_direkt_in_der_marke(self):
+        self.write_policies(self.brand_ws / "shared")
+        publish.prepare_brand_only(self.eu, self.target)
+        self.assertEqual(self.brand_files(), self.EXPECTED)
+        self.assertTrue((self.target / "brands/beispielmarke/policy-modules/tag_manager/README.md").is_file())
+
+    def test_ein_lauf_behaelt_die_vorgaben_im_manifest(self):
+        self.write_policies(self.brand_ws)
+        publish.prepare_brand_only(self.eu, self.target)
+        publish.prepare(self.eu, self.RUN, self.target)
+        self.assertEqual(self.brand_files(), self.EXPECTED)
+
+    def test_versteckte_dateien_bleiben_liegen(self):
+        folder = self.write_policies(self.brand_ws)
+        (folder / "policy-modules" / ".DS_Store").write_bytes(b"x")
+        publish.prepare_brand_only(self.eu, self.target)
+        self.assertNotIn("policy-modules/.DS_Store", self.brand_files())
+
+    def test_ohne_vorgaben_bleibt_alles_wie_bisher(self):
+        publish.prepare_brand_only(self.eu, self.target)
+        self.assertEqual(self.brand_files(), ["measures.json"])
+
+    def test_ein_fehlender_baustein_haelt_an(self):
+        folder = self.write_policies(self.brand_ws)
+        (folder / "policy-modules/tag_manager/README.md").unlink()
+        with self.assertRaises(SystemExit) as raised:
+            publish.prepare_brand_only(self.eu, self.target)
+        self.assertIn("policy-modules/tag_manager/README.md", str(raised.exception))
+        self.assertFalse((self.target / "brands").exists())
+
+    def test_ungueltige_vorgaben_halten_an(self):
+        broken = {**self.POLICIES, "rules": [{"key": "tag_manager", "rule": "vielleicht"}]}
+        self.write_policies(self.brand_ws, broken)
+        with self.assertRaises(SystemExit) as raised:
+            publish.prepare_brand_only(self.eu, self.target)
+        self.assertIn("Vorgaben der Marke", str(raised.exception))
+        self.assertFalse((self.target / "brands").exists())
+
+    def test_zwei_ordner_mit_vorgaben_halten_an(self):
+        self.write_policies(self.brand_ws / "shared")
+        self.write_policies(self.brand_ws / "uk")
+        with self.assertRaises(SystemExit) as raised:
+            publish.prepare_brand_only(self.eu, self.target)
+        self.assertIn("mehrfach", str(raised.exception))
+
+    def test_upload_legt_die_bausteine_unter_die_marke(self):
+        self.write_policies(self.brand_ws)
+        bucket = FakeBucket()
+        env = {"SUPABASE_URL": FakeBucket.URL, "SUPABASE_SERVICE_ROLE_KEY": "k"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("urllib.request.urlopen", bucket.urlopen), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = publish.main(["--workspace", str(self.eu), "--target", str(self.target),
+                                 "--brand-only", "--upload"])
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(bucket.uploads()), [
+            "brands/beispielmarke/manifest.json", "brands/beispielmarke/measures.json",
+            "brands/beispielmarke/policies.json", "brands/beispielmarke/policy-modules/tag_manager/README.md",
+            "brands/beispielmarke/policy-modules/tag_manager/snippets/tag-manager.liquid"])
+        self.assertEqual(sorted(json.loads(bucket.objects[self.KEY])["files"]), self.EXPECTED)

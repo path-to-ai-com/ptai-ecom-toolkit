@@ -1,12 +1,12 @@
 ---
 name: theme-launch
-description: Betreiber-Teil einer Shopify-Theme-Migration, nachdem das Team mit ptai-ecom:theme-migration bis "bereit für die Testrunde" vorbereitet hat. Wendet die Vorgaben der Marke auf den Lauf eines Stores an (policies apply), stellt die Testrunde ins Cockpit, entscheidet mit der Person der Marke die Abnahme (G4), zieht direkt vor dem Launch den Stand des Live-Themes neu (Abgleich vor dem Launch), führt Go/No-Go (G5), Veröffentlichen durch einen Menschen, Prüfungen am Launch-Tag und die Kontrolle nach dem Launch (Nachsorge). Nur mit PTAI_OPERATOR=1; run_state verweigert diese Schritte sonst. Kein Änderungsstopp. Nutzen bei /ptai-ecom:theme-launch, "Launch vorbereiten", "Go/No-Go", "Theme veröffentlichen", "Abnahme der Testrunde", "Vorgaben der Marke anwenden", "Nachsorge nach dem Launch". Nicht verwenden für die Vorbereitung bis zur Testrunde (ptai-ecom:theme-migration). Liest reporting/config.json im Kunden-Workspace.
+description: Betreiber-Teil einer Shopify-Theme-Migration, nachdem das Team mit ptai-ecom:theme-migration bis "Bereit für die Abnahme" vorbereitet hat. Wendet die Vorgaben der Marke auf den Lauf eines Stores an (policies apply), stellt die Abnahme ins Cockpit, entscheidet mit der Person der Marke über die Abnahme (G4), zieht direkt vor dem Launch den Stand des Live-Themes neu (Abgleich vor dem Launch), führt Go/No-Go (G5), Veröffentlichen durch einen Menschen, Prüfungen am Launch-Tag und die Kontrolle nach dem Launch (Nachsorge). Nur mit PTAI_OPERATOR=1; run_state verweigert diese Schritte sonst. Kein Änderungsstopp. Nutzen bei /ptai-ecom:theme-launch, "Launch vorbereiten", "Go/No-Go", "Theme veröffentlichen", "Abnahme entscheiden", "Vorgaben der Marke anwenden", "Nachsorge nach dem Launch". Nicht verwenden für die Vorbereitung bis zur Abnahme (ptai-ecom:theme-migration). Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # theme-launch: Vorgaben, Abnahme, Launch und Nachsorge
 
-Das Team einer Marke bereitet mit `theme-migration` vor bis "bereit für die Testrunde" und arbeitet die
-Testrunde ab. Alles, was einen Termin, eine Freigabe über mehrere Stores oder das Veröffentlichen
+Das Team einer Marke bereitet mit `theme-migration` vor bis "Bereit für die Abnahme" und arbeitet die
+Abnahme ab. Alles, was einen Termin, eine Freigabe über mehrere Stores oder das Veröffentlichen
 betrifft, macht der Betreiber mit dieser Skill. Grund: In drei parallelen Migrationen einer Marke führte
 der Skill jedes Team bis zum Launch. Daraus entstanden Termine, Änderungsstopps und Fragen nach dem
 Portal, die niemand entschieden hatte.
@@ -24,13 +24,24 @@ die Shopify-Skills des Shopify AI Toolkit, veröffentlichen macht immer ein Mens
 
 ## Vorgaben der Marke anwenden
 
-Die Vorgaben liegen beim Betreiber im Workspace der Marke (`policies.json`, Format
-`${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/policies-format.md`), nie im Plugin.
+Die Vorgaben liegen beim Betreiber im Workspace der Marke (`policies.json` und Bausteine unter
+`policy-modules/`, Format `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/policies-format.md`), nie im
+Plugin. Die Stores lesen sie seit 0.3.16 nur aus dem Cockpit (`get_policies`, `policies sync` beim Start von
+`theme-migration`). Nach jeder Änderung an der Datei oder an einem Baustein deshalb hochladen:
 
 ```bash
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.publish --workspace <store-workspace> \
+  --brand-only --target "$(mktemp -d)" --upload
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies apply --source <pfad>/policies.json
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies check --source <pfad>/policies.json
 ```
+
+- `--brand-only` lädt `policies.json` und jede Datei unter `policy-modules/` mit den übrigen Dateien der
+  Marke hoch und prüft vorher Format und Bausteine. Jeder Store übernimmt die Fassung beim nächsten Start
+  seiner Migration.
+- Ein Baustein ist eine Vorlage mit `README.md`: was er tut, wo er ins Theme gehört, welche Werte ein
+  Store einsetzt. Nie den eingebauten Code eines Stores als Baustein hochladen; Präfix und Werte setzt
+  jeder Store selbst ein.
 
 - `apply` schreibt `migration/policies.json`, trägt die Entscheidungen in `decisions.json` und
   `apps.json` ein und legt für fehlende Dienste Punkte `blocker` an. Danach im Repo des Stores
@@ -57,9 +68,9 @@ PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.publish --workspace 
 - Beide sind sofort sichtbar, ohne `release` und ohne `--visible`, und ersetzen die vorige Fassung.
   Transkripte, Journal und `session.lock` bleiben im Repo. Fehlt die Datei im Lauf, bricht `publish` ab.
 
-## Testrunde ins Cockpit
+## Abnahme ins Cockpit
 
-Die Testrunde entsteht im Repo des Stores (`theme-migration`, Phase 8). Der Betreiber prüft sie und
+Die Abnahme entsteht im Repo des Stores (`theme-migration`, Phase 8). Der Betreiber prüft sie und
 stellt sie wie bisher ins Cockpit; das Team testet dort. Rückmeldungen arbeitet das Team in seiner
 Sitzung ab.
 

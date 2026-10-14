@@ -25,14 +25,14 @@ besteht:
 - `acceptance-open-items`: jeder offene Punkt der Gates G4 und G5 ist `missing`; fehlt die Liste in
   einem Migrationslauf, `blocked`.
 - `acceptance-sources`: Prüfberichte (`report_paths`, jüngster unter `migration/verify/`), die
-  Prüfliste aus Phase 2 und die jüngste Testrunde sind nur noch Quellen für die Liste. Was dort offen
+  Prüfliste aus Phase 2 und die jüngste Abnahme sind nur noch Quellen für die Liste. Was dort offen
   steht und in der Liste fehlt, ist `missing`; eine konfigurierte Quelle, die sich nicht finden lässt,
   `blocked`.
 - Deckt eine bestandene Prüfung dieses Laufs einen offenen Punkt ab (etwa hreflang), steht das im
   Beleg; erledigt wird er erst in der Liste, mit `open_items close-covered`.
 
 Ohne Liste und ohne Migrationslauf (Launch ohne Theme-Wechsel) gilt die Auswertung je Bericht,
-Prüfliste und Testrunde wie unten beschrieben.
+Prüfliste und Abnahme wie unten beschrieben.
 
 Sie ersetzt `theme-migration` nicht, sondern führt deren Phase 9 als eigenständigen Prüflauf aus:
 beliebig oft, mit oder ohne Migrationslauf, auch für einen Launch ohne Theme-Wechsel.
@@ -248,8 +248,8 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
 |---|---|---|
 | Zeitpunkt | Wochentag, Feiertag, Saisonspitze | aus dem Termin: Montag bis Donnerstag, kein bundesweiter Feiertag am Tag und am Folgetag, nicht ab vier Wochen vor Black Friday bis Jahresende |
 | Zeitpunkt | Kampagnen, Preis- und A/B-Tests, Ansprechpartner | Fragen; ein Testwerkzeug im Mitschnitt steht als Hinweis daneben |
-| Abnahme | Liste offener Punkte (mit Liste oder Migrationslauf) | `migration/open-items.json`: kein Punkt mit Gate `G4-acceptance` oder `G5-go-live` offen; jede Quelle (Prüfliste, `report_paths`, jüngster Bericht unter `migration/verify/`, jüngste Testrunde) ohne Offenes, das in der Liste fehlt |
-| Abnahme | G4, Befunde, Testrunde (ohne Liste und ohne Migrationslauf) | Gate im Migrationslauf; jüngstes `migration/verify/*/findings.json` und jeder Bericht unter `theme_migration.report_paths` (offen: `blocker`, `before_launch`, Abschnitte "Vor dem Launch" und "Blocker" ohne Erledigt- oder Verschoben-Vermerk; kein Bericht: `blocked`); `reporting/runs/*-test/test.json` (offen: `open`, `in_progress`, `decision`) |
+| Abnahme | Liste offener Punkte (mit Liste oder Migrationslauf) | `migration/open-items.json`: kein Punkt mit Gate `G4-acceptance` oder `G5-go-live` offen; jede Quelle (Prüfliste, `report_paths`, jüngster Bericht unter `migration/verify/`, jüngste Abnahme) ohne Offenes, das in der Liste fehlt |
+| Abnahme | G4, Befunde, Testpunkte der Abnahme (ohne Liste und ohne Migrationslauf) | Gate im Migrationslauf; jüngstes `migration/verify/*/findings.json` und jeder Bericht unter `theme_migration.report_paths` (offen: `blocker`, `before_launch`, Abschnitte "Vor dem Launch" und "Blocker" ohne Erledigt- oder Verschoben-Vermerk; kein Bericht: `blocked`); `reporting/runs/*-test/test.json` (offen: `open`, `in_progress`, `decision`) |
 | Abnahme | Prüfliste aus Phase 2 (ohne Liste und ohne Migrationslauf) | `theme_migration.acceptance_checklist`: jede Zeile `- [ ] **Pnn**` abgehakt, verschoben mit Person und Datum oder durch eine bestandene SEO-Prüfung abgedeckt (`seo-parity.md`) |
 | Abgleich | Live-Theme seit dem letzten Abgleich | `updatedAt` frisch gegen jüngstes `delta.json` oder `manifest.json` unter `migration/` |
 | Abgleich | Abgleich vor dem Launch | `last_sync` im Lauf, höchstens sieben Tage alt; kein Änderungsstopp seit 0.3.11 |
@@ -272,7 +272,7 @@ Direkt nachdem ein Mensch veröffentlicht hat, in dieser Reihenfolge:
   gesehen hat; ob die Kommunikation verschickt ist.
 - Checkout, Dankeseite und Kauf-Events: nur mit einer Testbestellung nach Freigabe.
 - Tracking mit Einwilligung, solange das Team den Mitschnitt nicht freigegeben hat.
-- App-Blöcke in Templates (nur Embeds), Inhalte von Bewertungen oder Suche: das zeigt die Testrunde.
+- App-Blöcke in Templates (nur Embeds), Inhalte von Bewertungen oder Suche: das zeigt die Abnahme.
 - Die volle Schutzliste der Top-Seiten aus der Search Console: geprüft wird die Seitenliste; die
   Schutzliste deckt `crawl-site` gegen den Entwurf ab.
 - Markt-Pfade, die nicht dem Muster `/<sprache>` folgen, und ob Rollouts im Admin verfügbar sind.

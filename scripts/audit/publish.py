@@ -26,7 +26,13 @@ eines Ordners.
 Steht `brand_workspace` in der Config, liegen `measures.json`, `measures.md`
 und `feedback.json` einmal je Marke. Sie gehen nach `brands/<slug>/` und
 stehen im Manifest unter `files` an der Wurzel; je Store gehen nur noch
-Baseline und Läufe hoch. Vor dem Kopieren prüft `publish` die Liste der Marke
+Baseline und Läufe hoch. Seit 0.3.16 gehören die Vorgaben der Marke dazu
+(Vertrag V15): `policies.json` und jede Datei unter `policy-modules/`, aus
+dem Ordner der Marke oder einem Ordner direkt darin (`brand.policies_dir`).
+Sie gehen bei jedem publish mit, nicht nur mit `--brand-only`, weil jedes
+publish `files` im Manifest neu schreibt; sonst verschwänden sie dort mit dem
+nächsten Lauf. Vor dem Kopieren prüft `publish` ihr Format und dass jeder
+Baustein aus `modules` daneben liegt. Vor dem Kopieren prüft `publish` die Liste der Marke
 (`shops` und `by_shop` passen zusammen, jeder `finding_id` steht in seinem
 Lauf `finding_run`, wenn der Lauf hier liegt). Die Vorschau geht dann je Marke
 in eine eigene Testmarke `portal-test-<marke>` (D11), sonst überschrieben sich
@@ -242,8 +248,34 @@ def brand_problems(workspace, backlog: dict, brand_reporting: Path,
     return problems
 
 
+def policy_problems(folder: Path) -> list[str]:
+    """Was an den Vorgaben der Marke nicht gilt, bevor sie hochgehen (Vertrag V15).
+
+    Das Cockpit gibt `policies.json` mit `get_policies` an jeden Store der Marke
+    weiter. Eine Datei, die das Format verletzt, oder ein Baustein, der nicht
+    daneben liegt, hielte den Start jeder Migration der Marke an.
+    """
+    # Erst hier importiert: audit braucht theme nur für diese Prüfung, und das
+    # Format von policies.json hat genau eine Prüfung.
+    from theme import policies
+    path = folder / brand_mod.POLICIES_NAME
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [f"{path} nicht lesbar ({exc})"]
+    problems = policies.validate(data)
+    if problems:
+        return problems
+    for rule in data["rules"]:
+        for module in rule.get("modules") or []:
+            if not (folder / module["path"]).is_file():
+                problems.append(f"Baustein {module['path']} der Regel {rule['key']} "
+                                f"fehlt unter {folder}")
+    return problems
+
+
 def _check_brand_files(workspace, config: dict, brand_reporting: Path) -> None:
-    """Bricht vor dem Kopieren ab, wenn die Liste der Marke nicht passt."""
+    """Bricht vor dem Kopieren ab, wenn die Liste oder die Vorgaben der Marke nicht passen."""
     backlog = measures.peek(workspace)
     if not measures.is_v2(backlog):
         raise SystemExit(f"{brand_reporting / 'measures.json'} ist keine Liste im "
@@ -251,6 +283,11 @@ def _check_brand_files(workspace, config: dict, brand_reporting: Path) -> None:
     problems = brand_problems(workspace, backlog, brand_reporting, config)
     if problems:
         raise SystemExit("Die Liste der Marke passt nicht, nichts kopiert:\n  "
+                         + "\n  ".join(problems))
+    folder = brand_mod.policies_dir(brand_reporting.parent)
+    problems = policy_problems(folder) if folder is not None else []
+    if problems:
+        raise SystemExit("Die Vorgaben der Marke gelten so nicht, nichts kopiert:\n  "
                          + "\n  ".join(problems))
 
 
@@ -268,10 +305,18 @@ def _load_manifest(target: Path, brand: str, config: dict) -> tuple[Path, dict, 
 
 
 def _copy_brand_files(brand_reporting: Path, target: Path, brand: str) -> dict:
-    """Legt die Dateien der Marke unter `brands/<slug>/` ab und gibt ihre Größen."""
+    """Legt die Dateien der Marke unter `brands/<slug>/` ab und gibt ihre Größen.
+
+    Dazu die Vorgaben der Marke mit ihren Bausteinen, wenn es sie gibt
+    (`policies.json`, `policy-modules/...`), unter demselben Namen wie im
+    Ordner der Marke.
+    """
+    sources = {name: brand_reporting / name for name in BRAND_FILES}
+    folder = brand_mod.policies_dir(brand_reporting.parent)
+    if folder is not None:
+        sources.update(brand_mod.policy_files(folder))
     files = {}
-    for name in BRAND_FILES:
-        source = brand_reporting / name
+    for name, source in sources.items():
         if source.exists():
             dest = target / "brands" / brand / name
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -447,7 +492,8 @@ def prepare_brand_only(workspace, target, account_slug: str | None = None) -> di
 
     Für den Umzug einer Marke (Spec Abschnitt 12, A3): nach `brand_migrate`
     liegt die Liste bei der Marke, und das Cockpit soll sie lesen, ohne dass
-    ein Lauf neu hochgeht.
+    ein Lauf neu hochgeht. Ebenso für neue Vorgaben der Marke (Vertrag V15):
+    `policies.json` und `policy-modules/` gehen mit, wenn es sie gibt.
     """
     workspace, target = Path(workspace), Path(target)
     config = load_config(workspace)
@@ -628,8 +674,9 @@ def main(argv=None) -> int:
                         "etwa portal-test fuer eine Vorschau; mit Dateien der "
                         "Marke nur portal-test-<marke>")
     p.add_argument("--brand-only", action="store_true",
-                   help="nur die Dateien der Marke (Massnahmen, Anforderungen) "
-                        "und das Manifest, kein Lauf; fuer den Umzug einer Marke")
+                   help="nur die Dateien der Marke (Maßnahmen, Anforderungen, "
+                        "Vorgaben mit Bausteinen) und das Manifest, kein Lauf; "
+                        "für den Umzug einer Marke und neue Vorgaben")
     p.add_argument("--upload", action="store_true",
                    help="danach in den Bucket laden, braucht SUPABASE_URL und "
                         "SUPABASE_SERVICE_ROLE_KEY in der Umgebung; liegt im "
@@ -685,8 +732,8 @@ def main(argv=None) -> int:
                 print("--replace: in die laufende Fassung geschrieben, kein Eintrag "
                       "im Verlauf.")
             if result["brand_files"]:
-                print(f"{result['brand_files']} Dateien der Marke (Massnahmen und "
-                      "Anforderungen, sie gelten fuer alle Stores)")
+                print(f"{result['brand_files']} Dateien der Marke (Maßnahmen, "
+                      "Anforderungen und Vorgaben, sie gelten für alle Stores)")
             print(f"{result['shop_files']} Dateien auf Shop-Ebene "
                   "(Baseline, bei einem Store ohne Marke auch die Massnahmen)")
         print(f"Manifest: {result['manifest']} (Zähler {result['manifest_revision']})")

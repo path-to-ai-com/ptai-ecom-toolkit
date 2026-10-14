@@ -30,21 +30,21 @@ Migration im Cockpit unter "Entscheidungen" bei "Entschieden", mit Herkunft; das
     {
       "id": "Q-004",
       "gate": "G2-mapping",
-      "text": "Gestaltung vor oder nach der Testrunde angleichen?",
-      "context": "Der Entwurf weicht an 12 Stellen sichtbar vom heutigen Shop ab, etwa beim Kaufknopf. Angeglichen wird alles vor dem Launch. Offen ist nur, ob schon vor der Testrunde.",
+      "text": "Gestaltung vor oder nach der Abnahme angleichen?",
+      "context": "Der Entwurf weicht an 12 Stellen sichtbar vom heutigen Shop ab, etwa beim Kaufknopf. Angeglichen wird alles vor dem Launch. Offen ist nur, ob schon vor der Abnahme.",
       "compare": [
         {"label": "Produktseite",
          "live_url": "https://beispielshop.test/products/ring?preview_theme_id=000000000000",
          "draft_url": "https://beispielshop.test/products/ring?preview_theme_id=000000000002"}
       ],
-      "options": ["Vor der Testrunde", "Nach der Testrunde"],
+      "options": ["Vor der Abnahme", "Nach der Abnahme"],
       "other": null,
-      "recommendation": "Vor der Testrunde",
-      "reason": "Sonst meldet ihr in der Testrunde dieselben Abweichungen noch einmal.",
+      "recommendation": "Vor der Abnahme",
+      "reason": "Sonst meldet ihr in der Abnahme dieselben Abweichungen noch einmal.",
       "decider": ["Erika Muster"],
       "status": "answered",
       "asked_at": "2026-01-12T15:00:00+00:00",
-      "answer": "Vor der Testrunde",
+      "answer": "Vor der Abnahme",
       "answered_by": "Erika Muster",
       "answered_at": "2026-01-13T09:12:00+00:00",
       "answered_via": "cockpit"
@@ -79,7 +79,7 @@ Das Werkzeug `get_migration` des Cockpits hängt an jede offene Frage `cockpit_a
 Eingabe für `questions import --file <datei>` (oder `--file -` für stdin):
 
 ```json
-[{"id": "Q-004", "value": "Vor der Testrunde", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}]
+[{"id": "Q-004", "value": "Vor der Abnahme", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}]
 ```
 
 Übernommen wird eine Antwort nur, wenn `by` in `theme_migration.people` steht, die Frage im Repo offen ist
@@ -87,7 +87,7 @@ und die Antwort etwas entscheidet ("vorläufig" oder "später" nicht). Eine im R
 gilt; eine spätere im Cockpit ändert sie nicht. Ausgabe:
 
 ```json
-{"imported": [{"id": "Q-004", "value": "Vor der Testrunde", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}],
+{"imported": [{"id": "Q-004", "value": "Vor der Abnahme", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}],
  "skipped": [{"id": "Q-005", "by": "Max Beispiel", "reason": "Max Beispiel steht nicht in theme_migration.people (Erika Muster)."}]}
 ```
 
@@ -153,3 +153,11 @@ Neu seit 0.3.14, das Schema bleibt 1:
 | `now`, `after`, `operator_tasks` | `next.json`, mit dem Rückfall oben |
 | `ruled` | die geltenden Punkte aus `ruled.json`, je `id`, `text`, `source` |
 | `questions` | jede offene und jede beantwortete Frage mit `id`, `gate`, `step`, `text`, `context`, `compare`, `options`, `other`, `recommendation`, `reason`, `decider` und `answer` (`{value, by, at, via}` oder `null`). Zurückgezogene Fragen fehlen; ihr Ergebnis steht in `ruled` |
+
+Seit 0.3.16 heißt Schritt 6 "Abnahme" und der Meilenstein davor "Bereit für die Abnahme" (vorher
+"Testrunde"). Bezeichner bleiben (`test_round`, `ready_for_test_round`, Phase `8-test-round`). Steht in
+`next.json`, `ruled.json` oder `questions.json` eines bestehenden Laufs noch "Testrunde", zeigt
+`migration.json` dort "Abnahme" (Mehrzahl "Abnahmen"), in `text`, `context`, `options`, `other`,
+`recommendation`, `reason` und `answer.value` jeder Frage, in `text` jedes Punkts und in `now`, `after` und
+`operator_tasks`. Die Dateien selbst bleiben, wie die Sitzung sie geschrieben hat; neue Sätze schreibt die
+Skill mit "Abnahme".

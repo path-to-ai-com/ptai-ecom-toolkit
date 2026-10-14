@@ -26,14 +26,14 @@ class ExportWorkspace(Workspace):
 
 class QuestionsInExportTest(ExportWorkspace):
     def test_offene_frage_traegt_alle_felder_und_keine_antwort(self):
-        self.ask("Gestaltung vor oder nach der Testrunde angleichen?", gate="G2-mapping",
-                 options=["Vor der Testrunde", "Nach der Testrunde"], recommendation="Vor der Testrunde",
+        self.ask("Gestaltung vor oder nach der Abnahme angleichen?", gate="G2-mapping",
+                 options=["Vor der Abnahme", "Nach der Abnahme"], recommendation="Vor der Abnahme",
                  compare=[("Startseite", LIVE, DRAFT)], decider=["Erika Muster"])
         question = self.export()["questions"][0]
         self.assertEqual(question["step"], 3)
         self.assertEqual(question["context"], "Das Formular hat heute drei Zusatzfelder.")
         self.assertEqual(question["compare"], [{"label": "Startseite", "live_url": LIVE, "draft_url": DRAFT}])
-        self.assertEqual(question["recommendation"], "Vor der Testrunde")
+        self.assertEqual(question["recommendation"], "Vor der Abnahme")
         self.assertEqual(question["reason"], "So bleibt es wie heute.")
         self.assertEqual(question["decider"], ["Erika Muster"])
         self.assertIsNone(question["other"])
@@ -87,6 +87,45 @@ class QuestionsInExportTest(ExportWorkspace):
         data = json.loads((self.ws / "reporting" / "runs" / RUN / "migration.json").read_text())
         self.assertEqual(len(data["questions"]), 2)
 
+
+
+class TermsSince0316Test(ExportWorkspace):
+    """Vertrag V15: Schritt 6 heißt "Abnahme". Ein bestehender Lauf zeigt das beim nächsten Export."""
+
+    def test_schritt_sechs_heisst_abnahme(self):
+        step = self.export()["steps"][5]
+        self.assertEqual((step["key"], step["name"]), ("test_round", "Abnahme"))
+
+    def test_alte_saetze_im_lauf_zeigen_das_neue_wort(self):
+        write(questions.path(self.ws), {"questions": [
+            {"id": "Q-001", "gate": "G2-mapping", "text": "Gestaltung vor oder nach der Testrunde angleichen?",
+             "context": "Offen ist nur, ob schon vor der Testrunde.",
+             "options": ["Vor der Testrunde", "Nach der Testrunde"], "recommendation": "Vor der Testrunde",
+             "reason": "Sonst meldet ihr in der Testrunde dieselben Abweichungen.",
+             "status": "answered", "answer": "Vor der Testrunde", "answered_by": "Erika Muster",
+             "answered_at": "2026-01-02T10:00:00+00:00", "asked_at": "2026-01-01T08:00:00+00:00"}]})
+        ruled.add(self.ws, "Zwei Testrunden statt einer", "operator")
+        handover.write(self.ws, "Testrunde", "Danach ist der Entwurf bereit für die Testrunde.",
+                       ["Testrunde ins Cockpit stellen"], step=1)
+        data = self.export()
+        question = data["questions"][0]
+        self.assertEqual(question["text"], "Gestaltung vor oder nach der Abnahme angleichen?")
+        self.assertEqual(question["context"], "Offen ist nur, ob schon vor der Abnahme.")
+        self.assertEqual(question["options"], ["Vor der Abnahme", "Nach der Abnahme"])
+        self.assertEqual(question["recommendation"], "Vor der Abnahme")
+        self.assertEqual(question["reason"], "Sonst meldet ihr in der Abnahme dieselben Abweichungen.")
+        self.assertEqual(question["answer"]["value"], "Vor der Abnahme")
+        self.assertEqual(data["ruled"][0]["text"], "Zwei Abnahmen statt einer")
+        self.assertEqual((data["now"], data["after"], data["operator_tasks"]),
+                         ("Abnahme", "Danach ist der Entwurf bereit für die Abnahme.",
+                          ["Abnahme ins Cockpit stellen"]))
+        # Die Dateien des Laufs bleiben, wie die Sitzung sie geschrieben hat.
+        self.assertEqual(questions.load(self.ws)[0]["answer"], "Vor der Testrunde")
+
+    def test_nur_das_ganze_wort_wird_ersetzt(self):
+        self.assertEqual(steps.current_terms("Testrundenbericht und Testrunde."), "Testrundenbericht und Abnahme.")
+        self.assertEqual(steps.current_terms(["Testrunden", None]), ["Abnahmen", None])
+        self.assertIsNone(steps.current_terms(None))
 
 class RuledInExportTest(ExportWorkspace):
     def test_ohne_datei_ist_ruled_leer(self):

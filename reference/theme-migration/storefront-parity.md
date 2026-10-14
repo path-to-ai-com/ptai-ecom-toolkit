@@ -6,7 +6,7 @@ Bildpaaren je Template.
 
 Bei der ersten Migration von Broadcast auf Horizon kamen nach der Testfreigabe rund 30 Korrekturen
 dazu, verteilt über zwei Wochen und bis in die Tage nach dem Launch. Keine davon hatte die Prüfung
-gefunden. Gefunden haben sie das Team in der Testrunde oder der Betreiber beim Durchklicken. Fast alle
+gefunden. Gefunden haben sie das Team in der Abnahme oder der Betreiber beim Durchklicken. Fast alle
 waren Abweichungen in Schrift, Maß oder Verhalten eines einzelnen Elements, das auf der Seite
 vorhanden war und deshalb im Bildpaar der ganzen Seite nicht auffiel. Deshalb prüft diese Liste je
 Element, nicht je Seite.
@@ -90,7 +90,7 @@ Im selben Zeitraum kamen weitere Korrekturen dazu, die andere Listen abdecken:
 
 ## Pflege
 
-- Findet eine Testrunde oder der Betreiber nach der Freigabe eine Abweichung, die hier keine Zeile
+- Findet eine Abnahme oder der Betreiber nach der Freigabe eine Abweichung, die hier keine Zeile
   hat, kommt sie als neue Zeile dazu: Element, was messen, Fehlerbild.
 - Eine Zeile beschreibt ein Element, das jedes Theme hat, nicht den Sonderfall eines Kunden.
 - Findet eine Zeile bei einer Migration nichts, bleibt sie trotzdem. Die Liste wird länger, nicht

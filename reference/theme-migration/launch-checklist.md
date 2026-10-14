@@ -26,7 +26,7 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
    offener Punkt ist ein No-Go, keine Frage.
 2. **Jede Quelle in der Liste:** Prüfberichte, auch außerhalb des Workspace
    (`theme_migration.report_paths`), die Prüfliste aus Phase 2 (`theme_migration.acceptance_checklist`)
-   und die Testrunde halten nichts Offenes, das in der Liste fehlt (`open_items sources`). Am
+   und die Abnahme halten nichts Offenes, das in der Liste fehlt (`open_items sources`). Am
    07.10.2026 ging ein Shop live, dessen Prüfliste nie abgehakt war und dessen Prüfbericht offene
    Punkte führte, die kein Schritt las.
 3. **SEO-Ausgabe wie live** (`seo-parity.md`): strukturierte Daten, hreflang, Open Graph, Title,

@@ -1,6 +1,6 @@
 ---
 name: sync-live-theme
-description: Ermittelt, was sich im Live-Theme und auf Shop-Ebene seit der letzten Sicherung geändert hat und was davon in den Entwurf muss: Dateien je Manifest über Zeitstempel und SHA-256 (JSON normalisiert), Template-Zuweisungen, App-Embeds, Pixel, Skript-Tags, Hosts und Theme-Übersetzungen, je Änderung die betroffene Generator-Quelle und die Entscheidung take, adapt oder drop. Läuft in einer Migration vor der Testrunde, beliebig oft, und direkt vor dem Veröffentlichen, dazu eine Schlussprüfung unmittelbar vor dem Klick; ohne Migration als Wachposten. Es gibt keinen Änderungsstopp. Nutzen bei "was hat sich im Live-Theme geändert", "Abgleich mit dem Live-Stand", "Delta seit dem Snapshot", "letzter Abgleich vor dem Launch", in Phase 7 und Phase 9 einer Theme-Migration. Nicht verwenden für die erste Sicherung (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
+description: Ermittelt, was sich im Live-Theme und auf Shop-Ebene seit der letzten Sicherung geändert hat und was davon in den Entwurf muss: Dateien je Manifest über Zeitstempel und SHA-256 (JSON normalisiert), Template-Zuweisungen, App-Embeds, Pixel, Skript-Tags, Hosts und Theme-Übersetzungen, je Änderung die betroffene Generator-Quelle und die Entscheidung take, adapt oder drop. Läuft in einer Migration vor der Abnahme, beliebig oft, und direkt vor dem Veröffentlichen, dazu eine Schlussprüfung unmittelbar vor dem Klick; ohne Migration als Wachposten. Es gibt keinen Änderungsstopp. Nutzen bei "was hat sich im Live-Theme geändert", "Abgleich mit dem Live-Stand", "Delta seit dem Snapshot", "letzter Abgleich vor dem Launch", in Phase 7 und Phase 9 einer Theme-Migration. Nicht verwenden für die erste Sicherung (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # sync-live-theme: Abgleich mit dem Live-Stand
@@ -28,7 +28,7 @@ den lesenden Abfragen dieses Abgleichs.
 
 | Lauf | Wann | Umfang |
 |---|---|---|
-| **Abgleich** | Phase 7 (`7-sync`), nach der Kontrolle und vor der Testrunde, beliebig oft | voll: Dateien und Shop-Ebene, Entscheidung je Änderung, Übernahme in den Entwurf |
+| **Abgleich** | Phase 7 (`7-sync`), nach der Kontrolle und vor der Abnahme, beliebig oft | voll: Dateien und Shop-Ebene, Entscheidung je Änderung, Übernahme in den Entwurf |
 | **Abgleich vor dem Launch** | Phase 9, direkt vor dem Launch, durch den Betreiber (`theme-launch`) | voll, gegen die letzte Sicherung |
 | **Schlussprüfung** | unmittelbar vor dem Veröffentlichen | nur `updatedAt` des Live-Themes und die Template-Zuweisungen; jede Änderung seit dem Abgleich vor dem Launch hält den Launch an |
 | Wachposten | ohne Migration, auf Zuruf | voll, ohne Übernahme; Ergebnis ist nur `delta.md` |

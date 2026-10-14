@@ -186,7 +186,7 @@ class TestVorDemLaunch(Base):
     def test_offene_punkte_der_testrunde(self):
         folder = self.ws / "reporting" / "runs" / "2026-09-24-test"
         folder.mkdir(parents=True)
-        test = {"title": "Testrunde", "groups": [{"id": "g", "items": [
+        test = {"title": "Abnahme", "groups": [{"id": "g", "items": [
             {"id": "TP-01", "title": "Menü", "status": "done"},
             {"id": "TP-02", "title": "Suche", "status": "decision"},
             {"id": "TP-03", "title": "Filter"}]}]}

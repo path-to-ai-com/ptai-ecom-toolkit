@@ -9,7 +9,7 @@ sie vor dem nächsten Schritt liest. Seitdem gelten vier Regeln:
 
 1. Eine Liste offener Punkte je Projekt, mit genau drei Status: `open`, `done`
    mit Beleg, `deferred` mit Person und Datum. Prüfberichte, Prüflisten,
-   Testrunden und Portal sind Ansichten darauf oder schreiben hinein, sie führen
+   Abnahmen und Portal sind Ansichten darauf oder schreiben hinein, sie führen
    keinen eigenen Stand.
 2. Keine Liste ohne Verbraucher: jeder Punkt nennt das Gate, das ihn liest
    (`gate`).
@@ -239,7 +239,7 @@ class OpenItems:
         `conflicts` als `(kennung, [ids])`.
 
         `alias` mit `context`: eine Kennung, die allein mehrdeutig ist (TP-06 gibt es in jeder
-        Testrunde), zählt nur, wenn `source` des Punkts den Kontext nennt, etwa die Lauf-ID.
+        Abnahme), zählt nur, wenn `source` des Punkts den Kontext nennt, etwa die Lauf-ID.
         """
         for key in keys:
             if not key:
@@ -431,7 +431,7 @@ def init(workspace, project: str = "") -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# Quellen: Prüfliste, Prüfbericht, findings.json, Testrunde
+# Quellen: Prüfliste, Prüfbericht, findings.json, Abnahme
 # ---------------------------------------------------------------------------
 
 def candidate(*, preferred_id: str, keys: list, title: str, source: str, state: str, severity: str,
@@ -573,7 +573,7 @@ def from_findings(path: Path) -> list:
 
 
 def from_test_round(path: Path) -> list:
-    """Testpunkte mit `status` aus `test.json`; die Testrunde ist die Abnahme, also Gate G4."""
+    """Testpunkte mit `status` aus `test.json`; sie sind die Abnahme, also Gate G4."""
     path = Path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     run_id = path.parent.name
@@ -590,7 +590,7 @@ def from_test_round(path: Path) -> list:
             out.append(candidate(
                 preferred_id=local, keys=[f"{run_id}:{local}"], alias=local, context=run_id,
                 title=item.get("title") or local, description=clip(item.get("text"), 600),
-                source=f"Testrunde {run_id} (test.json)", state="done" if status == "done" else "open",
+                source=f"Abnahme {run_id} (test.json)", state="done" if status == "done" else "open",
                 severity="before_launch", gate="G4-acceptance",
                 owner="Team" if status == "decision" else "",
                 evidence=clip(resolution.get("text"), 300) if status == "done" else "",
@@ -620,7 +620,7 @@ def configured_sources(workspace, config: dict, *, migration: bool = False) -> t
     """Jede Quelle, die Punkte vor dem Launch halten kann: `([(kind, path)], [lücken])`.
 
     Prüfliste und `report_paths` aus der Config, dazu der jüngste Prüfbericht unter
-    `migration/verify/` und die jüngste Testrunde. `migration`: in einem Migrationslauf ist eine
+    `migration/verify/` und die jüngste Abnahme. `migration`: in einem Migrationslauf ist eine
     fehlende Prüfliste eine Lücke, kein Normalfall.
     """
     workspace = Path(workspace)
@@ -678,7 +678,7 @@ def source_gaps(items: OpenItems | None, workspace, config: dict, *, migration: 
 
 
 # ---------------------------------------------------------------------------
-# Abgedeckt durch den Launch-Check, Rückschreiben in die Testrunde
+# Abgedeckt durch den Launch-Check, Rückschreiben in die Abnahme
 # ---------------------------------------------------------------------------
 
 def close_covered(items: OpenItems, report: dict, where: str, today: str | None = None) -> list:

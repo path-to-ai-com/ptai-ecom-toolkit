@@ -1,6 +1,6 @@
 ---
 name: theme-migration
-description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "bereit für die Testrunde", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Testrunde, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als entschieden mit Herkunft fest, übernimmt beim Start die im Setup des Cockpits entschiedenen Vorgaben der Marke (get_setup, policies import) und wendet die Vorgaben an, ohne nachzufragen, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
+description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "Bereit für die Abnahme", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Abnahme, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als entschieden mit Herkunft fest, übernimmt beim Start die Vorgaben der Marke mit ihren Bausteinen aus dem Cockpit (get_policies, policies sync) und wendet sie an, ohne nachzufragen, baut Bausteine mit Präfix und Werten des eigenen Stores ein und holt nie Code aus einem anderen Store-Repo, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # theme-migration: die Migration führen
@@ -12,7 +12,7 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
 
 - Neun feste Schritte für die Marke, darunter elf Phasen und fünf Gates des Plugins (Abschnitt "Stand
   der Migration").
-- Das Team arbeitet bis "bereit für die Testrunde" und behebt danach die Befunde der Testrunde. Termin,
+- Das Team arbeitet bis "Bereit für die Abnahme" und behebt danach die Befunde der Abnahme. Termin,
   Launch und Nachsorge macht der Betreiber mit `theme-launch`.
 - Diese Skill ruft die Fachskills auf, schreibt den Stand und stellt die Fragen an das Team. Sie rechnet
   und baut selbst nichts.
@@ -30,7 +30,7 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   vor jedem Schreiben. Das Live-Theme bleibt unverändert.
 - **Nie nach Termin, Änderungsstopp oder Portal fragen.** Einen Änderungsstopp gibt es nicht: das Team
   arbeitet am Live-Theme weiter, vor dem Launch wird der Stand neu gezogen. Termin, Launch, Nachsorge
-  und das Veröffentlichen der Testrunde im Cockpit macht der Betreiber. Fragt die Person danach, so
+  und das Veröffentlichen der Abnahme im Cockpit macht der Betreiber. Fragt die Person danach, so
   antworten und weiterarbeiten.
 - **Eine Sitzung je Lauf.** `run_state` hält den Lauf für die Sitzung, die ihn zuletzt geschrieben hat
   (`session.lock`). Meldet es eine andere Sitzung, die andere schließen lassen; nur wenn sie sicher
@@ -50,11 +50,15 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   Antwort, sondern verweist auf das Blatt der Migration im Cockpit (Reiter "Entscheidungen", Gruppe
   "Ausstehend"). Antworten trägt nur eine Person aus `theme_migration.people` ein; "Team", "vorläufig"
   oder "später" ist keine Antwort, die Frage bleibt offen. Claude entscheidet nie an Stelle der Person.
-- **Die Vorgaben der Marke gelten als entschieden.** `migration/policies.json` kommt mit
-  `theme.policies apply` ins Repo: beim Start der Migration, sobald die Marke eine Vorgabe im Setup des
-  Cockpits entschieden hat, sonst durch den Betreiber. Sie überholen frühere Entscheidungen des Laufs und
-  öffnen keine Frage an das Team; ihre Folgen sind Bau- und Prüfarbeit. Offene Vorgaben entscheidet die
-  Marke im Cockpit unter Setup, Karte "Vorgaben der Marke", nicht in der Sitzung.
+- **Die Vorgaben der Marke gelten als entschieden.** Das Cockpit ist ihre einzige Quelle: beim Start der
+  Migration holt `get_policies` die gültige Fassung, `policies sync` schreibt sie nach
+  `migration/policies.json` und die Bausteine nach `migration/policy-modules/`, `policies apply` trägt sie
+  in den Lauf ein. Sie überholen frühere Entscheidungen des Laufs und öffnen keine Frage an das Team; ihre
+  Folgen sind Bau- und Prüfarbeit. Offene Vorgaben entscheidet die Marke im Cockpit unter Setup, Karte
+  "Vorgaben der Marke", nicht in der Sitzung.
+- **Nur das eigene Repo.** Gearbeitet wird im Workspace dieses Stores und seinem Ziel-Repo, dazu mit der
+  Verbindung zum Cockpit. Nie Code, Vorlagen oder Dateien aus dem Repo eines anderen Stores holen, auch
+  nicht aus dem Referenz-Store; was alle Stores gleich haben sollen, kommt als Baustein aus dem Cockpit.
 - **`state.json` schreibt nur diese Skill**, keine Fachskill und kein Subagent.
 - **Jede Aussage über den Shop verlinkt die betroffene Seite**, bei einem Unterschied Entwurf und Live,
   beide mit `?preview_theme_id=<id>`. Auch der Link auf den heutigen Shop enthält seine ID, weil Shopify
@@ -68,7 +72,7 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   `migration: phase 1 snapshot done`.
 - **Eine Liste offener Punkte je Migration:** `migration/open-items.json` (Abschnitt "Die Liste offener
   Punkte"). Was vor einem Gate erledigt sein muss, steht dort und nur dort, mit `open`, `done` und Beleg
-  oder `deferred` mit Person und Datum. Prüfberichte, Prüfliste und Testrunde schreiben hinein, sie
+  oder `deferred` mit Person und Datum. Prüfberichte, Prüfliste und Abnahme schreiben hinein, sie
   führen keinen eigenen Stand.
 - **Ein Gate hält an, es fragt nicht.** `run_state gate` verweigert G1 und G2 bei offener Frage, G4 und
   G5 bei offenem Punkt ihres Gates. Erst wenn nichts mehr anhält, wird das Gate entschieden, mit dem
@@ -80,7 +84,7 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
 
 ## Voraussetzungen
 
-- Keine. Fehlt etwas (Programme, Ordner der Marke, Config, Zugang zum Shop), richtet Phase 0,
+- Keine. Fehlt etwas (Programme, Config, Zugang zum Shop), richtet Phase 0,
   Schritt 0 es ein. Ein Team soll nach der Installation der beiden Plugins nur diese Skill aufrufen
   müssen.
 - Lesezugang (`cli-grant`, `portal` oder `staff`) und Schreibweg (`cli-theme` oder `admin-api`), beide in
@@ -129,7 +133,7 @@ Checklisten und Regeln: `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`, Übe
   `launch-check` sowie die Gates G4 und G5 halten an, solange dort etwas offen steht, das in der Liste
   fehlt.
 - `acceptance_checklist`: die Prüfliste "Muss nach dem Umbau wieder da sein" aus Phase 2, Zeilen
-  `- [ ] **P01** ...`. Sie ist die Abnahme der SEO-Ausgabe und steht nach Phase 2 vollständig in der
+  `- [ ] **P01** ...`. Mit ihr wird die SEO-Ausgabe abgenommen; sie steht nach Phase 2 vollständig in der
   Liste offener Punkte (Gate G4). Ohne sie schließt Phase 2 nicht ab.
 - Sprachen und Märkte liest die Skill aus dem Shop, nicht aus der Konfiguration.
 
@@ -172,8 +176,8 @@ Die Skripte lesen die Konfiguration. Der Migrationsstand speichert zusätzlich, 
 | 3 | Neubau | `3-mapping`, G2, `4-build` | Phasen erledigt, G2 entschieden, Vorgaben der Marke eingetragen und danach neu gebaut |
 | 4 | Entwurf hochgeladen | G3, `5-upload` | Phase erledigt, `draft_theme_id` gesetzt |
 | 5 | Kontrolle des Entwurfs | `6-verify` | Phase erledigt, alle neun Prüfer gelaufen, kein `blocker` offen |
-| 6 | Testrunde | `8-test-round`, G4 | Phase erledigt, G4 entschieden (Betreiber) |
-| 7 | Abgleich vor dem Launch | `7-sync`, Abgleich in `9-launch` | letzter Abgleich nach der Testrunde und höchstens sieben Tage alt |
+| 6 | Abnahme | `8-test-round`, G4 | Phase erledigt, G4 entschieden (Betreiber) |
+| 7 | Abgleich vor dem Launch | `7-sync`, Abgleich in `9-launch` | letzter Abgleich nach der Abnahme und höchstens sieben Tage alt |
 | 8 | Launch | G5, `9-launch` | nur Betreiber |
 | 9 | Kontrolle nach dem Launch | `10-aftercare` | nur Betreiber |
 
@@ -182,11 +186,11 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 
 **Meilensteine:**
 
-- **Bereit für die Testrunde** (nach Schritt 5): Neubau nach den Vorgaben, Entwurf hochgeladen, alle
+- **Bereit für die Abnahme** (nach Schritt 5): Neubau nach den Vorgaben, Entwurf hochgeladen, alle
   neun Prüfer gelaufen, kein `blocker` offen, jede veröffentlichte Nebensprache registriert.
   `phase --phase 8-test-round --status running` verweigert vorher.
-- **Bereit für den Launch** (nach Schritt 7): Testrunde erledigt, kein Punkt für G4 oder G5 offen, Abgleich
-  höchstens sieben Tage alt, alles gepusht.
+- **Bereit für den Launch** (nach Schritt 7): Abnahme bewertet, Fehler behoben, kein Punkt für G4 oder G5
+  offen, Abgleich höchstens sieben Tage alt, alles gepusht.
 
 **Phasen** `0-setup`, `1-snapshot`, `2-inventory`, `3-mapping`, `4-build`, `5-upload`, `6-verify`,
 `7-sync`, `8-test-round`, `9-launch`, `10-aftercare`, Status `open`, `running`, `done`, `failed`,
@@ -197,7 +201,7 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 | `G1-decisions` | die Fragen der Abstimmung beantwortet | `3-mapping` | Person der Marke |
 | `G2-mapping` | Zuordnung und Gestaltungsentscheidungen | `4-build` | Person der Marke |
 | `G3-first-upload` | Entwurf anlegen und laufend aktualisieren, einmal in Phase 0 | `5-upload` | Person der Marke |
-| `G4-acceptance` | Abnahme nach der Testrunde | `9-launch` | Betreiber mit der Person der Marke |
+| `G4-acceptance` | Ergebnis der Abnahme | `9-launch` | Betreiber mit der Person der Marke |
 | `G5-go-live` | Go/No-Go | `10-aftercare` | Betreiber |
 
 - `phase ... --status running` oder `done` scheitert, solange ein vorgelagertes Gate offen ist.
@@ -240,7 +244,8 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 - **Erst die Regel, dann die Frage.** Bevor eine Frage entsteht, prüfen, ob sie entschieden ist:
   - eine Vorgabe der Marke regelt sie: `ruled add --source policy`
   - der Referenz-Store der Marke (`reference_shop` der Vorgaben) hat sie gelöst und nichts spricht für
-    diesen Store dagegen: `--source as_reference`
+    diesen Store dagegen: `--source as_reference`. Was der Referenz-Store tut, zeigen sein Setup im
+    Cockpit und sein Shop, nie sein Repo.
   - der heutige Shop tut es so, und der Entwurf kann es genauso: `--source as_today`
   - eine Prüfung im Shop hat es geklärt, etwa ein Pixel, das nichts mehr sendet: `--source check`
   - der Betreiber hat es festgelegt: `--source operator`
@@ -270,26 +275,30 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 ### Vorgaben der Marke
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies import --brand-workspace "<ordner mit policies.json>" --file -
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies apply --source "<ordner mit policies.json>/policies.json"
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies check --source "<ordner mit policies.json>/policies.json"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies sync --file -
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" policies apply --source migration/policies.json
 ```
 
-- `policies.json` liegt im Ordner der Marke, nie im Plugin. Format:
+- Quelle ist das Cockpit: `get_policies` gibt die gültige Fassung der Marke zurück, die Datei des Betreibers
+  plus die Antworten aus dem Setup, je Regel mit ihren Bausteinen. Format und Ausgabe:
   `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/policies-format.md`.
-- Offene Vorgaben stehen als `policy_questions` im Setup des Referenz-Stores; die Marke entscheidet sie im
-  Cockpit unter Setup, Karte "Vorgaben der Marke" ("Abweichung erlauben" oder "An <Referenz-Store>
-  angleichen"). `import` trägt diese Antworten beim Start in `policies.json` ein (Abschnitt "Start der
-  Migration"), mit der Person an der Regel und neuer Version; eine angeglichene App behält die Regel
-  unter `keep`.
-- `migration/policies.json` im Repo des Stores schreibt `apply`, beim Start der Migration oder durch den
-  Betreiber; danach committen und pushen.
+- `sync` schreibt `migration/policies.json` und je Baustein `migration/policy-modules/<key>/<datei>`, löscht
+  dort, was die Marke gestrichen hat, und meldet Version vorher und nachher, geänderte Regeln
+  (`rules_changed`) und geschriebene Bausteine (`modules_written`). Danach `apply`, committen und pushen.
 - `apply` trägt jede Vorgabe in `decisions.json` (`source: policy`, ersetzt ältere) und `apps.json` ein,
   damit der nächste Neubau sie liest. Ein Dienst, der beibehalten werden soll und im Inventar fehlt,
-  steht als `blocker` in der Liste offener Punkte.
-- Eine Vorgabe mit `rule: open` hält die Vorbereitung nicht an; entschieden wird sie im Cockpit auf der
-  Karte "Vorgaben der Marke".
-- Nach einem `apply` steht Schritt 3 auf `rework`, bis neu gebaut ist.
+  steht als `blocker` in der Liste offener Punkte. Dieselbe Fassung zweimal ändert nichts.
+- Hat sich die Fassung oder ein Baustein geändert (`apply_needed`), steht Schritt 3 danach auf `rework`,
+  bis neu gebaut ist.
+- Eine Vorgabe mit `rule: open` hält die Vorbereitung nicht an; entschieden wird sie im Cockpit unter Setup
+  auf der Karte "Vorgaben der Marke" ("Abweichung erlauben" oder "An <Referenz-Store> angleichen").
+- Den Befehl `policies import` mit `--brand-workspace` (Antworten in `policies.json` im Ordner der Marke)
+  nutzt nur der Betreiber in `theme-launch`, diese Skill nicht.
+
+**Bausteine.** Eine Regel kann `modules` tragen: Dateien unter `migration/policy-modules/<key>/`, mit denen
+jeder Store die Regel gleich umsetzt, etwa den Tag Manager als eigenen Code. Ein Baustein ist eine Vorlage
+mit Beschreibung, kein fertiger Code eines Stores. Eingebaut wird er im Neubau (Phase 4), solange die Regel
+`same_as_reference` heißt; bei `may_differ` bleibt der Store, wie er ist, bei `open` ist nichts entschieden.
 
 ### Die Liste offener Punkte
 
@@ -314,7 +323,7 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 - `done` nur mit Beleg: was geprüft wurde, wo, mit Datum, möglichst mit Link. `deferred` nur mit der
   Person, die verschoben hat, und dem Datum der Entscheidung.
 - Ohne `--gate` folgt das Gate der Schwere: `blocker` liest G4, `before_launch` G5, `after_launch` die
-  Nachsorge. Prüfliste und Testrunde lesen immer G4, weil sie die Abnahme sind.
+  Nachsorge. Prüfliste und Testpunkte der Abnahme lesen immer G4, weil sie zur Abnahme gehören.
 - `import` legt neue Punkte an und ergänzt bei bekannten nur Kennungen und Links. Gleich ist ein Punkt,
   wenn eine Kennung passt (`id` oder `source_ids`). Sagt die Quelle etwas anderes als die Liste, steht
   das als `drift` in der Ausgabe; die Liste gilt, eine Änderung geht über `done`, `defer` oder
@@ -324,7 +333,7 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   Testpunkten), oder die in der Liste mehrere Punkte kennen, ohne dass einer sie als `id` führt, legt
   nichts zusammen. Sie steht als `ambiguous` in der Ausgabe und bleibt in `source_ids` als Herkunft.
   Einen Eintrag dort prüfen: sind die Punkte wirklich verschieden, ist nichts zu tun.
-- `sources` zeigt jede Quelle (Prüfliste, `report_paths`, jüngster Prüfbericht, jüngste Testrunde) mit
+- `sources` zeigt jede Quelle (Prüfliste, `report_paths`, jüngster Prüfbericht, jüngste Abnahme) mit
   allem, was dort offen steht und in der Liste fehlt. Vor jedem Gate laufen lassen.
 - Ein Punkt "vor dem Launch", der nur im Gespräch, in einer Mail oder in Notion auftaucht, kommt per
   `add` in die Liste. Eine neue Liste daneben entsteht nicht.
@@ -362,9 +371,8 @@ Phase 0.
    aus einer neueren Version des Plugins als der installierten. Anhalten und sagen: "Der Lauf stammt aus
    ptai-ecom `<run_version>`, installiert ist `<installed_version>`. Bitte zuerst das Plugin
    aktualisieren und Claude Code neu starten." Nicht weiterarbeiten, auch nicht lesend an einer Phase.
-2. **Neuesten Stand holen** im Workspace, im Ziel-Repo (`theme_migration.target_repo`) und im Repo
-   des Ordners mit `policies.json` (Schritt 5), je: `git status --porcelain` muss leer sein, dann
-   `git pull --ff-only`. Ungesicherte Änderungen oder ein Pull, der nicht vorspulen kann (Konflikt,
+2. **Neuesten Stand holen** im Workspace und im Ziel-Repo (`theme_migration.target_repo`), je:
+   `git status --porcelain` muss leer sein, dann `git pull --ff-only`. Ungesicherte Änderungen oder ein Pull, der nicht vorspulen kann (Konflikt,
    abweichende Commits): anhalten und sagen, in welchem Repo und was dort steht. Nie stashen,
    zurücksetzen oder zusammenführen, ohne dass die Person es sagt. Hat der Pull den Lauf geändert,
    Schritt 1 wiederholen.
@@ -381,57 +389,49 @@ Phase 0.
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions import --file - <<'JSON'
-   [{"id": "Q-004", "value": "Vor der Testrunde", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}]
+   [{"id": "Q-004", "value": "Vor der Abnahme", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}]
    JSON
    ```
 
    Ausgabe: `imported` und `skipped` je mit Grund, Exit 1, wenn etwas übersprungen wurde. Eine
    übersprungene Antwort bleibt offen; den Grund der Person nennen (etwa: Name nicht in
    `theme_migration.people`). Jede übernommene Antwort als `answer` ins Journal, etwa "Q-004: Vor der
-   Testrunde, Erika Muster, im Cockpit". Danach `run_state show`, damit `migration.json` die Antworten
+   Abnahme, Erika Muster, im Cockpit". Danach `run_state show`, damit `migration.json` die Antworten
    trägt.
-5. **Vorgaben der Marke übernehmen:** `get_setup` des Cockpits mit `brand` und dem eigenen Store als
-   `shop` aufrufen. Trägt das Setup keine `policy_questions`, `get_setup` für den Referenz-Store
-   (`reference_shop` in `policies.json`): die Fragen stehen in seinem Setup. Aus jeder Frage mit
-   `cockpit_answer` einen Eintrag aus `key`, `value`, `by`, `at` und `options`, `subject` und `app` der
-   Frage bilden und alle zusammen eintragen, auch ohne Antwort (`[]`), weil die Ausgabe zeigt, ob der
-   eigene Store die geltende Fassung hat:
+5. **Vorgaben der Marke übernehmen:** `get_policies` des Cockpits mit `brand` aus `portal.brand` (sonst
+   `account_slug`) aufrufen und die Ausgabe unverändert an `sync` geben, danach `apply`:
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies import --brand-workspace "<ordner mit policies.json>" --file - <<'JSON'
-   [{"key": "bundles", "value": "An Beispielshop angleichen", "by": "Erika Muster",
-     "at": "2026-01-13T09:12:00+00:00", "options": ["Abweichung erlauben", "An Beispielshop angleichen"],
-     "subject": "Beispielbundle", "app": "app:beispielbundle"}]
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies sync --file - <<'JSON'
+   <Ausgabe von get_policies>
    JSON
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies apply --source migration/policies.json
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state show
    ```
 
-   - `<ordner mit policies.json>`: der Ordner der Marke aus `brand_workspace` (Umgebungsvariable
-     `PTAI_BRAND_WORKSPACE`, sonst `reporting/config.local.json`, sonst `reporting/config.json`), dort
-     oder in einem Ordner direkt darin. Liegt er nicht auf diesem Rechner, nichts übernehmen, der Person
-     sagen, dass der Betreiber die Entscheidungen aus dem Cockpit einträgt, und das in der Übergabe als
-     `--operator-task` festhalten.
-   - Ausgabe: `imported`, `unchanged`, `skipped` je mit Grund, `still_open` und `apply_needed`; Exit 1,
-     wenn etwas übersprungen wurde. Den Grund einer übersprungenen Antwort nennen. Jede übernommene
-     Antwort als `answer` ins Journal, etwa "Vorgabe bundles: An Beispielshop angleichen, Erika Muster,
-     im Cockpit".
-   - "An … angleichen" mit `app` heißt: die Regel behält die App (`keep`). Fehlt sie im Inventar des
-     eigenen Stores, legt das folgende `apply` einen Punkt `blocker` zum Einbauen an; er muss vor der
-     Testrunde erledigt sein.
-   - Hat `import` etwas übernommen: `policies.json` im Repo ihres Ordners committen und pushen, etwa
-     `policies: bundles decided in the cockpit`.
-   - Steht der eigene Store in `apply_needed` (`own: true`): `policies apply --source "<ordner mit
-     policies.json>/policies.json"`, dann `run_state show`, committen und pushen. Schritt 3 steht danach
-     auf nacharbeiten, bis neu gebaut ist. Andere Stores aus `apply_needed` nur nennen; sie übernehmen die
-     Fassung beim nächsten Start ihrer Migration.
-   - Offen sind die Fragen aus `policy_questions` ohne `cockpit_answer` und die Regeln aus `still_open`.
-     Sie betreffen jeden Store außer dem Referenz-Store. Ist der eigene Store nicht der Referenz-Store,
-     jede nennen und auf das Cockpit verweisen: entschieden wird unter Setup auf der Karte "Vorgaben der
-     Marke", Claude übernimmt die Entscheidung beim nächsten Start. Eine offene Vorgabe hält die Migration
-     nicht an.
-   - Ohne Verbindung zum Cockpit (Schritt 3) `import` mit `[]` aufrufen; dann zählt nur `apply_needed`.
+   - Ausgabe von `sync`: `previous_version` und `version`, `rules_changed`, `modules_written`,
+     `modules_removed`, `modules_missing`, `still_open`, `apply_needed`. Exit 1 heißt: ein Baustein kam ohne
+     Inhalt (`modules_missing`); die übrige Fassung ist geschrieben, den Baustein als `--operator-task` in der
+     Übergabe festhalten ("Baustein <name> fehlt im Cockpit") und weiterarbeiten. Jede geänderte Regel und jeden geschriebenen Baustein
+     als `note` ins Journal, etwa "Vorgaben 2026-01-13.1 aus dem Cockpit: bundles may_differ ->
+     same_as_reference, Baustein Tag Manager neu".
+   - `apply` immer aufrufen; dieselbe Fassung ändert nichts. Bei `apply_needed` steht Schritt 3 danach auf
+     nacharbeiten, bis neu gebaut ist. Eine angeglichene Regel mit App behält die App (`keep`); fehlt sie
+     im Inventar dieses Stores, legt `apply` einen Punkt `blocker` zum Einbauen an, der vor der Abnahme
+     erledigt sein muss.
+   - Meldet `sync` `changed: true` oder `apply` `unchanged: false`: die geänderten Dateien unter `migration/`
+     committen und pushen, etwa `policies: synced 2026-01-13.1 from the cockpit`.
+   - `available: false`: die Marke führt keine Vorgaben im Cockpit; nichts zu tun.
+   - Offen sind die Regeln aus `still_open`. Ist der eigene Store nicht der Referenz-Store
+     (`reference_shop`), jede nennen und auf das Cockpit verweisen: entschieden wird unter Setup auf der
+     Karte "Vorgaben der Marke", Claude übernimmt die Entscheidung beim nächsten Start. Eine offene Vorgabe
+     hält die Migration nicht an.
+   - Ohne Verbindung zum Cockpit (Schritt 3) oder ohne das Werkzeug `get_policies` (älteres Cockpit) gilt
+     die Fassung in `migration/policies.json` weiter; nichts übernehmen und weiterarbeiten.
 6. **Rückfragen und angefragte Änderungen aufgreifen:** `get_migration` liefert `cockpit_questions`
    (Rückfragen zu einer Frage) und `objections` ("Änderung anfragen" zu einem entschiedenen Punkt), je
-   mit Text, Person und Zeit; `get_setup` liefert `cockpit_questions` zu den Vorgaben. Jede in der Sitzung
+   mit Text, Person und Zeit; `get_policies` aus Schritt 5 liefert `cockpit_questions` zu den Vorgaben.
+   Jede in der Sitzung
    nennen. Eine Rückfrage hier beantworten; danach kann die Person im Cockpit oder gleich in der Sitzung
    antworten. Eine angefragte Änderung prüfen: Bleibt die Regel richtig, sagen warum. Zeigt sie, dass es
    doch ein echter Zielkonflikt ist, `ruled revoke --id <R-…> --reason "Änderung angefragt von <Name>:
@@ -466,7 +466,7 @@ Bevor eine Sitzung endet, auch wenn sie an einer offenen Frage anhält:
   Schritt, gilt sie nicht mehr, und das Cockpit zeigt nur den Namen des Schritts.
 - `after` in der Sprache des Kunden, mit ihr und euch, jedes Fachwort erklärt, etwa: "Beantwortet
   die zwei Fragen im Cockpit und startet die Migration danach neu. Claude baut den Entwurf dann um und
-  prüft ihn. Findet die Prüfung nichts, was den Launch verhindert, ist er bereit für die Testrunde."
+  prüft ihn. Findet die Prüfung nichts, was den Launch verhindert, ist er bereit für die Abnahme."
 - `run_state show` danach schreibt `migration.json` mit der Übergabe neu.
 - Dann Transkripte ablegen, committen und pushen (Abschnitt "Journal und Transkripte").
 
@@ -616,6 +616,25 @@ damit die Entscheidungen aus G1 und die Vorgaben der Marke greifen, bei Horizon 
 (`seo-parity.md`). Abschluss: Theme Check, Limits, Prüfung der Eingriffe und `theme.horizon_base check`
 ohne Befund. `phase --phase 4-build --status done`.
 
+**Bausteine der Vorgaben einbauen.** Für jede Regel mit `rule: same_as_reference` und `modules` in
+`migration/policies.json`:
+
+1. Die `README.md` des Bausteins unter `migration/policy-modules/<key>/` lesen und jede Datei mit ihrer
+   `description`. Sie sagen, was der Baustein tut, wo er ins Theme gehört und welche Werte der Store
+   einsetzt.
+2. Den Baustein als eigene Datei ins Ziel-Theme bauen, mit dem Präfix dieses Stores
+   (`theme_migration.file_prefix`) im Dateinamen und in jedem Verweis, nie mit dem Präfix aus der Vorlage
+   oder eines anderen Stores.
+3. Die Werte dieses Stores einsetzen, etwa die Container-ID des Tag Managers aus dem heutigen Theme
+   (`migration/inventory/`) oder aus dem Setup des Stores im Cockpit. Ist ein Wert nirgends belegt: nicht
+   raten, einen Punkt `blocker` per `open_items add` anlegen und weiterbauen.
+4. Jede Arbeit an Liquid und Schema über die Shopify-Skills, wie überall.
+5. Im Journal festhalten, welcher Baustein mit welchen Werten eingebaut ist.
+
+Nie Code aus dem Repo eines anderen Stores holen, auch wenn dort derselbe Baustein schon eingebaut ist.
+Hat `sync` einen Baustein geschrieben oder gelöscht (`modules_written`, `modules_removed`), baut der
+nächste Neubau ihn neu ein oder entfernt ihn.
+
 G3 ist in Phase 0 entschieden. Der Upload hält nur an, wenn kein Theme-Platz frei ist.
 
 ## Phase 5: Upload
@@ -657,7 +676,7 @@ scheitert sonst, ebenso, wenn der jüngste Prüfbericht Offenes hält, das in de
 ## Phase 7: Abgleich
 
 `phase --phase 7-sync --status running`, dann `sync-live-theme`. Beliebig oft wiederholbar, mindestens
-einmal vor der Testrunde, damit sie gegen den aktuellen Stand läuft.
+einmal vor der Abnahme, damit sie gegen den aktuellen Stand läuft.
 
 1. Jede Änderung seit der letzten Sicherung entscheiden (`take`, `adapt`, `drop`).
 2. Übernommene Änderungen durch Neubau, Upload und die betroffenen Prüfer führen.
@@ -669,28 +688,28 @@ einmal vor der Testrunde, damit sie gegen den aktuellen Stand läuft.
 `phase --phase 7-sync --status done`. Kein Änderungsstopp: direkt vor dem Launch zieht der Betreiber
 den Stand noch einmal (`theme-launch`).
 
-## Phase 8: Testrunde
+## Phase 8: Abnahme
 
 Erst wenn `show` `ready_for_test_round: true` meldet; `phase --phase 8-test-round --status running`
 verweigert sonst und nennt, was fehlt. Dann `verify-theme --test-round`:
 
-- Testrunde über `test-round` als Datei im Repo: je Seitentyp und je offener Abweichung ein Testpunkt mit
+- Abnahme über `test-round` als Datei im Repo: je Seitentyp und je offener Abweichung ein Testpunkt mit
   Linkpaar, Checkout-Szenarien als Punkte
 - ins Cockpit stellt sie der Betreiber; das Team testet dort
 - Rückmeldungen zuerst nachstellen, dann beheben, jede Korrektur an ihrer Ursache
 - jeder Testpunkt mit `status` kommt in die Liste offener Punkte (`open_items import --kind
   test-round`, Gate G4); entschieden und erledigt wird dort, danach `open_items sync-test-round --path
   <test.json>`
-- eine Abweichung, die die Testrunde findet, wird wie heute behoben; eine Frage für G4 (`questions ask
+- eine Abweichung, die die Abnahme findet, wird wie heute behoben; eine Frage für G4 (`questions ask
   --gate G4-acceptance`) nur bei echtem Zielkonflikt, mit Vergleich der beiden Seiten
 
 Sind alle Punkte erledigt oder mit Person und Datum verschoben und alle Fragen beantwortet, meldet die
-Skill: "Testrunde abgearbeitet. Abnahme, Termin und Launch übernimmt der Betreiber." G4 entscheidet der
-Betreiber mit der Person der Marke in `theme-launch`.
+Skill: "Abnahme bewertet, Fehler behoben. Die Entscheidung über die Abnahme, Termin und Launch übernimmt
+der Betreiber." G4 entscheidet der Betreiber mit der Person der Marke in `theme-launch`.
 
 ## Ergebnis
 
-- Ein Entwurf, bereit für die Testrunde, danach die abgearbeitete Testrunde.
+- Ein Entwurf, bereit für die Abnahme, danach die Abnahme mit bewerteten Testpunkten und behobenen Fehlern.
 - Im Workspace: Sicherungen, Inventare, Zuordnung mit allen Entscheidungen und ihrer Herkunft, die
   beantworteten Fragen, die Punkte ohne Frage, Prüfberichte, Abgleiche, die Liste offener Punkte mit Beleg oder Verschiebung je
   Punkt, `state.json` und `migration.json`.
@@ -703,11 +722,13 @@ Betreiber mit der Person der Marke in `theme-launch`.
 - **Kein Werkzeug `get_migration`:** Claude ist nicht mit dem Cockpit verbunden. Hinweis mit dem Link aus
   "Start der Migration"; ohne Verbindung nur weiter, wenn keine Frage offen ist oder die Person in der
   Sitzung antwortet.
-- **`policies import` überspringt eine Antwort:** der Grund steht in `skipped`. Meist ist die Regel im
-  Repo später entschieden worden, oder die Antwort passt zu keiner der beiden Optionen. Die Regel im Repo
-  gilt; die Person auf die Karte "Vorgaben der Marke" verweisen, wenn sie neu entscheiden will.
-- **Ordner der Marke mit `policies.json` fehlt auf diesem Rechner:** die Entscheidungen aus dem Cockpit
-  nicht übernehmen, als `--operator-task` in der Übergabe festhalten und weiterarbeiten.
+- **`policies sync` meldet einen Fehler** (andere Marke, Fassung ungültig, Baustein ohne Inhalt oder mit
+  Pfad außerhalb seiner Regel): es ist nichts geschrieben, die Fassung im Repo gilt weiter. Den Fehler als
+  `--operator-task` in der Übergabe festhalten ("Vorgaben im Cockpit prüfen: …") und weiterarbeiten.
+- **Kein Werkzeug `get_policies`:** das Cockpit ist älter als dieses Plugin. Die Fassung im Repo gilt
+  weiter; als `--operator-task` festhalten und weiterarbeiten.
+- **Ein Wert für einen Baustein fehlt** (etwa die Container-ID): nicht raten und nicht aus einem anderen
+  Store übernehmen; Punkt `blocker` in der Liste und weiterbauen.
 - **`questions import` überspringt eine Antwort:** der Grund steht in `skipped`. Meist steht die Person
   nicht in `theme_migration.people`. In der Sitzung klären, ob sie für die Marke entscheidet; erst nach
   dem Ja eintragen und den Import wiederholen.
@@ -718,7 +739,7 @@ Betreiber mit der Person der Marke in `theme-launch`.
 - **`upgrade_needed`:** Lauf aus einer Version vor 0.3.11. `run_state upgrade` benennt die Phasen um und
   entfernt den Änderungsstopp; danach committen.
 - **Phase 9, 10, G4 oder G5 verweigert:** das ist die Regel. Die Vorbereitung endet bei "bereit für die
-  Testrunde"; den Rest macht der Betreiber.
+  Abnahme"; den Rest macht der Betreiber.
 - **Jemand fragt nach Termin oder Änderungsstopp:** Termin legt der Betreiber mit der Marke fest, einen
   Stopp gibt es nicht. Antworten und weiterarbeiten.
 - **`run_state` verweigert ein Gate oder einen Abschluss wegen offener Punkte:** das ist die Regel,
@@ -732,7 +753,7 @@ Betreiber mit der Person der Marke in `theme-launch`.
   Themes-Recht. Phasen 0 bis 4 laufen ohne Schreibweg.
 - **20 von 20 Themes belegt:** das Team entscheidet, welches Theme nach Sicherung gelöscht wird.
 - **Team hat am Live-Theme gearbeitet:** Normalfall. `sync-live-theme` vor Befunden an einzelnen
-  Dateien und vor der Testrunde; vor dem Launch macht es der Betreiber.
+  Dateien und vor der Abnahme; vor dem Launch macht es der Betreiber.
 - **Live-Theme während eines Uploads geändert:** `upload-theme` bricht ab; erst klären, dann fortsetzen.
 - **Korrektur nur in einer erzeugten Datei:** an die Ursache zurückführen, sonst macht der nächste Lauf
   sie rückgängig.

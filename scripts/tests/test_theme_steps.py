@@ -90,7 +90,7 @@ class StepsTest(Workspace):
             write(self.ws / "migration" / "verify" / "2026-01-02" / name / "findings.md", "x")
         self.assertEqual(steps.checkers_run(self.ws), ["structure", "content", "seo", "design", "function"])
 
-    def test_alles_erledigt_ergibt_bereit_fuer_die_testrunde(self):
+    def test_alles_erledigt_ergibt_bereit_fuer_die_abnahme(self):
         state = self.state_until_verify()
         self.all_checkers()
         self.one_language()
@@ -255,7 +255,7 @@ class RunStateSince0311Test(Workspace):
         with self.assertRaises(run_state.StateError):
             state.set_value("freeze_until", "2026-02-01")
 
-    def test_testrunde_vor_dem_meilenstein_wird_verweigert(self):
+    def test_abnahme_vor_dem_meilenstein_wird_verweigert(self):
         state = self.state_until_verify()
         self.all_checkers(("structure",))
         with self.assertRaises(run_state.StateError) as caught:

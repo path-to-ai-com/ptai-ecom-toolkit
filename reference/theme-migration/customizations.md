@@ -80,7 +80,7 @@ Abhängigkeit sofort zurückwachsen.
 
 ## 5. Stille Abweichungen im Ziel-Theme
 
-Abweichungen, die lokal niemand meldet und die erst im Bildvergleich oder in der Testrunde
+Abweichungen, die lokal niemand meldet und die erst im Bildvergleich oder in der Abnahme
 auffallen. Jede ist eine Regel aus einem belegten Fehler.
 
 **Generator und Upload**
@@ -137,7 +137,7 @@ auffallen. Jede ist eine Regel aus einem belegten Fehler.
 - **"Wie im heutigen Shop" gilt für das ganze Element**, nicht nur für das beanstandete Detail. Jedes
   Element der Section messen (Maße, Schrift, Abstände) und als Bildpaar ansehen, bevor es als
   erledigt gilt.
-- Eine Rückmeldung aus der Testrunde ist erst nach dem Nachstellen ein Fehler. Am Entwurf und live
+- Eine Rückmeldung aus der Abnahme ist erst nach dem Nachstellen ein Fehler. Am Entwurf und live
   nachstellen, Desktop und WebKit, dann als Korrektur, Datenpflege, App oder Entscheidung einordnen.
 - Die Vorschauleiste von Shopify verdeckt am Handy Buttons in App-Fenstern. Testanleitungen fürs
   Handy geben "Hide bar" vor; eine Meldung zu einem App-Fenster wird erst ohne Leiste nachgestellt.

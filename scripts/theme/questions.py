@@ -5,7 +5,7 @@ Eingeführt mit 0.3.11. Vorher legte Gate G1 einem
 Team 171 bis 529 Zeilen vor. Das konnte niemand beantworten: Claude entschied selbst und trug einen Sammelnamen
 ein, oder die Entscheidung blieb "vorläufig", oder der Lauf stand still. Deshalb:
 
-- Eine Frage gehört zu genau einem Gate: G1 (Abstimmung), G2 (Zuordnung) oder G4 (Testrunde).
+- Eine Frage gehört zu genau einem Gate: G1 (Abstimmung), G2 (Zuordnung) oder G4 (Abnahme).
 - Höchstens zehn offene Fragen je Gate. Was vorentschieden ist (Vorgaben der Marke, feste Regeln), wird nicht
   gefragt.
 - Beantworten kann nur eine Person aus `theme_migration.people`. Ein Sammelname wie "Team" ist keine Person,

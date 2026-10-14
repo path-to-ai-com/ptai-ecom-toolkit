@@ -31,7 +31,7 @@ VERSION = 1
 #: `inventory` ist die Bestandsaufnahme vor einem Theme-Wechsel und die einzige
 #: Art, die Auswahl-Antworten des Kunden traegt. `tracking` dokumentiert eine
 #: konkrete Tracking-Architektur und nimmt chronologische Kommentare auf.
-#: `test` ist die Testrunde vor einem Launch (`test.json`): je Punkt ein Stand
+#: `test` ist die Abnahme vor einem Launch (`test.json`): je Punkt ein Stand
 #: aus festen Optionen und Rueckmeldungen des Teams, seit dem 24.09.2026.
 #: `migration` ist der Stand einer Theme-Migration (`migration.json`), `setup`
 #: das Setup eines Stores (`setup.json`); beide tragen nur diese eine Datei und

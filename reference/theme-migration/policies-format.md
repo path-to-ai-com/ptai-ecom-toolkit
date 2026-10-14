@@ -6,6 +6,12 @@ diese Entscheidungen gelten im Lauf jedes Stores (`theme.policies apply`, beim S
 0.3.15 entscheidet die Marke offene Vorgaben auch im Cockpit; `import` trägt diese Antworten hier ein (Abschnitt
 "Antworten aus dem Cockpit").
 
+Seit 0.3.16 ist das Cockpit die einzige Quelle der Vorgaben für die Stores. Der Betreiber lädt `policies.json` und
+den Ordner `policy-modules/` aus dem Ordner der Marke mit `audit.publish --brand-only` hoch (Abschnitt "Im
+Cockpit"). Das Werkzeug `get_policies` gibt die gültige Fassung zurück, Datei plus Antworten aus dem Cockpit, und
+`sync` schreibt sie beim Start von `theme-migration` in das Repo des Stores (Abschnitt "Fassung aus dem Cockpit").
+Ein Store braucht dafür weder den Ordner der Marke noch ein anderes Repo.
+
 ```json
 {
   "version": "2026-01-05.1",
@@ -26,7 +32,12 @@ diese Entscheidungen gelten im Lauf jedes Stores (`theme.policies apply`, beim S
     {"key": "languages", "subject": "Sprachen", "rule": "may_differ", "note": "je Marke"},
     {"key": "bundles", "subject": "Beispielbundle", "rule": "same_as_reference", "target": "wie im Referenz-Store",
      "keep": [["app:beispielbundle", "beispielbundle"]],
-     "decided_by": "Erika Muster", "decided_at": "2026-01-13T09:12:00+00:00"}
+     "decided_by": "Erika Muster", "decided_at": "2026-01-13T09:12:00+00:00"},
+    {"key": "tag_manager", "subject": "Tag Manager", "rule": "same_as_reference", "target": "Tag Manager als eigener Code",
+     "modules": [{"name": "Tag Manager", "path": "policy-modules/tag_manager/README.md",
+                  "description": "Einbindung des Tag Managers im Theme wie im Referenz-Store"},
+                 {"name": "Tag Manager", "path": "policy-modules/tag_manager/snippets/tag-manager.liquid",
+                  "description": "Snippet mit Platzhalter für die Container-ID"}]}
   ]
 }
 ```
@@ -35,7 +46,7 @@ diese Entscheidungen gelten im Lauf jedes Stores (`theme.policies apply`, beim S
 |---|---|
 | `version` | eindeutig je Fassung, Datum und laufende Nummer am Tag (`2026-01-05.1`); eine neue Fassung bekommt eine neue Version |
 | `reference_shop` | der Store, dessen Stand gilt, wo `same_as_reference` steht |
-| `decided_by`, `decided_at` | wer die Vorgaben entschieden hat und wann; steht an jeder Entscheidung im Lauf, sofern die Regel keine eigenen trägt |
+| `decided_by`, `decided_at` | wer die Vorgaben entschieden hat und wann; steht an jeder Entscheidung im Lauf, sofern die Regel keine eigenen trägt. Fehlen sie, braucht jede Regel `same_as_reference` oder `may_differ` eigene (Fassung aus dem Cockpit ohne Datei des Betreibers) |
 | `rules[].key` | Merkmal, eindeutig, englisch |
 | `rules[].subject` | Bezeichnung für Menschen |
 | `rules[].rule` | `same_as_reference`, `open` oder `may_differ` |
@@ -43,6 +54,7 @@ diese Entscheidungen gelten im Lauf jedes Stores (`theme.policies apply`, beim S
 | `rules[].keep`, `rules[].drop` | Dienst-IDs wie in `apps.json` (`app:<handle>`), nur bei `same_as_reference`. Ein Eintrag darf eine Liste von Schreibweisen desselben Dienstes sein, etwa `["cookiefirst", "app:cookiefirst-cookie-consent"]`, weil die Inventare der Stores ihn verschieden benennen. Beim Behalten genügt eine vorhandene Schreibweise; fehlt jede, entsteht ein Punkt zum Einbauen |
 | `rules[].note` | Begründung oder offene Frage |
 | `rules[].decided_by`, `rules[].decided_at` | optional: wer diese Regel entschieden hat und wann, gesetzt von `import` für eine Antwort aus dem Cockpit. Sie gehen statt der Angaben der Datei an die Entscheidungen im Lauf |
+| `rules[].modules` | optional, seit 0.3.16: Bausteine, mit denen ein Store die Regel im Theme umsetzt, je `{"name", "path", "description"}`. `name` steht im Cockpit an der Regel ("Baustein: <name>"), `description` (optional) sagt in einem Satz, was die Datei ist. `path` ist immer `policy-modules/<key>/<datei>`, auch mit Unterordnern, nie mit `..` oder Backslash; die Datei liegt im Ordner `policy-modules/` neben `policies.json`. Ein Baustein ist eine Vorlage mit Beschreibung (`README.md`), kein Code eines bestimmten Stores |
 
 ## Was `apply` im Lauf eines Stores tut
 
@@ -52,12 +64,108 @@ diese Entscheidungen gelten im Lauf jedes Stores (`theme.policies apply`, beim S
 3. Dieselbe Entscheidung in `migration/inventory/apps.json`, damit der Generator sie beim nächsten Neubau
    liest (`--apps`).
 4. Ein Dienst in `keep`, der im Inventar fehlt, wird ein Punkt `blocker` in der Liste offener Punkte: er
-   muss vor der Testrunde eingebaut sein.
+   muss vor der Abnahme eingebaut sein.
 5. Im Migrationslauf `policies_version` und `policies_applied_at`; Schritt 3 steht danach auf
    nacharbeiten, bis neu gebaut ist.
 
 Eine Vorgabe öffnet nie eine Frage an das Team. Dieselbe Version zweimal anzuwenden ändert nichts, auch
 `applied_at` nicht (Ausgabe `unchanged: true`); sonst verlangte Schritt 3 nach jedem Start einen neuen Neubau.
+Bausteine (`modules`) trägt `apply` nicht ein; sie baut der Neubau ein (Skill `theme-migration`, Phase 4).
+
+## Im Cockpit
+
+Seit 0.3.16. Der Betreiber lädt die Vorgaben aus dem Ordner der Marke hoch:
+
+```bash
+python3 -m audit.publish --workspace <store> --brand-only --target <leerer ordner> --upload
+```
+
+`policies.json` und jede Datei unter `policy-modules/` gehen nach `brands/<brand>/` im Bucket und stehen im Manifest
+unter `files`, neben `measures.json`. Gesucht wird `policies.json` im Ordner der Marke (`brand_workspace`), sonst
+in genau einem Ordner direkt darin, etwa `shared/`; `policy-modules/` liegt daneben. Vor dem Hochladen prüft
+`publish` das Format und dass jede Datei aus `modules` dort liegt; sonst geht nichts hoch. Dieselben Dateien
+gehen auch mit jedem Lauf eines Stores der Marke hoch, weil `publish` die Liste `files` im Manifest jedes Mal
+neu schreibt.
+
+Das Cockpit zeigt die Vorgaben im Setup auf der Karte "Vorgaben der Marke" und hält Antworten in
+`policy_responses`; die neueste Antwort je Regel gilt vor der Regel aus der Datei. `get_policies(brand)` gibt die
+gültige Fassung zurück:
+
+- `rules` im Format dieser Datei, jede Antwort aus dem Cockpit eingesetzt wie bei `import` (mit `decided_by`
+  und `decided_at` der Antwort); eine offene Frage ohne Regel in der Datei steht als `rule: open`
+- `version` (Datum der neuesten Änderung und laufende Nummer), `file_version` (Version der Datei),
+  `reference_shop`, `reference_shop_name`, `decided_by` und `decided_at` der Datei (`null` ohne Datei), dazu
+  die übrigen Felder am Kopf der Datei und `brand`
+- je Baustein `name`, `path`, `description` und `content` mit dem Text der Datei, `null`, wenn sie im Bucket fehlt
+- `open_rules` (offene Vorgaben) und `cockpit_questions` (Rückfragen des Teams, je `key`, `text`, `by`, `at`)
+
+## Fassung aus dem Cockpit (`sync`)
+
+Seit 0.3.16. Die Skill `theme-migration` liest beim Start `get_policies` und schreibt die Fassung in das Repo des
+Stores, danach `apply` wie bisher:
+
+```bash
+python3 -m theme.policies sync --file <ausgabe von get_policies | -> [--workspace <store>]
+python3 -m theme.policies apply --source migration/policies.json [--workspace <store>]
+```
+
+Eingabe, die Ausgabe von `get_policies` unverändert:
+
+```json
+{"brand": "beispielmarke", "version": "2026-01-13.2", "file_version": "2026-01-05.1",
+ "reference_shop": "beispielshop", "reference_shop_name": "Beispielshop",
+ "decided_by": "Vorname Nachname", "decided_at": "2026-01-05",
+ "rules": [{"key": "tag_manager", "subject": "Tag Manager", "rule": "same_as_reference",
+            "target": "Tag Manager als eigener Code",
+            "modules": [{"name": "Tag Manager", "path": "policy-modules/tag_manager/README.md",
+                         "description": "Einbindung des Tag Managers im Theme wie im Referenz-Store",
+                         "content": "# Tag Manager\n..."}]},
+           {"key": "wishlist", "subject": "Merkliste", "rule": "open"}],
+ "open_rules": [{"key": "wishlist", "subject": "Merkliste", "text": "Merkliste: in allen Stores gleich?"}],
+ "cockpit_questions": []}
+```
+
+- `migration/policies.json` bekommt nur die Felder dieses Formats: am Kopf `version`, `reference_shop`,
+  `decided_by`, `decided_at`, je Regel `key`, `subject`, `rule`, `target`, `keep`, `drop`, `note`,
+  `decided_by`, `decided_at`, `modules`, je Baustein `name`, `path`, `description`. Alles andere (`brand`,
+  `file_version`, `reference_shop_name`, `open_rules`, `cockpit_questions`, unbekannte Felder) zählt nicht, ein
+  Wert `null` heißt "fehlt". So ändert eine neue Rückfrage im Cockpit die Datei im Repo nicht. Jeder Baustein
+  geht nach `migration/policy-modules/<key>/<datei>`. Dateien unter `migration/policy-modules/`, die die Fassung nicht mehr
+  nennt, löscht `sync`; der Ordner ist ein Abbild der Bausteine der Marke.
+- Nennt die Eingabe unter `brand` eine andere Marke als der Store (`portal.brand`, sonst `account_slug`), schreibt
+  `sync` nichts. Ebenso bei einer Fassung, die dieses Format verletzt, oder einem Pfad außerhalb von
+  `policy-modules/<key>/`.
+- Ein Baustein mit `content: null` (Datei im Bucket fehlt) steht unter `modules_missing`; sein Verweis bleibt
+  in `policies.json`, eine frühere Datei im Repo wird gelöscht, alles andere ist geschrieben. Exit 1.
+- Ist alles wie in der Kopie (gleiche `version`, keine Regel und kein Baustein geändert), bleibt `applied_at`
+  stehen, und `apply` danach ändert nichts. Sonst fällt `applied_at` weg: `apply` trägt die Fassung ein, und
+  Schritt 3 verlangt einen Neubau, der auch geänderte Bausteine einbaut. Eine Regel gilt als geändert, wenn sich
+  ein Feld außer `decided_by` und `decided_at` ändert.
+- Führt die Marke keine Vorgaben (`rules` fehlt oder ist leer), schreibt `sync` nichts und meldet
+  `available: false`.
+
+Ausgabe:
+
+```json
+{"available": true, "path": "migration/policies.json", "version": "2026-01-14.1",
+ "previous_version": "2026-01-13.1", "changed": true, "apply_needed": true,
+ "rules_changed": [{"key": "translation", "subject": "Übersetzung", "change": "changed", "previous": "open",
+                    "rule": "may_differ", "fields": ["rule"]}],
+ "modules_written": [{"key": "tag_manager", "name": "Tag Manager",
+                      "path": "migration/policy-modules/tag_manager/README.md"}],
+ "modules_removed": [], "modules_missing": [],
+ "still_open": []}
+```
+
+- `rules_changed`: je Regel `change` (`added`, `changed`, `removed`), die Regel vorher und nachher und bei
+  `changed` die geänderten Felder.
+- `modules_written`: neue oder geänderte Dateien; `modules_removed`: gelöschte; `modules_missing`: Bausteine,
+  die das Cockpit ohne Inhalt geliefert hat.
+- `apply_needed`: `apply` trägt danach etwas ein. `changed`: im Repo hat sich etwas geändert, also committen.
+- `still_open`: Regeln, die weiter auf `open` stehen.
+
+Exit 0, auch ohne Vorgaben der Marke, 1, wenn ein Baustein ohne Inhalt kam, 2 bei einem Fehler; dann ist
+nichts geschrieben.
 
 ## Antworten aus dem Cockpit (`import`)
 

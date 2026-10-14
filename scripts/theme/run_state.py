@@ -31,7 +31,7 @@ Stunden in Phase 2 stand.
 Seit dem 08.10.2026 hängt der Lauf an der einen Liste offener Punkte
 (`migration/open-items.json`, Modul `open_items`). `init` legt sie an. Ein Gate
 hält an, es fragt nicht: `gate` verweigert G4 und G5, solange ein Punkt ihres
-Gates offen ist oder eine Quelle (Prüfliste, Prüfbericht, Testrunde) Offenes
+Gates offen ist oder eine Quelle (Prüfliste, Prüfbericht, Abnahme) Offenes
 hält, das in der Liste fehlt. `phase ... --status done` verweigert Phase 2 ohne
 übernommene Prüfliste, Phase 6 mit offenem `blocker` und Phase 10 mit offenem
 Punkt für die Zeit nach dem Launch. Vorher lag die Arbeit verteilt auf viele
@@ -41,10 +41,10 @@ Seit 0.3.11:
 
 - Nach jedem Befehl schreibt das Modul `migration.json` in den Lauf: die neun Schritte, zwei Meilensteine, die
   offenen Fragen an das Team und die Vorgaben der Marke (Modul `steps`). Das Cockpit liest nur diese Datei.
-- Das Team bereitet vor bis "bereit für die Testrunde". Launch und Nachsorge (Phasen 9 und 10), die Gates G4 und
+- Das Team bereitet vor bis "Bereit für die Abnahme". Launch und Nachsorge (Phasen 9 und 10), die Gates G4 und
   G5 und `published_at` setzt nur der Betreiber (`PTAI_OPERATOR=1`). Einen Änderungsstopp gibt es nicht mehr;
   vor dem Launch wird der Stand des Live-Themes neu gezogen.
-- Die Testrunde (Phase `8-test-round`) beginnt erst, wenn der Meilenstein "bereit für die Testrunde" erfüllt ist.
+- Die Abnahme (Phase `8-test-round`) beginnt erst, wenn der Meilenstein "Bereit für die Abnahme" erfüllt ist.
 - G1 und G2 verweigern, solange eine Frage ihres Gates offen ist (Modul `questions`), und ein Gate trägt den
   Namen einer Person, keinen Sammelnamen.
 - Eine Sitzung je Lauf: `session.lock` mit `CLAUDE_CODE_SESSION_ID`. Eine zweite Sitzung schreibt nicht, solange
@@ -91,7 +91,7 @@ KEYS = ("live_theme_id", "draft_theme_id", "snapshot", "last_sync", "published_a
 #: Werte vor 0.3.11, die `upgrade` entfernt: es gibt keinen Änderungsstopp mehr.
 DROPPED_KEYS = ("freeze_from", "freeze_until")
 
-#: Was nur der Betreiber setzt. Das Team bereitet vor bis "bereit für die Testrunde".
+#: Was nur der Betreiber setzt. Das Team bereitet vor bis "Bereit für die Abnahme".
 OPERATOR_PHASES = ("9-launch", "10-aftercare")
 OPERATOR_GATES = ("G4-acceptance", "G5-go-live")
 OPERATOR_KEYS = ("published_at",)
@@ -123,7 +123,7 @@ def plugin_version() -> str:
 
 def _operator_only(what: str) -> StateError:
     return StateError(f"{what} macht der Betreiber, nicht das Team. Die Vorbereitung endet bei "
-                      "\"bereit für die Testrunde\"; Termin, Launch und Nachsorge übernimmt der Betreiber.")
+                      "\"Bereit für die Abnahme\"; Termin, Launch und Nachsorge übernimmt der Betreiber.")
 
 
 class MigrationState:
@@ -158,7 +158,7 @@ class MigrationState:
             if not ready["met"]:
                 missing = [f"{c['key']} ({c['note']})" if c.get("note") else c["key"]
                            for c in ready["conditions"] if not c["met"]]
-                raise StateError("Die Testrunde beginnt erst, wenn der Entwurf bereit für die Testrunde ist. "
+                raise StateError("Die Abnahme beginnt erst, wenn der Entwurf bereit für die Abnahme ist. "
                                  "Es fehlt: " + "; ".join(missing or ["Schritte 1 bis 5 erledigt"]))
         if status in ("running", "done"):
             blocking = self.open_gate_before(phase)

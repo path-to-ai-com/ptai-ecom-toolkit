@@ -1,4 +1,4 @@
-"""Eine Testrunde als Lauf-Art mit Stand je Punkt und Rueckmeldungen."""
+"""Eine Abnahme als Lauf-Art mit Stand je Punkt und Rueckmeldungen."""
 import unittest
 
 from audit import manifest, publish

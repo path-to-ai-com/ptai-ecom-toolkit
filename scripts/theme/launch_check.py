@@ -40,9 +40,9 @@ auffindbar `blocked`.
 ist die Quelle, sobald es sie gibt oder ein Migrationslauf besteht: jeder offene
 Punkt der Gates G4 und G5 ist `missing`, eine fehlende Liste in einem
 Migrationslauf `blocked`. Prüfberichte, Prüfliste, `findings.json` aus
-`verify-theme` und die Testrunde sind dann nur noch Quellen für den Import; was
+`verify-theme` und die Abnahme sind dann nur noch Quellen für den Import; was
 dort offen steht und in der Liste fehlt, ist `missing`. Ohne Liste und ohne
-Migrationslauf gilt die ältere Auswertung je Bericht, Prüfliste und Testrunde.
+Migrationslauf gilt die ältere Auswertung je Bericht, Prüfliste und Abnahme.
 
 Ein Migrationslauf (`run_state`) ist optional: ohne ihn kommen die Theme-IDs aus
 `theme_migration` der Config oder aus `--live-theme-id` und `--draft-theme-id`.
@@ -888,7 +888,7 @@ def check_open_items(ctx: dict, statuses: dict) -> dict:
 
 
 def check_open_item_sources(ctx: dict) -> dict:
-    """Was in einem Prüfbericht, der Prüfliste, `findings.json` oder der Testrunde offen steht und in
+    """Was in einem Prüfbericht, der Prüfliste, `findings.json` oder der Abnahme offen steht und in
     der Liste fehlt. So geht nichts still verloren, das jemand an anderer Stelle festgehalten hat.
     """
     group, title = "Abnahme und offene Befunde", "Quellen in der Liste übernommen"
@@ -931,7 +931,7 @@ def check_acceptance(ctx: dict, statuses: dict | None = None) -> list:
             "acceptance-decision", group, "Abnahme (G4)", OK if gate else MISSING,
             f"entschieden von {gate['decided_by']} am {gate['decided_at'][:10]}" if gate
             else f"Gate G4 im Migrationslauf {ctx['state_run_id']} offen",
-            action="" if gate else "Testrunde abschließen und die Abnahme beim Team einholen", owner="" if gate else TEAM))
+            action="" if gate else "Abnahme abschließen und G4 mit dem Team entscheiden", owner="" if gate else TEAM))
     else:
         out.append(make_check("acceptance-decision", group, "Abnahme", MANUAL,
                               "kein Migrationslauf im Workspace" + (f" ({ctx['state_error']})" if ctx["state_error"] else ""),
@@ -941,15 +941,15 @@ def check_acceptance(ctx: dict, statuses: dict | None = None) -> list:
     out.append(check_findings(ctx))
     path, test = latest_test_round(ctx["workspace"])
     if not isinstance(test, dict):
-        out.append(make_check("acceptance-test-round", group, "Testrunde", NA,
-                              "keine Testrunde unter reporting/runs/*-test/"))
+        out.append(make_check("acceptance-test-round", group, "Testpunkte der Abnahme", NA,
+                              "keine Abnahme unter reporting/runs/*-test/"))
     else:
         items = [i for g in test.get("groups") or [] for i in g.get("items") or [] if isinstance(i, dict)]
         open_items = [i for i in items if i.get("status") in OPEN_TEST_STATUS]
         decisions = [i for i in open_items if i.get("status") == "decision"]
         owner = BOTH if decisions and len(decisions) < len(open_items) else (TEAM if decisions else OPERATOR)
         out.append(make_check(
-            "acceptance-test-round", group, "Testrunde", MISSING if open_items else OK,
+            "acceptance-test-round", group, "Testpunkte der Abnahme", MISSING if open_items else OK,
             (f"{len(open_items)} von {len(items)} Punkten offen in {path.parent.name}: "
              + short_list([f"{i.get('id')} {i.get('title')} ({i.get('status')})" for i in open_items], 8))
             if open_items else f"alle Punkte mit Status erledigt in {path.parent.name}",

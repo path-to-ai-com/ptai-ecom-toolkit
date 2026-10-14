@@ -147,7 +147,7 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 
 ## Nach einem Befund
 
-- Liegt die Ursache eines Befunds aus `verify-theme` oder der Testrunde in der Zuordnung, hier
+- Liegt die Ursache eines Befunds aus `verify-theme` oder der Abnahme in der Zuordnung, hier
   korrigieren, nie in der erzeugten Datei.
 - Ändert die Korrektur eine Entscheidung aus G1 oder G2, entscheidet ein Mensch neu; der neue Eintrag in
   `decisions.json` nennt den alten.

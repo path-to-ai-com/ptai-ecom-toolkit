@@ -4,7 +4,7 @@
 Eingeführt mit 0.3.11. Das Cockpit und die Marke sehen nicht elf Phasen und fünf Gates, sondern neun feste
 Schritte mit zwei Meilensteinen. Ein
 Schritt ist nur erledigt, wenn seine Phasen erledigt sind und seine Bedingung gilt. Sind die Phasen erledigt und
-die Bedingung verletzt, steht er auf `rework`. Vorher konnte ein Lauf in der Testrunde stehen, obwohl erst drei von
+die Bedingung verletzt, steht er auf `rework`. Vorher konnte ein Lauf in Schritt 6 stehen, obwohl erst drei von
 neun Prüfern gelaufen waren und keine Vorgabe der Marke eingetragen war.
 
 Dieses Modul liest nur. `run_state` schreibt das Ergebnis nach jedem Befehl als `migration.json` in den Lauf.
@@ -14,6 +14,11 @@ jede im Repo beantwortete Frage mit Erklärung, Vergleich, Empfehlung und Grund 
 Herkunft), die Punkte, die ohne Frage entschieden sind (`ruled`), die Übergabe der letzten Sitzung (`now`,
 `after`, `operator_tasks`) und den Namen des Workspace-Repos (`repo`). Zurückgezogene Fragen erscheinen
 nicht; ihr Ergebnis steht in `ruled`. Das Schema bleibt 1, ältere Cockpits ignorieren die neuen Felder.
+
+Seit 0.3.16 heißt Schritt 6 "Abnahme", nicht mehr "Testrunde" (Vertrag V15); Bezeichner wie `test_round` und
+`ready_for_test_round` bleiben. Sätze, die eine Sitzung vorher in die Dateien eines Laufs geschrieben hat
+(Übergabe, Fragen, entschiedene Punkte), zeigt `export` mit dem neuen Wort, ohne die Dateien zu ändern. So zeigt
+ein bestehender Lauf beim nächsten Export dieselben Namen wie ein neuer.
 """
 import json
 import re
@@ -29,7 +34,7 @@ STEPS = (
     ("build", "Neubau"),
     ("upload", "Entwurf hochgeladen"),
     ("verify", "Kontrolle des Entwurfs"),
-    ("test_round", "Testrunde"),
+    ("test_round", "Abnahme"),
     ("sync", "Abgleich vor dem Launch"),
     ("launch", "Launch"),
     ("aftercare", "Kontrolle nach dem Launch"),
@@ -225,15 +230,15 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
     elif status == "open" and ran:
         status = "running"
     steps.append((status, note))
-    # 6 Testrunde
+    # 6 Abnahme
     status = state_of("8-test-round")
     if status == "done" and not gates.get("G4-acceptance"):
         status = "running"
-    note = (_questions(len(q_by_gate['G4-acceptance'])) + " zur Testrunde"
+    note = (_questions(len(q_by_gate['G4-acceptance'])) + " zur Abnahme"
             if q_by_gate["G4-acceptance"] else "")
     early = status != "open" and not all(s == "done" for s, _ in steps[:5])
     if early:
-        note = "begonnen, bevor der Entwurf bereit für die Testrunde war" + (f"; {note}" if note else "")
+        note = "begonnen, bevor der Entwurf bereit für die Abnahme war" + (f"; {note}" if note else "")
     steps.append((status, note))
     # 7 Abgleich vor dem Launch
     age = _age_days(values.get("last_sync"), today) if values.get("last_sync") else None
@@ -344,6 +349,32 @@ def _portal_shop(workspace) -> str | None:
     return shop if isinstance(shop, str) and shop.strip() else None
 
 
+#: Das alte Wort für Schritt 6 und seine Mehrzahl, nur als ganzes Wort. Beide Wörter sind weiblich, also passen
+#: Artikel und Endungen im Satz drumherum ("bereit für die Testrunde", "in der Testrunde").
+_OLD_TERM = re.compile(r"\bTestrunde(n?)(?![A-Za-zÄÖÜäöüß])")
+
+
+def current_terms(value):
+    """`value` mit "Abnahme" statt "Testrunde"; Listen und andere Werte werden durchgereicht."""
+    if isinstance(value, str):
+        return _OLD_TERM.sub(lambda m: "Abnahmen" if m.group(1) else "Abnahme", value)
+    if isinstance(value, list):
+        return [current_terms(v) for v in value]
+    return value
+
+
+#: Felder einer Frage in `migration.json`, die der Kunde als Text liest.
+_QUESTION_TEXTS = ("text", "context", "options", "other", "recommendation", "reason")
+
+
+def _with_current_terms(question: dict) -> dict:
+    """Eine Frage für `migration.json` mit den Begriffen von heute, die Antwort eingeschlossen."""
+    out = {**question, **{k: current_terms(question.get(k)) for k in _QUESTION_TEXTS}}
+    if isinstance(question.get("answer"), dict):
+        out["answer"] = {**question["answer"], "value": current_terms(question["answer"].get("value"))}
+    return out
+
+
 def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
     """Der Inhalt von `migration.json`, wie ihn das Cockpit liest.
 
@@ -355,7 +386,7 @@ def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
     result = compute(workspace, data, **kwargs)
     values = data.get("values") or {}
     current = result["steps"][result["current_step"] - 1]
-    hand = handover.resolve(workspace, current["step"], current["name"])
+    hand = {k: current_terms(v) for k, v in handover.resolve(workspace, current["step"], current["name"]).items()}
     # Hat der Betreiber etwas zu tun, bevor es weitergeht, ist er zuständig, nicht das Team und nicht Claude.
     if hand["operator_tasks"]:
         result = {**result, "owner": "operator"}
@@ -371,6 +402,7 @@ def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
         "last_sync": values.get("last_sync"),
         "repo": repo_name(workspace),
         **result,
+        "questions": [_with_current_terms(q) for q in result["questions"]],
         **hand,
-        "ruled": ruled.visible(workspace),
+        "ruled": [{**r, "text": current_terms(r["text"])} for r in ruled.visible(workspace)],
     }

@@ -1,6 +1,6 @@
 ---
 name: verify-theme
-description: Prüft den Entwurf eines neuen Shopify-Themes, bevor ein Mensch ihn sieht, gegen das Live-Theme und gegen die Bestandsaufnahme, mit neun Prüfern als Subagents (Struktur, Inhalt, SEO, Gestaltung, Funktion, Apps und Tracking, Performance, Barrierefreiheit nach WCAG 2.2 und BFSG, Sprachen), höchstens zwei gleichzeitig auf der Storefront; Befunde mit Linkpaar, Schwere und Ursache, behoben an der Ursache. Mit --test-round erzeugt sie danach über test-round die Testrunde für das Team, je Seitentyp und je offener Abweichung ein Testpunkt mit Linkpaar Entwurf und Live. Nutzen bei "prüf den Entwurf", "Prüfbericht", "ist der Entwurf fertig für die Testrunde", "Testrunde für das neue Theme", "Abnahme vorbereiten", in Phase 6 und Phase 8 einer Theme-Migration. Nicht verwenden für einen einzelnen Bildvergleich (ptai-ecom:compare-themes) und nicht für eine Testrunde ohne Theme-Wechsel (ptai-ecom:test-round). Schreibt nichts in den Shop und schickt nichts ab. Liest reporting/config.json im Kunden-Workspace.
+description: Prüft den Entwurf eines neuen Shopify-Themes, bevor ein Mensch ihn sieht, gegen das Live-Theme und gegen die Bestandsaufnahme, mit neun Prüfern als Subagents (Struktur, Inhalt, SEO, Gestaltung, Funktion, Apps und Tracking, Performance, Barrierefreiheit nach WCAG 2.2 und BFSG, Sprachen), höchstens zwei gleichzeitig auf der Storefront; Befunde mit Linkpaar, Schwere und Ursache, behoben an der Ursache. Mit --test-round erzeugt sie danach über test-round die Abnahme für das Team, je Seitentyp und je offener Abweichung ein Testpunkt mit Linkpaar Entwurf und Live. Nutzen bei "prüf den Entwurf", "Prüfbericht", "ist der Entwurf fertig für die Abnahme", "Abnahme für das neue Theme", "Abnahme vorbereiten", in Phase 6 und Phase 8 einer Theme-Migration. Nicht verwenden für einen einzelnen Bildvergleich (ptai-ecom:compare-themes) und nicht für eine Abnahme ohne Theme-Wechsel (ptai-ecom:test-round). Schreibt nichts in den Shop und schickt nichts ab. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # verify-theme: den Entwurf prüfen
@@ -10,7 +10,7 @@ auftreten. Diese Skill:
 
 - lässt je Disziplin einen Prüfer gegen das Live-Theme und die Bestandsaufnahme laufen
 - sammelt die Befunde und führt jeden auf seine Ursache zurück
-- erzeugt danach die Testrunde für das Team
+- erzeugt danach die Abnahme für das Team
 
 Arbeitsverzeichnis: der Kunden-Workspace.
 
@@ -128,14 +128,14 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 
 Die Schleife endet, wenn in der Liste kein Punkt `blocker` mehr offen ist (`open_items list --status
 open --severity blocker`). Danach Abgleich I (`sync-live-theme`),
-dann die Testrunde.
+dann die Abnahme.
 
-## Testrunde (`--test-round`)
+## Abnahme (`--test-round`)
 
 Erst nach der Prüfung und nach Abgleich I, damit das Team einen Stand sieht, der dem heutigen Live-Shop
 entspricht.
 
-1. **Testrunde über die Skill `test-round`** schreiben, Lauf-ID `<date>-test`, Datei
+1. **Abnahme über die Skill `test-round`** schreiben, Lauf-ID `<date>-test`, Datei
    `reporting/runs/<date>-test/test.json`. Anrede, Begriffe und Prüfung vor dem Veröffentlichen regelt
    `test-round`.
 2. **Je Seitentyp ein Testpunkt** mit Linkpaar: "In der Testansicht ansehen" mit
@@ -185,5 +185,5 @@ Den Migrationsstand schreibt `theme-migration`, weder diese Skill noch ein Prüf
   Preisgröße, Variantenauswahl), fällt darin nicht auf. `storefront-parity.md` je Zeile abarbeiten; eine
   Zeile ohne Ergebnis in `findings.md` heißt, der Prüfer ist nicht fertig.
 - **Korrektur in der erzeugten Datei:** der nächste Generatorlauf macht sie rückgängig. Ursache beheben.
-- **Testbestellung ohne Testmodus:** ist eine echte Bestellung. Der Checkout gehört in die Testrunde und
+- **Testbestellung ohne Testmodus:** ist eine echte Bestellung. Der Checkout gehört in die Abnahme und
   am Launch-Tag in eine Testbestellung nach Freigabe.

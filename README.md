@@ -103,12 +103,12 @@ Diese Skills brauchen keine Zugänge.
 
 ### Theme-Migration
 
-Überführt ein bestehendes Shopify-Theme (Vintage oder Online Store 2.0) in ein aktuelles 2.0-Theme, zum Beispiel Horizon. `theme-migration` führt das Team in neun Schritten bis "bereit für die Testrunde", `theme-launch` übernimmt für den Betreiber Abnahme, Launch und Nachsorge; die übrigen Skills sind auch einzeln nutzbar. Geschrieben wird nur in ein unveröffentlichtes Theme. Veröffentlicht wird von Hand, nie durch eine Skill.
+Überführt ein bestehendes Shopify-Theme (Vintage oder Online Store 2.0) in ein aktuelles 2.0-Theme, zum Beispiel Horizon. `theme-migration` führt das Team in neun Schritten bis "Bereit für die Abnahme", `theme-launch` übernimmt für den Betreiber die Entscheidung über die Abnahme, Launch und Nachsorge; die übrigen Skills sind auch einzeln nutzbar. Geschrieben wird nur in ein unveröffentlichtes Theme. Veröffentlicht wird von Hand, nie durch eine Skill.
 
 | Skill | Funktion |
 |---|---|
-| `ptai-ecom:theme-migration` | Führt das Team durch die Schritte Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs und Testrunde. Prüft beim Start die Version des Plugins, holt den neuesten Stand beider Repos und übernimmt die Antworten des Teams aus dem Cockpit. Entscheidet nach der Regel "wie heute", "wie im Referenz-Store" oder nach den Vorgaben der Marke und fragt nur bei echtem Zielkonflikt, mit Erklärung, Vergleich und Empfehlung. Hält Stand, Fragen, Punkte ohne Frage und die Übergabe jeder Sitzung fest und schreibt `migration.json` für das Cockpit. Fragt nie nach Termin oder Änderungsstopp. |
-| `ptai-ecom:theme-launch` | Für den Betreiber: Vorgaben der Marke anwenden, Testrunde ins Cockpit, Abnahme, Abgleich vor dem Launch, Go/No-Go, Launch und Kontrolle nach dem Launch. |
+| `ptai-ecom:theme-migration` | Führt das Team durch die Schritte Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs und Abnahme. Prüft beim Start die Version des Plugins, holt den neuesten Stand beider Repos und übernimmt die Antworten des Teams aus dem Cockpit. Entscheidet nach der Regel "wie heute", "wie im Referenz-Store" oder nach den Vorgaben der Marke und fragt nur bei echtem Zielkonflikt, mit Erklärung, Vergleich und Empfehlung. Hält Stand, Fragen, Punkte ohne Frage und die Übergabe jeder Sitzung fest und schreibt `migration.json` für das Cockpit. Fragt nie nach Termin oder Änderungsstopp. |
+| `ptai-ecom:theme-launch` | Für den Betreiber: Vorgaben der Marke hochladen und anwenden, Abnahme ins Cockpit stellen und entscheiden, Abgleich vor dem Launch, Go/No-Go, Launch und Kontrolle nach dem Launch. |
 | `ptai-ecom:snapshot-theme` | Sichert ein Theme vollständig mit einem Manifest aller Dateien. |
 | `ptai-ecom:inventory-theme` | Erfasst Theme-Typ, genutzte Templates, Anpassungen gegenüber dem Original, Funktionen je Seitentyp, Metafelder, Übersetzungen und SEO-Ausgabe. |
 | `ptai-ecom:inventory-apps` | Erfasst alle Apps und Fremddienste mit Einbindungsweg, Tracking je Messziel und Consent-Verhalten. Kennzeichnet, was einen Theme-Wechsel nicht übersteht. |
@@ -116,7 +116,7 @@ Diese Skills brauchen keine Zugänge.
 | `ptai-ecom:map-theme` | Erstellt die Zuordnung vom alten zum neuen Theme: Templates, Sections, Einstellungen, Gestaltung, Funktionen. |
 | `ptai-ecom:build-theme` | Erzeugt das neue Theme aus Sicherung und Zuordnung in einem eigenen Repo, mit Prüfung durch Theme Check. |
 | `ptai-ecom:upload-theme` | Lädt das Theme in ein unveröffentlichtes Theme hoch und prüft jede Datei nach dem Upload. |
-| `ptai-ecom:verify-theme` | Prüft den Entwurf gegen das Live-Theme: Struktur, Inhalt, SEO, Gestaltung, Funktionen, Apps und Tracking, Ladezeit, Barrierefreiheit, Sprachen. Erstellt danach die Testrunde. |
+| `ptai-ecom:verify-theme` | Prüft den Entwurf gegen das Live-Theme: Struktur, Inhalt, SEO, Gestaltung, Funktionen, Apps und Tracking, Ladezeit, Barrierefreiheit, Sprachen. Erstellt danach die Abnahme. |
 | `ptai-ecom:sync-live-theme` | Zeigt Änderungen im Live-Shop seit der Sicherung und welche davon ins neue Theme übernommen werden müssen. |
 | `ptai-ecom:launch-check` | Geht vor dem Livegang die Launch-Checkliste durch und zeigt, was noch fehlt, mit Go/No-Go-Empfehlung; mit `--after` die Prüfungen direkt nach dem Veröffentlichen. Auch ohne Migration nutzbar. |
 
@@ -126,7 +126,7 @@ Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änder
 
 **Tage vorher**
 
-1. **Abnahme.** Das Team hat den Entwurf in der Testrunde (`test-round`) abgenommen, kein Befund der Schwere `blocker` oder `before_launch` ist offen. In einer Migration ist das Gate G4, mit Namen festgehalten.
+1. **Abnahme.** Das Team hat jeden Testpunkt der Abnahme (`test-round`) bewertet, kein Befund der Schwere `blocker` oder `before_launch` ist offen. In einer Migration ist das Gate G4, mit Namen festgehalten.
 2. **Abgleich mit dem Live-Theme.** `sync-live-theme` zeigt alles, was das Team seit der Sicherung im alten Theme geändert hat. Jede Änderung wird übernommen oder bewusst gestrichen.
 3. **Kein Änderungsstopp.** Das Team arbeitet am alten Theme weiter. Direkt vor dem Launch läuft der Abgleich noch einmal; danach hält jede Änderung am Theme den Launch an. Shopdaten wie Produkte, Kollektionen, Menüs und Seiten gelten für beide Themes.
 4. **Rückfall planen.** Schriftlich steht, wann zurückgeschaltet wird und wer das entscheidet, dazu die Liste dessen, was ein Rückfall nicht zurückdreht.
@@ -158,7 +158,7 @@ Ab dem Launch arbeitet das Team im Editor des neuen Themes. Vor jedem Upload aus
 |---|---|
 | `ptai-ecom:ecom-language` | Einheitliche Fachsprache für Audit, Report und Analyse-Agents; jeder Fachbegriff wird beim ersten Auftreten erklärt. |
 | `ptai-ecom:match-feedback` | Gleicht eine Liste mit Änderungswünschen mit den Maßnahmen aus dem Audit ab und ordnet jeden Wunsch zu. |
-| `ptai-ecom:test-round` | Erstellt eine Testrunde vor einem Launch: Testanleitung und Prüfpunkte für das Team. |
+| `ptai-ecom:test-round` | Erstellt eine Abnahme vor einem Launch: Testanleitung und Prüfpunkte für das Team. |
 
 Der Audit nutzt elf Analyse-Agents, je einen für eine Disziplin:
 `audit-data-quality` (Messqualität), `audit-commerce` (Umsatz, Warenkorb, Wiederkäufer),

@@ -17,7 +17,7 @@ Die Datei `policies.json` liegt nicht im Plugin, sondern beim Betreiber im Works
 `apply` schreibt eine Kopie nach `migration/policies.json` im Repo des Stores, die Entscheidungen nach
 `migration/mapping/decisions.json` (`source: policy`, ersetzt ältere) und nach `apps.json`, damit der Generator
 sie beim nächsten Neubau liest. Ein Dienst, der beibehalten werden soll, aber im Inventar fehlt, wird ein Punkt
-`blocker` in der Liste offener Punkte: er muss vor der Testrunde eingebaut sein. Der Betreiber committet und
+`blocker` in der Liste offener Punkte: er muss vor der Abnahme eingebaut sein. Der Betreiber committet und
 pusht; das Team zieht den Stand mit dem Repo. Eine Vorgabe öffnet nie eine Frage an das Team.
 
 Seit 0.3.15 entscheidet die Marke eine Vorgabe ohne Regel auch selbst, im Setup des Cockpits (Karte "Vorgaben der
@@ -29,11 +29,20 @@ selbst `decided_by` und `decided_at`, die Datei eine neue Version.
 Entscheiden dürfen alle Mitglieder der Marke; das Plugin kennt sie nicht, und das Cockpit lässt nur Mitglieder
 antworten. Deshalb gilt jede Antwort aus dem Cockpit, und ihr Name steht an der Regel.
 
+Seit 0.3.16 ist das Cockpit die einzige Quelle der Vorgaben (Vertrag V15). Der Betreiber lädt `policies.json` und
+den Ordner `policy-modules/` der Marke mit `audit.publish --brand-only` hoch; das Werkzeug `get_policies` gibt
+die gültige Fassung zurück, Datei plus Antworten aus dem Cockpit, je Regel die Bausteine (`modules`) mit dem
+Inhalt ihrer Dateien. `sync` schreibt diese Fassung nach `migration/policies.json` im Repo des Stores und die
+Bausteine nach `migration/policy-modules/<key>/`; danach greift `apply` wie bisher, mit
+`--source migration/policies.json`. Das Team braucht damit weder den Ordner der Marke noch ein anderes Repo.
+`import` mit `--brand-workspace` bleibt für den Betreiber.
+
 Aufruf:
     python3 -m theme.policies apply --source <policies.json> [--workspace <ws>]
     python3 -m theme.policies check [--source <policies.json>] [--workspace <ws>]
     python3 -m theme.policies import --brand-workspace <ordner mit policies.json> --file <antworten.json | ->
         [--workspace <ws>]
+    python3 -m theme.policies sync --file <ausgabe von get_policies | -> [--workspace <ws>]
 """
 import argparse
 import json
@@ -55,6 +64,9 @@ MAY_DIFFER_LABEL = "Abweichung erlauben"
 ALIGN_LABEL = re.compile(r"^An .+ angleichen$")
 #: Version einer Fassung: Datum und laufende Nummer am Tag, etwa `2026-01-05.1`.
 VERSION = re.compile(r"^(\d{4}-\d{2}-\d{2})\.(\d+)$")
+#: Ordner der Bausteine neben `policies.json`: im Ordner der Marke, im Bucket unter `brands/<brand>/` und im
+#: Repo des Stores unter `migration/`. Der Pfad eines Bausteins (`modules[].path`) beginnt immer damit.
+MODULES_DIR = "policy-modules"
 
 
 class PolicyError(Exception):
@@ -63,6 +75,11 @@ class PolicyError(Exception):
 
 def copy_path(workspace) -> Path:
     return Path(workspace) / "migration" / "policies.json"
+
+
+def modules_path(workspace) -> Path:
+    """Die Bausteine der Marke im Repo des Stores, geschrieben von `sync`."""
+    return Path(workspace) / "migration" / MODULES_DIR
 
 
 def decisions_path(workspace) -> Path:
@@ -94,9 +111,14 @@ def validate(data) -> list:
     if not isinstance(data, dict):
         return ["policies.json muss ein JSON-Objekt sein"]
     errors = []
-    for key in ("version", "decided_by", "decided_at"):
-        if not isinstance(data.get(key), str) or not data[key].strip():
-            errors.append(f"{key} fehlt")
+    if not isinstance(data.get("version"), str) or not data["version"].strip():
+        errors.append("version fehlt")
+    # Wer entschieden hat, steht an der Datei oder an jeder entschiedenen Regel. Ohne Datei des Betreibers
+    # gibt get_policies nur Regeln aus Antworten im Cockpit zurück, jede mit ihrer Person.
+    for key in ("decided_by", "decided_at"):
+        if key in data and (not isinstance(data[key], str) or not data[key].strip()):
+            errors.append(f"{key} ist leer")
+    file_decided = all(isinstance(data.get(k), str) and data[k].strip() for k in ("decided_by", "decided_at"))
     rules = data.get("rules")
     if not isinstance(rules, list) or not rules:
         return errors + ["rules muss eine nicht leere Liste sein"]
@@ -125,6 +147,50 @@ def validate(data) -> list:
         for field in ("decided_by", "decided_at"):
             if field in rule and (not isinstance(rule[field], str) or not rule[field].strip()):
                 errors.append(f"{where}.{field} ist leer")
+        if not file_decided and rule.get("rule") in ("same_as_reference", "may_differ") and not all(
+                isinstance(rule.get(f), str) and rule[f].strip() for f in ("decided_by", "decided_at")):
+            errors.append(f"{where}: decided_by und decided_at fehlen an der Regel und an der Datei")
+        if "modules" in rule:
+            errors += _module_errors(rule.get("modules"), key if isinstance(key, str) else "", where)
+    return errors
+
+
+def module_path_problem(key: str, path) -> str | None:
+    """Warum `path` kein Pfad eines Bausteins der Regel `key` ist, `None`, wenn er gilt.
+
+    Erlaubt ist nur `policy-modules/<key>/<datei>`, auch mit Unterordnern, nie mit `..`, Backslash oder
+    absolutem Pfad: `sync` schreibt den Pfad unter `migration/` im Repo des Stores, und ein Pfad aus dem
+    Cockpit darf dort nichts außerhalb der Bausteine dieser Regel treffen.
+    """
+    prefix = f"{MODULES_DIR}/{key}/"
+    if not isinstance(path, str) or not path.startswith(prefix) or len(path) == len(prefix):
+        return f"Pfad muss {prefix}<datei> sein, ist {path!r}"
+    parts = path.split("/")
+    if "\\" in path or any(part in ("", ".", "..") for part in parts):
+        return f"Pfad {path!r} enthält einen leeren Teil, . oder .. oder einen Backslash"
+    return None
+
+
+def _module_errors(modules, key: str, where: str) -> list:
+    """Fehler in `modules` einer Regel: `[{"name", "path", "description"}]`."""
+    if not isinstance(modules, list):
+        return [f"{where}.modules muss eine Liste sein"]
+    errors, seen = [], set()
+    for index, module in enumerate(modules):
+        at = f"{where}.modules[{index}]"
+        if not isinstance(module, dict):
+            errors.append(f"{at} muss ein Objekt sein")
+            continue
+        if not isinstance(module.get("name"), str) or not module["name"].strip():
+            errors.append(f"{at}.name fehlt")
+        problem = module_path_problem(key, module.get("path"))
+        if problem:
+            errors.append(f"{at}: {problem}")
+        elif module["path"] in seen:
+            errors.append(f"{at}.path {module['path']!r} doppelt")
+        seen.add(module.get("path"))
+        if module.get("description") is not None and not isinstance(module["description"], str):
+            errors.append(f"{at}.description muss Text sein")
     return errors
 
 
@@ -160,8 +226,8 @@ def _decide(decisions: list, rule: dict, decision: str, service_id: str, version
                       "kind": "app" if service_id.startswith("app:") else "service", "decision": decision,
                       "reason": f"Vorgabe der Marke, Version {version}: {rule.get('target') or rule.get('note') or decision}",
                       # Eine im Cockpit entschiedene Regel trägt ihre Person selbst, sonst gilt die der Datei.
-                      "decided_by": rule.get("decided_by") or source["decided_by"],
-                      "decided_at": rule.get("decided_at") or source["decided_at"],
+                      "decided_by": rule.get("decided_by") or source.get("decided_by"),
+                      "decided_at": rule.get("decided_at") or source.get("decided_at"),
                       "source": "policy", "service_id": service_id, "replaces": earlier})
     return ident
 
@@ -217,7 +283,7 @@ def apply(workspace, source: dict, now: datetime | None = None) -> dict:
             items.add(title=f"Vorgabe {rule.get('subject') or rule['key']}: {rule.get('target') or service_id} einbauen",
                       ident=ident, severity="blocker", source="policy",
                       description=f"Vorgabe der Marke, Version {version}. {service_id} fehlt im Inventar dieses Stores "
-                                  "und muss vor der Testrunde eingebunden sein.")
+                                  "und muss vor der Abnahme eingebunden sein.")
             items_added.append(ident)
         items.save()
     copy = {**source, "applied_at": stamp}
@@ -463,10 +529,183 @@ def stores_needing_apply(brand_workspace, source: dict, workspace=None) -> list:
     return result
 
 
-def _read_answers(path: str | None):
-    """Die Antworten aus einer Datei oder, bei `-`, von stdin."""
+#: Was an einer Regel zählt, wenn `sync` meldet, ob sie sich geändert hat. Wer entschieden hat, ändert die
+#: Regel nicht; das steht in `decided_by` und `decided_at` der neuen Fassung.
+_UNCOUNTED = ("decided_by", "decided_at")
+
+
+def _rule_changes(before: list, after: list) -> list:
+    """Neue, geänderte und entfallene Regeln zwischen zwei Fassungen, in der Reihenfolge der neuen."""
+    old = {r.get("key"): r for r in before if isinstance(r, dict)}
+    new = {r["key"]: r for r in after}
+    changes = []
+    for key, rule in new.items():
+        previous = old.get(key)
+        fields = [f for f in (*RULE_FIELDS, "modules")
+                  if f not in _UNCOUNTED and (previous or {}).get(f) != rule.get(f)]
+        if previous is None or fields:
+            changes.append({"key": key, "subject": rule.get("subject") or key,
+                            "change": "added" if previous is None else "changed",
+                            "previous": previous.get("rule") if previous else None, "rule": rule["rule"],
+                            "fields": [] if previous is None else fields})
+    for key, rule in old.items():
+        if key not in new:
+            changes.append({"key": key, "subject": rule.get("subject") or key, "change": "removed",
+                            "previous": rule.get("rule"), "rule": None, "fields": []})
+    return changes
+
+
+def _cockpit_brand(workspace) -> str | None:
+    """Die Marke des Stores im Cockpit (`portal.brand`, sonst `account_slug`), `None` ohne Config."""
+    try:
+        config = load_config(workspace)
+    except ConfigError:
+        return None
+    portal = config.get("portal") if isinstance(config.get("portal"), dict) else {}
+    brand = portal.get("brand") or config.get("account_slug")
+    return brand if isinstance(brand, str) and brand.strip() else None
+
+
+#: Die Felder von `policies.json`, an der Datei, je Regel und je Baustein. `sync` schreibt nur sie: Was
+#: `get_policies` sonst mitgibt (`brand`, `file_version`, `reference_shop_name`, `open_rules`,
+#: `cockpit_questions`, Felder der Datei, die das Format nicht kennt), wechselt mit jedem Abruf oder gehört
+#: in die Sitzung, nicht ins Repo. `null` heißt "fehlt".
+SOURCE_FIELDS = ("version", "reference_shop", "decided_by", "decided_at")
+RULE_FIELDS = ("key", "subject", "rule", "target", "keep", "drop", "note", "decided_by", "decided_at")
+MODULE_FIELDS = ("name", "path", "description")
+
+
+def _pick(data: dict, fields: tuple) -> dict:
+    return {f: data[f] for f in fields if data.get(f) is not None}
+
+
+def _split_modules(data: dict) -> tuple[dict, dict, list]:
+    """Die Fassung im Format von `policies.json`, die Inhalte der Bausteine je Pfad und die ohne Inhalt.
+
+    `get_policies` liefert je Baustein `content` mit dem Text der Datei, `null`, wenn die Datei im Cockpit
+    fehlt. In `policies.json` steht nur der Verweis (`name`, `path`, `description`), der Inhalt liegt als
+    Datei daneben.
+    """
+    data = json.loads(json.dumps(data))
+    source = _pick(data, SOURCE_FIELDS)
+    source["rules"] = data["rules"] if not isinstance(data.get("rules"), list) else []
+    contents, missing = {}, []
+    for rule in data.get("rules") if isinstance(data.get("rules"), list) else []:
+        if not isinstance(rule, dict):
+            source["rules"].append(rule)  # validate meldet es
+            continue
+        picked = _pick(rule, RULE_FIELDS)
+        modules = rule.get("modules")
+        if isinstance(modules, list) and modules:
+            picked["modules"] = []
+            for module in modules:
+                if not isinstance(module, dict):
+                    picked["modules"].append(module)
+                    continue
+                picked["modules"].append(_pick(module, MODULE_FIELDS))
+                if isinstance(module.get("content"), str):
+                    contents[module.get("path")] = module["content"]
+                else:
+                    missing.append({"key": rule.get("key"), "name": module.get("name"), "path": module.get("path")})
+        elif modules is not None and not isinstance(modules, list):
+            picked["modules"] = modules
+        source["rules"].append(picked)
+    return source, contents, missing
+
+
+def _write_text(path: Path, text: str) -> bool:
+    """Schreibt `text`, wenn er sich von der Datei unterscheidet. Gibt zurück, ob geschrieben wurde."""
+    if path.is_file() and path.read_text(encoding="utf-8") == text:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / (path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+    return True
+
+
+def _remove_stale_modules(workspace, keep: set) -> list:
+    """Löscht Dateien unter `migration/policy-modules/`, die die neue Fassung nicht mehr nennt.
+
+    Der Ordner ist ein Abbild der Bausteine der Marke und gehört `sync`; ein Baustein, den die Marke
+    gestrichen hat, darf im Repo des Stores nicht als gültig liegen bleiben.
+    """
+    root = modules_path(workspace)
+    if not root.is_dir():
+        return []
+    removed = []
+    for path in sorted(root.rglob("*"), reverse=True):
+        rel = path.relative_to(Path(workspace) / "migration").as_posix()
+        if path.is_file() and rel not in keep:
+            path.unlink()
+            removed.append(f"migration/{rel}")
+        elif path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    if root.is_dir() and not any(root.iterdir()):
+        root.rmdir()
+    return sorted(removed)
+
+
+def sync(workspace, data) -> dict:
+    """Schreibt die Fassung aus `get_policies` in das Repo des Stores, `migration/policies.json` und Bausteine.
+
+    `data` ist die Ausgabe von `get_policies`: Felder von `policies.json`, je Regel `modules` mit `content`;
+    alles andere zählt nicht (`SOURCE_FIELDS`). Ein Baustein ohne Inhalt steht unter `modules_missing`, seine
+    Datei fehlt dann auch im Repo des Stores. Hat sich nichts geändert, bleibt `applied_at` der Kopie stehen,
+    und `apply` danach ändert nichts. Hat sich die Version, eine Regel oder ein Baustein geändert, fällt
+    `applied_at` weg: `apply` trägt die Fassung ein, und Schritt 3 verlangt danach einen Neubau, der auch
+    geänderte Bausteine einbaut.
+    Führt die Marke keine Vorgaben (`rules` fehlt oder ist leer), wird nichts geschrieben (`available: false`).
+    """
+    if not isinstance(data, dict):
+        raise PolicyError("Erwartet die Ausgabe von get_policies als JSON-Objekt mit rules.")
+    previous = _read(copy_path(workspace), default=None)
+    previous_version = previous.get("version") if isinstance(previous, dict) else None
+    if not data.get("rules"):
+        return {"available": False, "path": "migration/policies.json", "version": previous_version,
+                "previous_version": previous_version, "changed": False, "apply_needed": False,
+                "rules_changed": [], "modules_written": [], "modules_removed": [], "modules_missing": [],
+                "still_open": []}
+    own, theirs = _cockpit_brand(workspace), data.get("brand")
+    if own and isinstance(theirs, str) and theirs and theirs != own:
+        raise PolicyError(f"get_policies nennt die Marke {theirs!r}, dieser Store gehört im Cockpit zu {own!r} "
+                          "(portal.brand, sonst account_slug). Nichts geschrieben.")
+    source, contents, missing = _split_modules(data)
+    errors = validate(source)
+    if errors:
+        raise PolicyError("Die Vorgaben aus get_policies gelten so nicht: " + "; ".join(errors)
+                          + ". Nichts geschrieben.")
+    modules = {m["path"]: (rule["key"], m.get("name"))
+               for rule in source["rules"] for m in rule.get("modules") or []}
+    written = []
+    for module_path, content in contents.items():
+        if _write_text(Path(workspace) / "migration" / module_path, content):
+            key, name = modules[module_path]
+            written.append({"key": key, "name": name, "path": f"migration/{module_path}"})
+    removed = _remove_stale_modules(workspace, set(contents))
+    missing = [{**m, "path": f"migration/{m['path']}"} for m in missing]
+    changes = _rule_changes(previous.get("rules") or [] if isinstance(previous, dict) else [], source["rules"])
+    keep_stamp = (isinstance(previous, dict) and previous_version == source["version"]
+                  and isinstance(previous.get("applied_at"), str) and previous["applied_at"].strip()
+                  and not changes and not written and not removed)
+    copy = {**source, "applied_at": previous["applied_at"]} if keep_stamp else source
+    target = copy_path(workspace)
+    before = target.read_text(encoding="utf-8") if target.is_file() else None
+    text = json.dumps(copy, ensure_ascii=False, indent=2) + "\n"
+    if text != before:
+        _write(target, copy)
+    return {"available": True, "path": "migration/policies.json", "version": source["version"],
+            "previous_version": previous_version, "changed": text != before or bool(written or removed),
+            "apply_needed": not keep_stamp, "rules_changed": changes, "modules_written": written,
+            "modules_removed": removed, "modules_missing": missing,
+            "still_open": [{"key": r["key"], "subject": r.get("subject") or r["key"]}
+                           for r in source["rules"] if r["rule"] == "open"]}
+
+
+def _read_json(path: str | None, what: str):
+    """JSON aus einer Datei oder, bei `-`, von stdin. `what` sagt in der Meldung, was erwartet wird."""
     if not path:
-        raise PolicyError("--file fehlt (Datei mit den Antworten aus get_setup oder - für stdin).")
+        raise PolicyError(f"--file fehlt (Datei mit {what} oder - für stdin).")
     try:
         text = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
         return json.loads(text)
@@ -478,20 +717,27 @@ def _read_answers(path: str | None):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="theme.policies")
-    parser.add_argument("command", choices=("apply", "check", "import"))
+    parser.add_argument("command", choices=("apply", "check", "import", "sync"))
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--source")
     parser.add_argument("--brand-workspace", help="Ordner mit policies.json der Marke (import)")
-    parser.add_argument("--file", help="Antworten aus get_setup als JSON-Datei, - für stdin (import)")
+    parser.add_argument("--file", help="Antworten aus get_setup (import) oder Ausgabe von get_policies (sync) "
+                                       "als JSON-Datei, - für stdin")
     args = parser.parse_args(argv)
     try:
         if args.command == "import":
             if not args.brand_workspace:
                 raise PolicyError("--brand-workspace fehlt (Ordner mit policies.json der Marke).")
-            result = import_answers(args.brand_workspace, _read_answers(args.file), workspace=args.workspace)
+            result = import_answers(args.brand_workspace, _read_json(args.file, "den Antworten aus get_setup"),
+                                    workspace=args.workspace)
             print(json.dumps(result, ensure_ascii=False))
             # 1 heißt Befund: mindestens eine Antwort wurde nicht übernommen, der Grund steht unter skipped.
             return 1 if result["skipped"] else 0
+        if args.command == "sync":
+            result = sync(args.workspace, _read_json(args.file, "der Ausgabe von get_policies"))
+            print(json.dumps(result, ensure_ascii=False))
+            # 1 heißt Befund: ein Baustein kam ohne Inhalt; die übrige Fassung ist geschrieben.
+            return 1 if result["modules_missing"] else 0
         source = load_source(args.source) if args.source else None
         if args.command == "apply":
             if source is None:

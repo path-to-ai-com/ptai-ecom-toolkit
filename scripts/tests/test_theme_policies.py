@@ -1,4 +1,4 @@
-"""Tests für die Übernahme der Vorgaben aus dem Cockpit (`theme.policies import`, seit 0.3.15)."""
+"""Tests für die Vorgaben aus dem Cockpit: `theme.policies import` (seit 0.3.15) und `sync` (seit 0.3.16)."""
 import contextlib
 import io
 import json
@@ -371,6 +371,347 @@ class Cli(BrandFolder):
         self.assertEqual(code, 2)
         self.assertIn("kein JSON", result["error"])
 
+
+
+def cockpit(**changes) -> dict:
+    """Erfundene Ausgabe von `get_policies`: Fassung der Marke mit Bausteinen samt Inhalt."""
+    data = source(brand="beispielmarke", version="2026-01-13.1")
+    data["rules"][0]["modules"] = [
+        {"name": "Banner A", "path": "policy-modules/cookie_banner/README.md",
+         "description": "Einbindung des Banners wie im Referenz-Store",
+         "content": "# Banner A\n\nEinbauen als Snippet.\n"},
+        {"name": "Banner A", "path": "policy-modules/cookie_banner/snippets/banner.liquid",
+         "description": "Snippet", "content": "{% comment %} Banner A {% endcomment %}\n"},
+    ]
+    data.update(changes)
+    return data
+
+
+class Sync(unittest.TestCase):
+    """`sync`: die Fassung aus `get_policies` ins Repo des Stores, danach `apply` wie bisher."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ws = Path(tmp.name) / "store"
+        write(self.ws / "reporting" / "config.json", {"portal": {"brand": "beispielmarke", "shop": "nordshop"}})
+        write(self.ws / "migration" / "inventory" / "apps.json", {"services": [{"service_id": "app:banner-b"}]})
+
+    def module(self, rel: str) -> Path:
+        return self.ws / "migration" / rel
+
+    def apply_copy(self, now=NOW) -> dict:
+        return policies.apply(self.ws, policies.load_source(policies.copy_path(self.ws)), now=now)
+
+    def test_schreibt_die_fassung_ohne_inhalt_und_die_bausteine_daneben(self):
+        result = policies.sync(self.ws, cockpit())
+        copy = read(policies.copy_path(self.ws))
+        self.assertEqual(copy["version"], "2026-01-13.1")
+        self.assertEqual(policies.validate(copy), [])
+        modules = copy["rules"][0]["modules"]
+        self.assertEqual([m["path"] for m in modules], ["policy-modules/cookie_banner/README.md",
+                                                        "policy-modules/cookie_banner/snippets/banner.liquid"])
+        self.assertFalse(any("content" in m for m in modules))
+        self.assertNotIn("applied_at", copy)
+        self.assertEqual(self.module("policy-modules/cookie_banner/README.md").read_text(encoding="utf-8"),
+                         "# Banner A\n\nEinbauen als Snippet.\n")
+        self.assertTrue(self.module("policy-modules/cookie_banner/snippets/banner.liquid").is_file())
+        self.assertEqual((result["previous_version"], result["version"]), (None, "2026-01-13.1"))
+        self.assertTrue(result["available"] and result["changed"] and result["apply_needed"])
+        self.assertEqual([(c["key"], c["change"]) for c in result["rules_changed"]],
+                         [("cookie_banner", "added"), ("translation", "added"), ("languages", "added")])
+        self.assertEqual([m["path"] for m in result["modules_written"]],
+                         ["migration/policy-modules/cookie_banner/README.md",
+                          "migration/policy-modules/cookie_banner/snippets/banner.liquid"])
+        self.assertEqual(result["still_open"], [{"key": "translation", "subject": "Übersetzung"}])
+
+    def test_apply_danach_traegt_die_vorgaben_ein(self):
+        policies.sync(self.ws, cockpit())
+        result = self.apply_copy()
+        self.assertFalse(result["unchanged"])
+        decisions = {d["service_id"]: d for d in read(policies.decisions_path(self.ws))["decisions"]}
+        self.assertEqual((decisions["app:banner-b"]["decision"], decisions["app:banner-b"]["source"]),
+                         ("drop", "policy"))
+        self.assertIn("POLICY-cookie_banner-banner-a", result["open_items_added"])
+        copy = read(policies.copy_path(self.ws))
+        self.assertEqual(copy["applied_at"], "2026-01-13T12:00:00+00:00")
+        self.assertEqual(len(copy["rules"][0]["modules"]), 2)
+
+    def test_dieselbe_fassung_zweimal_aendert_nichts_und_laesst_applied_at_stehen(self):
+        policies.sync(self.ws, cockpit())
+        self.apply_copy()
+        before = policies.copy_path(self.ws).read_text(encoding="utf-8")
+        result = policies.sync(self.ws, cockpit())
+        self.assertFalse(result["changed"])
+        self.assertFalse(result["apply_needed"])
+        self.assertEqual((result["rules_changed"], result["modules_written"], result["modules_removed"]), ([], [], []))
+        self.assertEqual(policies.copy_path(self.ws).read_text(encoding="utf-8"), before)
+        again = self.apply_copy(now=datetime(2026, 1, 20, tzinfo=timezone.utc))
+        self.assertTrue(again["unchanged"])
+        self.assertEqual(again["applied_at"], "2026-01-13T12:00:00+00:00")
+
+    def test_eine_neue_version_verlangt_apply(self):
+        policies.sync(self.ws, cockpit())
+        self.apply_copy()
+        data = cockpit(version="2026-01-14.1")
+        data["rules"][1].update({"rule": "may_differ", "decided_by": "Erika Muster",
+                                 "decided_at": "2026-01-14T08:00:00+00:00"})
+        result = policies.sync(self.ws, data)
+        self.assertEqual((result["previous_version"], result["version"]), ("2026-01-13.1", "2026-01-14.1"))
+        self.assertTrue(result["apply_needed"])
+        self.assertEqual(result["rules_changed"], [{"key": "translation", "subject": "Übersetzung",
+                                                    "change": "changed", "previous": "open", "rule": "may_differ",
+                                                    "fields": ["rule"]}])
+        self.assertNotIn("applied_at", read(policies.copy_path(self.ws)))
+        later = datetime(2026, 1, 14, 9, 0, tzinfo=timezone.utc)
+        self.assertEqual(self.apply_copy(now=later)["applied_at"], later.isoformat(timespec="seconds"))
+
+    def test_nur_eine_neue_person_ist_keine_geaenderte_regel(self):
+        policies.sync(self.ws, cockpit())
+        self.apply_copy()
+        data = cockpit()
+        data["rules"][2].update({"decided_by": "Max Beispiel", "decided_at": "2026-01-13T10:00:00+00:00"})
+        result = policies.sync(self.ws, data)
+        self.assertEqual(result["rules_changed"], [])
+        self.assertTrue(result["changed"])
+        self.assertFalse(result["apply_needed"])
+
+    def test_eine_entfallene_regel_steht_in_der_ausgabe(self):
+        policies.sync(self.ws, cockpit())
+        data = cockpit()
+        del data["rules"][2]
+        result = policies.sync(self.ws, data)
+        self.assertEqual([(c["key"], c["change"], c["previous"]) for c in result["rules_changed"]],
+                         [("languages", "removed", "may_differ")])
+
+    def test_ein_geaenderter_baustein_bei_gleicher_version_verlangt_apply(self):
+        policies.sync(self.ws, cockpit())
+        self.apply_copy()
+        data = cockpit()
+        data["rules"][0]["modules"][1]["content"] = "{% comment %} Banner A, neu {% endcomment %}\n"
+        result = policies.sync(self.ws, data)
+        self.assertEqual([m["path"] for m in result["modules_written"]],
+                         ["migration/policy-modules/cookie_banner/snippets/banner.liquid"])
+        self.assertEqual(result["rules_changed"], [])
+        self.assertTrue(result["apply_needed"])
+        self.assertNotIn("applied_at", read(policies.copy_path(self.ws)))
+
+    def test_ein_gestrichener_baustein_wird_geloescht(self):
+        policies.sync(self.ws, cockpit())
+        data = cockpit()
+        data["rules"][0]["modules"] = data["rules"][0]["modules"][:1]
+        result = policies.sync(self.ws, data)
+        self.assertEqual(result["modules_removed"], ["migration/policy-modules/cookie_banner/snippets/banner.liquid"])
+        self.assertFalse(self.module("policy-modules/cookie_banner/snippets").exists())
+        self.assertTrue(self.module("policy-modules/cookie_banner/README.md").is_file())
+        self.assertEqual(result["rules_changed"][0]["fields"], ["modules"])
+
+    def test_ohne_bausteine_verschwindet_der_ordner(self):
+        policies.sync(self.ws, cockpit())
+        data = cockpit()
+        del data["rules"][0]["modules"]
+        policies.sync(self.ws, data)
+        self.assertFalse(policies.modules_path(self.ws).exists())
+
+    def test_ein_pfad_ausserhalb_der_regel_wird_abgelehnt(self):
+        for path in ("policy-modules/cookie_banner/../../reporting/config.json", "policy-modules/languages/x.md",
+                     "/tmp/x.md", "policy-modules/cookie_banner/", "policy-modules\\cookie_banner\\x.md"):
+            data = cockpit()
+            data["rules"][0]["modules"][0]["path"] = path
+            with self.assertRaises(policies.PolicyError, msg=path):
+                policies.sync(self.ws, data)
+        self.assertFalse(policies.copy_path(self.ws).exists())
+        self.assertFalse(policies.modules_path(self.ws).exists())
+
+    def test_ein_baustein_ohne_inhalt_steht_unter_modules_missing(self):
+        policies.sync(self.ws, cockpit())
+        data = cockpit()
+        data["rules"][0]["modules"][0]["content"] = None
+        result = policies.sync(self.ws, data)
+        self.assertEqual(result["modules_missing"], [{"key": "cookie_banner", "name": "Banner A",
+                                                      "path": "migration/policy-modules/cookie_banner/README.md"}])
+        self.assertEqual(result["modules_removed"], ["migration/policy-modules/cookie_banner/README.md"])
+        self.assertTrue(result["apply_needed"])
+        # Der Verweis bleibt in der Fassung, die übrigen Bausteine und Regeln sind geschrieben.
+        self.assertEqual(len(read(policies.copy_path(self.ws))["rules"][0]["modules"]), 2)
+        self.assertTrue(self.module("policy-modules/cookie_banner/snippets/banner.liquid").is_file())
+
+    def test_cli_mit_fehlendem_baustein_hat_exit_eins(self):
+        data = cockpit()
+        data["rules"][0]["modules"][1]["content"] = None
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch("sys.stdin", io.StringIO(json.dumps(data))):
+            code = policies.main(["sync", "--file", "-", "--workspace", str(self.ws)])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(json.loads(out.getvalue())["modules_missing"]), 1)
+
+    def test_eine_fremde_marke_wird_abgelehnt(self):
+        with self.assertRaises(policies.PolicyError) as raised:
+            policies.sync(self.ws, cockpit(brand="anderemarke"))
+        self.assertIn("anderemarke", str(raised.exception))
+        self.assertFalse(policies.copy_path(self.ws).exists())
+
+    def test_eine_ungueltige_fassung_schreibt_nichts(self):
+        data = cockpit()
+        data["rules"][0]["rule"] = "vielleicht"
+        with self.assertRaises(policies.PolicyError):
+            policies.sync(self.ws, data)
+        self.assertFalse(policies.copy_path(self.ws).exists())
+        self.assertFalse(policies.modules_path(self.ws).exists())
+
+    def test_eine_marke_ohne_vorgaben_schreibt_nichts(self):
+        result = policies.sync(self.ws, {"brand": "beispielmarke", "rules": []})
+        self.assertFalse(result["available"])
+        self.assertFalse(policies.copy_path(self.ws).exists())
+
+    def test_eine_kopie_aus_dem_ordner_der_marke_mit_gleicher_fassung_bleibt_angewendet(self):
+        # Vor 0.3.16 hat der Betreiber dieselbe Fassung mit apply --source <ordner der marke> eingetragen.
+        policies.apply(self.ws, source(version="2026-01-13.1"), now=NOW)
+        result = policies.sync(self.ws, source(brand="beispielmarke", version="2026-01-13.1"))
+        self.assertFalse(result["apply_needed"])
+        self.assertEqual(read(policies.copy_path(self.ws))["applied_at"], "2026-01-13T12:00:00+00:00")
+
+    def test_cli_von_stdin_mit_exit_null(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch("sys.stdin", io.StringIO(json.dumps(cockpit()))):
+            code = policies.main(["sync", "--file", "-", "--workspace", str(self.ws)])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["version"], "2026-01-13.1")
+
+    def test_cli_mit_ungueltiger_fassung_hat_exit_zwei(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch("sys.stdin", io.StringIO("[]")):
+            code = policies.main(["sync", "--file", "-", "--workspace", str(self.ws)])
+        self.assertEqual(code, 2)
+        self.assertIn("get_policies", json.loads(out.getvalue())["error"])
+
+
+
+def cockpit_pr36() -> dict:
+    """Die Ausgabe von `get_policies` in genau der Form des Cockpits (ptai-portal, PR #36): Kopffelder der Datei,
+    `brand`, `version`, `file_version`, `reference_shop`, `reference_shop_name`, `decided_by`, `decided_at`,
+    `rules` im Format von `policies.json` (Felder der Datei unverändert, Antworten aus dem Cockpit eingesetzt),
+    `open_rules` und `cockpit_questions`; je Baustein `name`, `path`, `description` und `content`."""
+    return {
+        "source": "Abstimmung im Team, erfunden",
+        "brand": "beispielmarke",
+        "version": "2026-01-13.2",
+        "file_version": "2026-01-05.1",
+        "reference_shop": "beispielshop",
+        "reference_shop_name": "Beispielshop",
+        "decided_by": "Vorname Nachname",
+        "decided_at": "2026-01-05",
+        "rules": [
+            {"key": "tag_manager", "subject": "Tag Manager", "rule": "same_as_reference",
+             "target": "Tag Manager als eigener Code", "keep": [["gtm", "app:gtm"]], "note": "wie im Referenz-Store",
+             "owner_hint": "Feld, das das Format nicht kennt",
+             "modules": [
+                 {"name": "Tag Manager", "path": "policy-modules/tag_manager/README.md",
+                  "description": "Einbindung des Tag Managers im Theme", "content": "# Tag Manager\n"},
+                 {"name": "Tag Manager", "path": "policy-modules/tag_manager/snippets/tag-manager.liquid",
+                  "description": None, "content": "{% comment %} Container-ID des Stores {% endcomment %}\n"}]},
+            {"key": "bundles", "subject": "Beispielbundle", "rule": "same_as_reference",
+             "target": "wie im Referenz-Store", "keep": [["app:beispielbundle", "beispielbundle"]],
+             "decided_by": "Erika Muster", "decided_at": "2026-01-13T09:12:00+00:00"},
+            {"key": "wishlist", "subject": "Merkliste", "rule": "open"},
+        ],
+        "open_rules": [{"key": "wishlist", "subject": "Merkliste", "text": "Merkliste: in allen Stores gleich?"}],
+        "cockpit_questions": [{"key": "wishlist", "text": "Gilt das auch für den Outlet-Store?", "by": "Max Beispiel",
+                               "at": "2026-01-13T10:00:00+00:00"}],
+    }
+
+
+class SyncCockpitFormat(unittest.TestCase):
+    """`sync` liest die Ausgabe von `get_policies` so, wie das Cockpit sie liefert, und schreibt nur das Format."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ws = Path(tmp.name) / "store"
+        write(self.ws / "reporting" / "config.json", {"portal": {"brand": "beispielmarke", "shop": "nordshop"}})
+
+    def test_die_form_des_cockpits_wird_gelesen_und_nur_das_format_geschrieben(self):
+        result = policies.sync(self.ws, cockpit_pr36())
+        copy = read(policies.copy_path(self.ws))
+        self.assertEqual(sorted(copy), ["decided_at", "decided_by", "reference_shop", "rules", "version"])
+        self.assertEqual(copy["version"], "2026-01-13.2")
+        self.assertEqual(policies.validate(copy), [])
+        tag_manager, bundles, wishlist = copy["rules"]
+        self.assertNotIn("owner_hint", tag_manager)
+        self.assertEqual(tag_manager["modules"], [
+            {"name": "Tag Manager", "path": "policy-modules/tag_manager/README.md",
+             "description": "Einbindung des Tag Managers im Theme"},
+            {"name": "Tag Manager", "path": "policy-modules/tag_manager/snippets/tag-manager.liquid"}])
+        self.assertEqual((bundles["decided_by"], bundles["decided_at"]),
+                         ("Erika Muster", "2026-01-13T09:12:00+00:00"))
+        self.assertEqual(wishlist, {"key": "wishlist", "subject": "Merkliste", "rule": "open"})
+        self.assertEqual((self.ws / "migration/policy-modules/tag_manager/README.md").read_text(encoding="utf-8"),
+                         "# Tag Manager\n")
+        self.assertEqual(result["still_open"], [{"key": "wishlist", "subject": "Merkliste"}])
+        self.assertEqual(result["modules_missing"], [])
+        applied = policies.apply(self.ws, policies.load_source(policies.copy_path(self.ws)), now=NOW)
+        self.assertEqual(sorted(applied["open_items_added"]),
+                         ["POLICY-bundles-beispielbundle", "POLICY-tag_manager-gtm"])
+
+    def test_neue_fragen_im_cockpit_aendern_die_fassung_im_repo_nicht(self):
+        policies.sync(self.ws, cockpit_pr36())
+        policies.apply(self.ws, policies.load_source(policies.copy_path(self.ws)), now=NOW)
+        before = policies.copy_path(self.ws).read_text(encoding="utf-8")
+        data = cockpit_pr36()
+        data["cockpit_questions"].append({"key": "bundles", "text": "Und im Outlet?", "by": "Erika Muster",
+                                          "at": "2026-01-13T11:00:00+00:00"})
+        data["reference_shop_name"] = "Beispielshop DE"
+        result = policies.sync(self.ws, data)
+        self.assertFalse(result["changed"] or result["apply_needed"])
+        self.assertEqual(policies.copy_path(self.ws).read_text(encoding="utf-8"), before)
+
+    def test_ohne_datei_des_betreibers_traegt_jede_entschiedene_regel_ihre_person(self):
+        data = cockpit_pr36()
+        data.update({"decided_by": None, "decided_at": None, "file_version": None})
+        del data["source"]
+        data["rules"] = data["rules"][1:]
+        policies.sync(self.ws, data)
+        copy = read(policies.copy_path(self.ws))
+        self.assertNotIn("decided_by", copy)
+        self.assertEqual(policies.validate(copy), [])
+        policies.apply(self.ws, policies.load_source(policies.copy_path(self.ws)), now=NOW)
+        decision = read(policies.decisions_path(self.ws))["decisions"][0]
+        self.assertEqual(decision["decided_by"], "Erika Muster")
+
+    def test_ohne_person_an_datei_und_regel_wird_abgelehnt(self):
+        data = cockpit_pr36()
+        data.update({"decided_by": None, "decided_at": None})
+        with self.assertRaises(policies.PolicyError) as raised:
+            policies.sync(self.ws, data)
+        self.assertIn("fehlen an der Regel und an der Datei", str(raised.exception))
+        self.assertFalse(policies.copy_path(self.ws).exists())
+
+class ValidateModules(unittest.TestCase):
+    def errors(self, modules) -> list:
+        data = source()
+        data["rules"][0]["modules"] = modules
+        return policies.validate(data)
+
+    def test_gueltige_bausteine(self):
+        self.assertEqual(self.errors([{"name": "Banner A", "path": "policy-modules/cookie_banner/README.md"}]), [])
+
+    def test_ohne_namen(self):
+        self.assertTrue(any("name fehlt" in e for e in self.errors([{"path": "policy-modules/cookie_banner/a.md"}])))
+
+    def test_doppelter_pfad(self):
+        module = {"name": "Banner A", "path": "policy-modules/cookie_banner/a.md"}
+        self.assertTrue(any("doppelt" in e for e in self.errors([module, dict(module)])))
+
+    def test_beschreibung_muss_text_sein(self):
+        module = {"name": "Banner A", "path": "policy-modules/cookie_banner/a.md", "description": 3}
+        self.assertTrue(any("description" in e for e in self.errors([module])))
+
+    def test_keine_liste(self):
+        self.assertTrue(self.errors({"name": "Banner A"}))
+
+    def test_beschreibung_darf_fehlen(self):
+        module = {"name": "Banner A", "path": "policy-modules/cookie_banner/a.md", "description": None}
+        self.assertEqual(self.errors([module]), [])
 
 if __name__ == "__main__":
     unittest.main()
