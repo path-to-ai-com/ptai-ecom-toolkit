@@ -75,6 +75,11 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
 - **Nach jedem Push den Stand ins Cockpit geben** (`report_migration`, Abschnitt "Stand im Cockpit"),
   auch nach einer neuen Frage und am Ende der Sitzung. Erst dann sieht das Team im Cockpit, was die Sitzung
   geändert hat; ohne Meldung zeigt das Cockpit den letzten Stand, den Path to AI hochgeladen hat.
+- **Ins Cockpit nur nach bestätigter Meldung.** Auf das Cockpit verweisen ("steht im Cockpit", "beantwortet
+  im Cockpit") nur, wenn `report_migration` in dieser Sitzung nach dem letzten Push `reported: true`
+  zurückgegeben hat, und dann mit dem Link aus `sheet`. Sonst stehen neue Fragen dort nicht, und die
+  Person sucht sie vergeblich. Ohne bestätigte Meldung die offenen Fragen in der Sitzung stellen
+  (Abschnitt "Stand im Cockpit").
 - **Eine Liste offener Punkte je Migration:** `migration/open-items.json` (Abschnitt "Die Liste offener
   Punkte"). Was vor einem Gate erledigt sein muss, steht dort und nur dort, mit `open`, `done` und Beleg
   oder `deferred` mit Person und Datum. Prüfberichte, Prüfliste und Abnahme schreiben hinein, sie
@@ -243,9 +248,23 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 - Antwort: `reported`, `new_run` (ein neuer Lauf steht jetzt im Cockpit), `open_questions` (Fragen, die weder
   im Repo noch im Cockpit beantwortet sind) und `sheet`, der Link auf das Blatt der Migration. Den Link nennen,
   wenn die Skill auf das Cockpit verweist.
-- Ohne Verbindung zum Cockpit oder ohne das Werkzeug `report_migration` (älteres Cockpit): einmal je Sitzung
-  sagen "Das Cockpit zeigt den Stand dieser Sitzung erst, wenn Claude mit dem Cockpit verbunden ist und die
-  Migration neu startet." und weiterarbeiten. Der Start der nächsten Sitzung mit Verbindung meldet ihn.
+- `deciders_without_access` (seit Cockpit vom 16.10.2026): Personen aus `decider` einer offenen Frage, die im
+  Cockpit keinen passenden Namen haben und dort keine Antwortmöglichkeiten sehen. Ist die Liste nicht leer,
+  diese Fragen in der Sitzung stellen wie ohne Meldung (unten), die Namen in der Übergabe als
+  `--operator-task` nennen ("Namen im Cockpit eintragen: <Name>") und sie nicht ins Cockpit schicken.
+- Ohne Verbindung zum Cockpit, ohne das Werkzeug `report_migration` oder wenn das Cockpit die Meldung
+  ablehnt, ist der Stand dieser Sitzung nicht im Cockpit. Dann:
+  - nie auf das Cockpit verweisen, auch nicht für Fragen, die die Sitzung gestellt hat;
+  - einmal je Sitzung sagen: "Das Cockpit zeigt den Stand dieser Sitzung noch nicht. Die offenen Fragen
+    stelle ich euch deshalb hier." Fehlt nur das Werkzeug, obwohl Claude verbunden ist, dazu: "Startet für
+    die nächste Migration eine neue Sitzung, dann meldet Claude den Stand wieder selbst.";
+  - jede offene Frage (`questions list --status open`), deren `decider` die Person nennt oder die keinen
+    `decider` hat, in der Sitzung stellen: Frage, worum es geht, Optionen, Empfehlung mit Grund, die
+    Vergleichslinks. Die Antwort mit `questions answer` und dem Namen der Person eintragen, committen,
+    pushen. Fragen für eine andere Person nennen und sagen, dass sie die Frage in ihrer nächsten Sitzung
+    beantwortet;
+  - `run_state log --kind error --text "Stand nicht im Cockpit: <Grund>"`, damit Path to AI es im Repo sieht.
+  Der Start der nächsten Sitzung mit Verbindung meldet den Stand.
 - Lehnt das Cockpit ab:
   - "newer state": Ein anderer Stand dieses Laufs ist jünger, meist aus einer anderen Sitzung. `git pull
     --ff-only` im Workspace, `run_state show`, noch einmal melden. Hilft das nicht, den Grund nennen.
@@ -296,9 +315,11 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 - Ist eine gestellte Frage doch durch eine Regel entschieden, `questions withdraw` mit Herkunft und Text:
   die Frage verschwindet aus "Ausstehend", ihr Ergebnis steht unter "Entschieden" mit Herkunft und hält
   kein Gate an.
-- **Beantwortet wird im Cockpit.** Neue Fragen in der Sitzung nennen, committen, pushen und melden
-  (`report_migration`), dann auf das Blatt der Migration im Cockpit verweisen (Reiter "Entscheidungen",
-  Gruppe "Ausstehend"), mit dem Link aus `sheet`; nicht auf eine Antwort warten. Antwortet die Person trotzdem in der Sitzung, `questions answer` wie
+- **Beantwortet wird im Cockpit, wenn die Fragen dort stehen.** Neue Fragen in der Sitzung nennen,
+  committen, pushen und melden (`report_migration`). Erst nach `reported: true` auf das Blatt der
+  Migration im Cockpit verweisen (Reiter "Entscheidungen", Gruppe "Ausstehend"), mit dem Link aus `sheet`;
+  nicht auf eine Antwort warten. Ohne bestätigte Meldung die Fragen hier stellen (Abschnitt "Stand im
+  Cockpit"). Antwortet die Person trotzdem in der Sitzung, `questions answer` wie
   bisher, mit ihrem Namen.
 - Antworten aus dem Cockpit übernimmt der Start der Migration (`questions import`). Eine im Repo
   eingetragene Antwort gilt; eine spätere im Cockpit ändert sie nicht.
