@@ -3,9 +3,12 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
+import uuid
 from datetime import date
 from pathlib import Path
 from unittest import mock
@@ -296,22 +299,31 @@ class FakeBucket:
 
     Kein Test öffnet einen Socket. GET liest aus `objects`, POST schreibt
     hinein, und jeder Aufruf landet in `calls`, damit ein Test sieht, ob etwas
-    hochging.
+    hochging. Die volle Adresse samt Query steht in `urls`; der Schlüssel in
+    `calls` ist ohne sie, wie im Bucket. Ein Pfad in `failing_uploads`
+    antwortet auf POST mit HTTP 500.
     """
     URL = "https://bucket.test"
     PREFIX = f"{URL}/storage/v1/object/runs/"
 
-    def __init__(self, objects=None, get_status=None, get_body=b""):
+    def __init__(self, objects=None, get_status=None, get_body=b"",
+                 failing_uploads=()):
         self.objects = dict(objects or {})
         self.get_status = get_status
         self.get_body = get_body
+        self.failing_uploads = set(failing_uploads)
         self.calls = []
+        self.urls = []
 
     def urlopen(self, request, timeout=None):
-        key = request.full_url.removeprefix(self.PREFIX)
+        key = request.full_url.removeprefix(self.PREFIX).split("?", 1)[0]
         method = request.get_method()
         self.calls.append((method, key))
+        self.urls.append((method, request.full_url))
         if method == "POST":
+            if key in self.failing_uploads:
+                raise urllib.error.HTTPError(request.full_url, 500, "", {},
+                                             io.BytesIO(b""))
             self.objects[key] = request.data
             return _Response(b"{}")
         if self.get_status is None and key in self.objects:
@@ -499,6 +511,91 @@ class TestUpload(unittest.TestCase):
             self._publish(bucket, extra=("--visible",))
         self.assertIn("Zähler 7", str(raised.exception))
         self.assertEqual(bucket.uploads(), [])
+
+    def test_every_manifest_read_bypasses_the_cdn_cache(self):
+        # Das Smart CDN von Supabase lieferte am 16.10.2026 eine überschriebene
+        # Datei rund 50 Sekunden alt aus, mit eindeutigem cacheNonce sofort
+        # neu. Holen und Prüfen des Zählers brauchen je ein eigenes, sonst
+        # sieht die Prüfung den Zähler, den das Holen schon gesehen hat.
+        bucket = FakeBucket({MANIFEST_KEY: self.remote})
+        self.assertEqual(self._publish(bucket, extra=["--visible"]), 0)
+        reads = [full_url for method, full_url in bucket.urls if method == "GET"]
+        self.assertEqual(len(reads), 2)
+        nonces = []
+        for read in reads:
+            parts = urllib.parse.urlsplit(read)
+            self.assertEqual(parts.path, f"/storage/v1/object/runs/{MANIFEST_KEY}")
+            [nonce] = urllib.parse.parse_qs(parts.query)["cacheNonce"]
+            self.assertEqual(uuid.UUID(nonce).version, 4)
+            nonces.append(nonce)
+        self.assertNotEqual(nonces[0], nonces[1])
+
+    def test_fetch_manifest_for_release_bypasses_the_cdn_cache(self):
+        # `release` holt das Manifest über `fetch_manifest`. Kurz nach einem
+        # publish baute es sonst auf der alten Fassung auf und schriebe sie
+        # mit der Freigabe zurück: der eben hochgeladene Lauf wäre weg.
+        bucket = FakeBucket({MANIFEST_KEY: self.remote})
+        with mock.patch("urllib.request.urlopen", bucket.urlopen):
+            origin = publish.fetch_manifest(self.target, "beispielkunde",
+                                            FakeBucket.URL, "service-key")
+        self.assertEqual(origin, "remote")
+        [(method, full_url)] = bucket.urls
+        self.assertEqual(method, "GET")
+        self.assertIn("?cacheNonce=", full_url)
+
+    def test_the_manifest_goes_up_last(self):
+        # Nach Pfad sortiert ging brands/<slug>/manifest.json vor
+        # brands/<slug>/shops/… hoch, und das Cockpit sah den Lauf rund 15
+        # Sekunden, bevor seine Dateien im Bucket lagen.
+        bucket = FakeBucket({MANIFEST_KEY: self.remote})
+        self.assertEqual(self._publish(bucket, extra=["--visible"]), 0)
+        uploads = bucket.uploads()
+        self.assertEqual(uploads[-1], MANIFEST_KEY)
+        self.assertEqual(uploads.count(MANIFEST_KEY), 1)
+        self.assertTrue(any(key > MANIFEST_KEY for key in uploads[:-1]),
+                        "ohne Datei, die nach Pfad hinter dem Manifest liegt, "
+                        "prüft dieser Test nichts")
+
+    def test_a_failed_file_keeps_the_old_manifest_in_the_bucket(self):
+        # Ein Manifest, das auf eine fehlende Datei zeigt, zeigt den Lauf mit
+        # Lücke. Bleibt das alte, baut ein neuer Anlauf mit leerem Ziel darauf
+        # auf, und der Zähler passt noch.
+        run = manifest.path_for("beispielkunde", "beispielshop", self.run_id)
+        bucket = FakeBucket(failing_uploads={f"{run}/audit.pdf"})
+        self.assertEqual(self._publish(bucket), 1)
+        self.assertNotIn(MANIFEST_KEY, bucket.uploads())
+        self.assertNotIn(MANIFEST_KEY, bucket.objects)
+
+        bucket.failing_uploads.clear()
+        shutil.rmtree(self.target)
+        self.assertEqual(self._publish(bucket), 0)
+        self.assertEqual(bucket.uploads()[-1], MANIFEST_KEY)
+        self.assertEqual([r["run_id"] for r in bucket.manifest()["runs"]], [self.run_id])
+
+    def test_upload_reports_a_held_back_manifest(self):
+        root = Path(self.tmp.name) / "tree"
+        for rel in ("brands/beispielkunde/shops/beispielshop/runs/r/a.json",
+                    MANIFEST_KEY):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text("{}", encoding="utf-8")
+        bucket = FakeBucket(failing_uploads={
+            "brands/beispielkunde/shops/beispielshop/runs/r/a.json"})
+        with mock.patch("urllib.request.urlopen", bucket.urlopen):
+            result = publish.upload(root, FakeBucket.URL, "service-key")
+        self.assertEqual(result["uploaded"], 0)
+        self.assertEqual(len(result["errors"]), 2)
+        self.assertTrue(result["errors"][1].startswith(f"{MANIFEST_KEY}: nicht hochgeladen"))
+        self.assertEqual(bucket.uploads(),
+                         ["brands/beispielkunde/shops/beispielshop/runs/r/a.json"])
+
+
+class TestIsManifestKey(unittest.TestCase):
+    def test_only_the_manifest_at_the_root_of_a_brand(self):
+        self.assertTrue(publish.is_manifest_key(MANIFEST_KEY))
+        self.assertFalse(publish.is_manifest_key(
+            "brands/beispielkunde/shops/beispielshop/manifest.json"))
+        self.assertFalse(publish.is_manifest_key("brands/beispielkunde/measures.json"))
+        self.assertFalse(publish.is_manifest_key("manifest.json"))
 
 
 if __name__ == "__main__":

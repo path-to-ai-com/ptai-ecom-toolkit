@@ -62,6 +62,16 @@ Wurzel `revision`. Vor dem Hochladen holt `publish` das Manifest noch einmal
 aus dem Bucket: hat es sich seit dem Lesen geändert, bricht es ab, statt den
 Lauf eines anderen Stores aus dem Verzeichnis zu werfen.
 
+**Am Cache vorbei lesen, das Manifest zuletzt schreiben** (seit 16.10.2026).
+Der Bucket kommt über das Smart CDN von Supabase, auch mit dem Service-Key: eine
+überschriebene Datei kam vom Server des Cockpits aus noch rund 50 Sekunden in
+der alten Fassung. Jeder Abruf des Manifests trägt deshalb ein eigenes
+`cacheNonce`; sonst bauen `release` oder ein zweites `publish` innerhalb der
+Minute auf dem alten Manifest auf, und die Prüfung des Zählers sieht ebenfalls
+den alten Stand. Hochgeladen wird das Manifest nach allen anderen Dateien und
+nur, wenn keine davon scheiterte; vorher zeigte es rund 15 Sekunden lang auf
+Dateien, die noch nicht im Bucket lagen.
+
 CLI:
     python3 -m audit.publish --workspace . --run-id 2026-09-08-audit \\
         --target ~/tmp/bucket        # lokal, solange kein Bucket steht
@@ -75,6 +85,7 @@ import json
 import re
 import shutil
 import sys
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -205,6 +216,12 @@ def manifest_key(brand: str) -> str:
     `fetch_manifest()` schließt.
     """
     return f"brands/{brand}/manifest.json"
+
+
+def is_manifest_key(key: str) -> bool:
+    """Ob ein Pfad im Bucket das Manifest einer Brand ist, gleich welcher."""
+    parts = key.split("/")
+    return len(parts) == 3 and key == manifest_key(parts[1])
 
 
 def preview_slug(brand: str) -> str:
@@ -704,16 +721,26 @@ def upload(local_root, url: str, service_key: str, bucket: str = "runs") -> dict
 
     `x-upsert` ueberschreibt bestehende Objekte. Das ist gewollt: dieselbe
     Lauf-ID zweimal zu veroeffentlichen ist eine Korrektur.
+
+    Das Manifest geht als letzte Datei hoch, nach Lauf und Dateien der Marke:
+    erst mit ihm zeigt das Cockpit, was hochging. Nach Pfad sortiert lag es vor
+    `brands/<slug>/shops/…` und zeigte rund 15 Sekunden auf Dateien, die es im
+    Bucket noch nicht gab. Scheitert vorher eine Datei, bleibt das Manifest
+    liegen: im Bucket gilt weiter das alte, und ein neuer Anlauf mit leerem
+    Ziel baut darauf auf, statt eine Fassung mit Lücken zu korrigieren.
     """
     import urllib.error
     import urllib.request
 
     local_root = Path(local_root)
     uploaded, errors = 0, []
-    for path in sorted(local_root.rglob("*")):
-        if not path.is_file():
+    files = [(path.relative_to(local_root).as_posix(), path)
+             for path in local_root.rglob("*") if path.is_file()]
+    for rel, path in sorted(files, key=lambda item: (is_manifest_key(item[0]), item[0])):
+        if is_manifest_key(rel) and errors:
+            errors.append(f"{rel}: nicht hochgeladen, weil {len(errors)} Dateien "
+                          "davor scheiterten. Im Bucket gilt weiter das alte Manifest.")
             continue
-        rel = path.relative_to(local_root).as_posix()
         request = urllib.request.Request(
             f"{url.rstrip('/')}/storage/v1/object/{bucket}/{rel}",
             data=path.read_bytes(), method="POST",
@@ -741,13 +768,17 @@ def _download_manifest(brand: str, url: str, service_key: str,
 
     Jeder andere Fehler bricht ab: ein Manifest, das sich nicht lesen ließ, ist
     kein leeres.
+
+    Jeder Abruf trägt ein eigenes `cacheNonce`, damit er am Smart CDN vorbei
+    die Fassung von eben bekommt und nicht eine bis zu einer Minute alte.
     """
     import urllib.error
     import urllib.request
 
     object_key = manifest_key(brand)
     request = urllib.request.Request(
-        f"{url.rstrip('/')}/storage/v1/object/{bucket}/{object_key}",
+        f"{url.rstrip('/')}/storage/v1/object/{bucket}/{object_key}"
+        f"?cacheNonce={uuid.uuid4()}",
         headers={"Authorization": f"Bearer {service_key}",
                  "apikey": service_key})
     try:
