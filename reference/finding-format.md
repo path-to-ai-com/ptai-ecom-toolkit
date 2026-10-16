@@ -25,6 +25,7 @@ gezeigt.
 | `proof` | der Beleg aus Bausteinen: Bild, Handy-Ausschnitt, Kennzahl, Zitat, Liste, Tabelle, Verteilung |
 | `evidence_text` | der Beleg als Satz für den Kunden, mit den Zahlen, die ihn tragen; nie ein Pfad |
 | `decision` | zwei Wege mit Empfehlung |
+| `items` | Pfad der Liste der Einzelobjekte im Lauf, `items/<id>.csv` (seit 15.10.2026, nur voller Audit) |
 
 Der rohe Beleg `evidence` (`datei.json > pfad`) bleibt, wo er ist. Er ist für
 uns zum Nachprüfen und erscheint in keiner Ansicht für den Kunden.
@@ -161,7 +162,24 @@ Zusätzlich zu den Feldern von heute (`id`, `statement`, `metrics`,
 - `proof` mit Kennzahlen als `ref` auf `metrics`, mit Tabelle, Verteilung, Liste
   oder Zitat; Bilder als `capture` nur die Agents für Conversion, Content und
   Vertrauen;
-- `decision` nur bei zwei echten Wegen.
+- `decision` nur bei zwei echten Wegen;
+- `items`, wenn der Befund eine Menge von Einzelobjekten nennt (Seiten, Bilder, Links, Produkte, URLs).
+
+## `items`
+
+Die Liste, nicht nur die Zahl. Nennt ein Befund "37 Backlinks", muss die Marke
+wissen, welche; sonst ist die Maßnahme daraus nicht umsetzbar.
+
+- Datei `items/<id>.csv` im Lauf-Ordner, UTF-8 mit BOM, Kopfzeile, eine Zeile
+  je Objekt. Die Spalten kommen aus der Quelle (etwa `url_from`, `url_to`),
+  dahinter immer `checked_at` (Datum der Prüfung dieser Zeile, `YYYY-MM-DD`)
+  und `status` (`open` oder `done`). Nach einer Neuprüfung von Adressen
+  kommt `checked_status` dazu, der HTTP-Status dieser Prüfung.
+- Die Zahl der Zeilen ist die Zahl im Befund.
+- Erzeugt mit `python3 -m audit.readiness items`, neu geprüft mit
+  `python3 -m audit.readiness recheck`. Die Maßnahme trägt denselben Pfad in
+  `items`, in der Liste einer Marke je Store unter `by_shop.<store>`.
+- Die Liste geht mit dem Lauf 1:1 in den Bucket.
 
 Eine Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
 

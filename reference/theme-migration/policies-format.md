@@ -52,7 +52,7 @@ Ein Store braucht dafür weder den Ordner der Marke noch ein anderes Repo.
 | `rules[].rule` | `same_as_reference`, `open` oder `may_differ` |
 | `rules[].target` | Zielwert in Worten, erscheint im Cockpit als "bis zum Launch: …" |
 | `rules[].keep`, `rules[].drop` | Dienst-IDs wie in `apps.json` (`app:<handle>`), nur bei `same_as_reference`. Ein Eintrag darf eine Liste von Schreibweisen desselben Dienstes sein, etwa `["cookiefirst", "app:cookiefirst-cookie-consent"]`, weil die Inventare der Stores ihn verschieden benennen. Beim Behalten genügt eine vorhandene Schreibweise; fehlt jede, entsteht ein Punkt zum Einbauen |
-| `rules[].note` | Begründung oder offene Frage |
+| `rules[].note` | Begründung oder offene Frage, für den Betreiber und Claude. Im Cockpit erklärt sich eine offene Regel über ihre Frage in `policy_questions`, nicht über die Notiz |
 | `rules[].decided_by`, `rules[].decided_at` | optional: wer diese Regel entschieden hat und wann, gesetzt von `import` für eine Antwort aus dem Cockpit. Sie gehen statt der Angaben der Datei an die Entscheidungen im Lauf |
 | `rules[].modules` | optional, seit 0.3.16: Bausteine, mit denen ein Store die Regel im Theme umsetzt, je `{"name", "path", "description"}`. `name` steht im Cockpit an der Regel ("Baustein: <name>"), `description` (optional) sagt in einem Satz, was die Datei ist. `path` ist immer `policy-modules/<key>/<datei>`, auch mit Unterordnern, nie mit `..` oder Backslash; die Datei liegt im Ordner `policy-modules/` neben `policies.json`. Ein Baustein ist eine Vorlage mit Beschreibung (`README.md`), kein Code eines bestimmten Stores |
 
@@ -171,7 +171,21 @@ nichts geschrieben.
 
 Seit 0.3.15. Eine Vorgabe ohne Regel oder mit `rule: open` steht als Frage in `policy_questions` im Setup des
 Referenz-Stores (`reference/setup-format.md`). Das Cockpit zeigt sie im Setup auf der Karte "Vorgaben der Marke";
-entscheiden können alle Mitglieder der Marke und der Betreiber. Die Skill `theme-migration` holt die Antworten beim
+entscheiden können alle Mitglieder der Marke und der Betreiber.
+
+Seit 15.10.2026 Pflicht, geprüft von `publish` vor jedem Upload: Jede Regel mit `rule: open` hat eine Frage, und
+jede offene Regel und jede Frage findet mindestens eine Zeile im neuesten Setup eines Stores (über ihren `key`, die
+`app` der Frage oder `keep` und `drop`). Sonst zeigte das Blatt der Vorgabe im Cockpit nur die Notiz und keine
+Tabelle "In den Stores". Kein Text einer Frage verweist auf eine Zeile einer Tabelle ("Zeile 21"). Eine entschiedene
+Regel ohne Zeile meldet `publish` nur als Hinweis. Von Hand prüfen:
+
+```bash
+python3 -m theme.policies sheets --source <policies.json> --setup <setup.json des Referenz-Stores> \
+  [--setup <setup.json eines weiteren Stores> ...]
+```
+
+Eine Vorgabe, die zwei Dienste zusammenfasst, wird für die Frage in zwei Regeln geteilt: Eine Frage nennt genau eine
+`app`, und jede bekommt im Cockpit ihre eigene Entscheidung. Die Skill `theme-migration` holt die Antworten beim
 Start über das Werkzeug `get_setup` (`cockpit_answer` je Frage) und trägt sie ein:
 
 ```bash

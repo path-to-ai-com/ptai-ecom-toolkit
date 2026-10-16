@@ -68,6 +68,7 @@ Migration im Cockpit unter "Entscheidungen" bei "Entschieden", mit Herkunft; das
 | `status` | `open`, `answered` oder `withdrawn` |
 | `answer`, `answered_by`, `answered_at` | die Antwort, die Person und der Zeitpunkt |
 | `answered_via` | `cockpit` (übernommen mit `questions import`) oder `session` (`questions answer`); fehlt bei Antworten vor 0.3.14 und gilt dann als `session` |
+| `answered_role` | `operator`, wenn Path to AI im Cockpit geantwortet hat; fehlt sonst (seit 0.3.17) |
 | `withdrawn_at`, `ruled_id` | bei `withdrawn`: wann, und unter welchem Punkt in `ruled.json` das Ergebnis steht |
 
 Fragen aus älteren Läufen ohne `context`, `compare`, `other`, `reason` und `decider` bleiben lesbar; in
@@ -79,16 +80,23 @@ Das Werkzeug `get_migration` des Cockpits hängt an jede offene Frage `cockpit_a
 Eingabe für `questions import --file <datei>` (oder `--file -` für stdin):
 
 ```json
-[{"id": "Q-004", "value": "Vor der Abnahme", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}]
+[{"id": "Q-004", "value": "Vor der Abnahme", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"},
+ {"id": "Q-006", "value": "Nach der Abnahme", "by": "Pat Betreiber", "at": "2026-01-13T10:02:00+00:00", "role": "operator"}]
 ```
 
-Übernommen wird eine Antwort nur, wenn `by` in `theme_migration.people` steht, die Frage im Repo offen ist
-und die Antwort etwas entscheidet ("vorläufig" oder "später" nicht). Eine im Repo eingetragene Antwort
+`role` gibt das Cockpit an: `operator` heißt, Path to AI hat geantwortet. Die Frage trägt das dann als
+`answered_role: operator`, und `migration.json` gibt es unter `answer.role` an das Cockpit zurück, das die
+Antwort mit dem Kennzeichen "Path to AI" zeigt. Ohne `role` gilt die Antwort ebenso.
+
+Übernommen wird eine Antwort, wenn die Frage im Repo offen ist, `by` eine Person nennt (kein Sammelname wie
+"Team") und die Antwort etwas entscheidet ("vorläufig" oder "später" nicht). Wer antworten darf, regelt das
+Cockpit: die Mitglieder der Marke und Path to AI; `theme_migration.people` gilt nur für Antworten in der
+Sitzung (seit 0.3.17). Eine im Repo eingetragene Antwort
 gilt; eine spätere im Cockpit ändert sie nicht. Ausgabe:
 
 ```json
 {"imported": [{"id": "Q-004", "value": "Vor der Abnahme", "by": "Erika Muster", "at": "2026-01-13T09:12:00+00:00"}],
- "skipped": [{"id": "Q-005", "by": "Max Beispiel", "reason": "Max Beispiel steht nicht in theme_migration.people (Erika Muster)."}]}
+ "skipped": [{"id": "Q-005", "by": "Max Beispiel", "reason": "'Team' ist ein Sammelname. Eine Entscheidung trägt den Namen einer Person."}]}
 ```
 
 Exit 0, wenn alles übernommen ist, 1, wenn etwas übersprungen wurde, 2 bei einem Fehler (Datei fehlt, kein

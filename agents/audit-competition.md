@@ -35,6 +35,7 @@ Alle fünf normal lesen. Lange Listen sind schon gekappt und tragen einen `_trun
    - Fehlt eine Wettbewerbsdomain aus Frage 1 in `share_of_voice`, war sie im Lauf nicht konfiguriert. Als Lücke im Lauf benennen, nicht als 0 rechnen.
 3. **Linkprofil.** Quelle: `dfs-backlinks.json`.
    - Eigenes Profil aus `summary` (`backlinks`, `referring_domains`, `referring_main_domains`, `rank`, `broken_backlinks`).
+   - **Defekte Backlinks als Liste.** `broken_backlinks` an der Wurzel trägt jeden Backlink auf eine Seite, die nicht mehr funktioniert, mit Quelle (`url_from`), Ziel (`url_to`) und Status des Ziels (seit 15.10.2026). Ein Befund dazu bringt sie als `items/<befund-id>.csv` mit (`--source reporting/data/<run-id>/dfs-backlinks.json --key broken_backlinks`), und die Zahl im Befund ist die Zahl der Zeilen. Fehlt die Liste oder ist sie gekürzt (`broken_backlinks_truncated`), geht keine Zahl an die Marke; `fix` sagt dann nie "in der Linkdatenbank exportieren", die hat die Marke nicht.
    - Vergleich über `authority[]` (je Domain ein `rank`, die eigene mit `own: true`) und `spam_score[]`.
    - `summary_domains.dofollow_share`: Anteil verweisender Domains mit mindestens einem folgenden Link. **`domains_without_follow_data` nennt, für wie viele Domains die Angabe fehlt.** Ist die Zahl groß, ist der Anteil nicht belastbar; das gehört in den Befund.
    - Hoher `spam_score` der eigenen Domain: Befund mit sofortiger Handlung.
@@ -140,6 +141,21 @@ Vertrag: `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Vor dem ersten Bef
 - `url`: die betroffene Seite im Shop, nur `https`. Entfällt, wenn der Befund den ganzen Shop betrifft.
 - `proof`: Beleg aus Bausteinen. Eine Kennzahl als `{"type": "metric", "ref": <Index in metrics>}`, nie ein zweites Mal ausgeschrieben; keine Zahl der Aussage in anderer Rundung wiederholen. Typisch hier: `grid` für Sichtbarkeit je Wettbewerber und Plattform, `chips` für Begriffe, bei denen nur die anderen ranken.
 - `decision`: nur bei zwei echten, verschiedenen Wegen, mit `recommended` und `reason`. Phase 3 macht die empfohlene Option zur Maßnahme, das Portal zeigt die andere als Geprüfte Alternative.
+
+**Umsetzbar für die Marke** (seit 15.10.2026). Was die Marke selbst umsetzt, muss sie ohne Rückfrage umsetzen können; `publish` prüft das vor dem Hochladen (`scripts/audit/readiness.py`) und hält eine Maßnahme an, die es nicht ist. Anlass: drei freigegebene Maßnahmen aus einem Audit, keine ließ sich umsetzen.
+
+- **Belegt.** `confidence: "confirmed"` nur für einen reproduzierbaren Befund. Eine einzelne Aufnahme, ein einzelner Kaufweg oder ein Screenshot zeigen einen Fall, nicht jeden Besuch: `plausible`. Daraus wird keine Aufgabe der Marke, sondern ein Prüfschritt bei uns.
+- **Vollständig.** Nennt der Befund eine Menge von Einzelobjekten, die jemand einzeln anfassen muss (Seiten, Bilder, Links, Produkte, URLs), liegt die Liste als `items/<befund-id>.csv` im Lauf, und der Befund verweist darauf: `"items": "items/<befund-id>.csv"`. Phase 3 übernimmt den Verweis in die Maßnahme. Erzeugen aus dem Snapshot:
+
+  ```bash
+  PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.readiness items \
+    --run-dir reporting/runs/<run-id> --name <befund-id> \
+    --source reporting/data/<run-id>/<snapshot>.json --key <liste>
+  ```
+
+  Jede Zeile trägt das Datum ihrer Prüfung (`checked_at`) und ihren Stand (`status`). Die Zahl in `statement` und `metrics` ist die Zahl der Zeilen. Ist die Liste im Snapshot gekürzt (`<liste>_truncated: true`), verweigert der Befehl sie; dann nennt der Befund die Lücke, statt einer Zahl ohne Liste.
+- **Ohne unsere Werkzeuge.** `fix` nennt nur, was die Marke hat: Shopify-Admin, Theme, Search Console, Google Ads, GA4. Nie Linkdatenbank, DataForSEO, unser Crawl, Snapshot oder einen Dateinamen wie `crawl.json`. Was wir dort gefunden haben, geht als Liste mit.
+- **Gegen den Aufbau des Shops geprüft.** Ändert die Empfehlung ein Feld (Alt-Text, Metafeld, Tag, Produkttyp, Einstellung des Themes), vorher prüfen, ob Theme oder App das Feld anders nutzen: Steuerwerte im Feld (`catalog.json > summary.images_with_alt_control`, `alt_control_examples`), Verwendung im Theme-Code, wenn eine Theme-Sicherung vorliegt (`migration/snapshots/`). Fehlt beides in den Eingabedateien, sagt `fix`, was vor dem Ändern zu prüfen ist, und `confidence` bleibt `plausible`.
 
 **Keine Bilder.** Bild-Aufträge (`capture`) schreiben nur die Analysen Conversion, Content und Vertrauen, weil nur sie Screenshots lesen. Beleg hier: Kennzahl, Tabelle, Verteilung oder Liste.
 

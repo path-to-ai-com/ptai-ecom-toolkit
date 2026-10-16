@@ -5,7 +5,8 @@ Aufruf:
   catalog_build.py --pages <raw.json> [--collections <raw.json>] --out <dir>
 
 Liest die gesammelten GraphQL-Antwortseiten, die die Skill über
-`shopify store execute` geholt hat, und schreibt <out>/catalog.json.
+`shopify store execute` geholt hat, und schreibt <out>/catalog.json, dazu
+<out>/catalog-images.json mit jedem Bild ohne echten Alt-Text.
 
 Drei Regeln tragen dieses Script:
 
@@ -35,6 +36,14 @@ MAX_LIST = 200
 
 #: Obergrenze der Gruppenliste doppelter Beschreibungen, je Gruppe fünf Handles.
 MAX_GROUPS = 50
+
+#: Datei neben `catalog.json` mit jedem Bild ohne echten Alt-Text, ungekürzt.
+#: Aus ihr entsteht die Liste einer Maßnahme zu Alt-Texten (`audit.readiness
+#: items --key images`), und gegen eine frische Fassung prüft `recheck` sie neu.
+IMAGES_FILE = "catalog-images.json"
+
+#: Höchstzahl verschiedener Steuerwerte als Beispiel im Snapshot.
+MAX_CONTROL_EXAMPLES = 5
 
 #: Felder, die die Abfrage je Produkt liefern muss. Fehlt eins in **allen**
 #: Produkten, ist nicht der Katalog leer, sondern die Query unvollständig.
@@ -104,6 +113,26 @@ def _has_text(value) -> bool:
     return bool(str(value or "").strip())
 
 
+def is_alt_control(value) -> bool:
+    """Steuerwert eines Themes im Alt-Feld statt eines Alt-Texts?
+
+    Manche Themes lesen das Alt-Feld eines Produktbilds als Schalter, etwa
+    `#color_matt-silber`, um der Galerie zu sagen, zu welcher Farbe ein
+    Bild gehört. Für Screenreader und Bildersuche ist das kein Alt-Text, und
+    wer das Feld mit einer Beschreibung füllt, bricht den Farbfilter. Bis
+    15.10.2026 zählte der Snapshot solche Werte als Alt-Text; eine Maßnahme
+    "Alt-Texte ergänzen" ging so an die Marke, ohne dass jemand den Filter
+    sah. Erkannt am führenden `#`.
+    """
+    return str(value or "").strip().startswith("#")
+
+
+def _has_alt(image: dict) -> bool:
+    """Echter Alt-Text: Text vorhanden und kein Steuerwert."""
+    value = image.get("altText")
+    return _has_text(value) and not is_alt_control(value)
+
+
 def description_hash(text) -> str | None:
     """Fingerabdruck einer Produktbeschreibung, damit gleiche Texte zählbar
     werden, ohne dass der Text selbst in den Snapshot geht (Regel 1).
@@ -162,7 +191,13 @@ def flatten(product: dict) -> dict:
         "seo_title": _has_text(seo.get("title")),
         "seo_description": _has_text(seo.get("description")),
         "images": len(images),
-        "images_with_alt": sum(1 for image in images if _has_text(image.get("altText"))),
+        "images_with_alt": sum(1 for image in images if _has_alt(image)),
+        "images_with_alt_control": sum(1 for image in images if is_alt_control(image.get("altText"))),
+        # Jedes Bild ohne echten Alt-Text, für `catalog-images.json`, nicht für den Snapshot.
+        "images_without_alt": [
+            {"image_url": image.get("url"),
+             "alt_control": str(image.get("altText")).strip() if is_alt_control(image.get("altText")) else None}
+            for image in images if not _has_alt(image)],
         "variants": len(variants),
         "skus": sorted({str(v.get("sku")).strip() for v in variants if _has_text(v.get("sku"))}),
         "variants_without_sku": sum(1 for v in variants if not _has_text(v.get("sku"))),
@@ -213,6 +248,8 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
     missing_seo_title = [p for p in products if not p["seo_title"]]
     missing_seo_description = [p for p in products if not p["seo_description"]]
     missing_alt = [p for p in products if p["images"] and p["images_with_alt"] < p["images"]]
+    alt_control = [p for p in products if p.get("images_with_alt_control")]
+    images_with_alt_control = sum(p.get("images_with_alt_control", 0) for p in products)
     missing_image = [p for p in products if not p["images"]]
     missing_cost = [p for p in products if p["variants_without_cost"]]
 
@@ -246,6 +283,9 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
         # wäre.
         "share_images_with_alt": (round(images_with_alt / images_total, 4)
                                    if images_total else None),
+        # Steuerwerte im Alt-Feld zählen nicht als Alt-Text, sondern hier.
+        "images_with_alt_control": images_with_alt_control,
+        "products_with_alt_control": len(alt_control),
         "variants_total": variants_total,
         "variants_without_sku": sum(p["variants_without_sku"] for p in products),
         "variants_without_cost": sum(p["variants_without_cost"] for p in products),
@@ -263,12 +303,21 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
     result.update(_capped(missing_seo_title, "products_without_seo_title"))
     result.update(_capped(missing_seo_description, "products_without_seo_description"))
     result.update(_capped(missing_alt, "products_with_missing_alt"))
+    result.update(_capped(alt_control, "products_with_alt_control"))
+    result["alt_control_examples"] = alt_control_examples(products)
     result.update(_capped(missing_cost, "products_without_cost"))
     result.update(_capped(sold_out_rows, "products_sold_out"))
     result["products_index"] = products_index(products)
     result["duplicate_descriptions"] = [
         {"count": len(handles), "handles": handles[:5]} for handles in duplicate_groups[:MAX_GROUPS]]
     result["duplicate_descriptions_truncated"] = len(duplicate_groups) > MAX_GROUPS
+    if images_with_alt_control:
+        result["notes"].append(
+            f"{images_with_alt_control} Bilder bei {len(alt_control)} Produkten tragen im "
+            "Alt-Feld einen Steuerwert (beginnt mit #, etwa "
+            f"{result['alt_control_examples'][0]}). Sie zählen nicht als Alt-Text. Ein Theme "
+            "liest solche Werte, etwa für den Farbfilter der Galerie: vor jeder Empfehlung zu "
+            "Alt-Texten prüfen, wie das Theme das Feld nutzt.")
     # Spec Abschnitt 19: Marge nur, wenn `cost per item` gepflegt ist.
     #
     # Bis 07.09.2026 stand hier Gleichheit statt einer Schwelle. Ein Shop, bei
@@ -297,6 +346,29 @@ def build(products: list, collections: list, shape_notes: list | None = None) ->
     return result
 
 
+def alt_control_examples(products: list) -> list:
+    """Die häufigsten Steuerwerte im Alt-Feld, damit die Analyse sieht, wofür das Theme sie nutzt."""
+    counts: dict[str, int] = {}
+    for product in products:
+        for image in product.get("images_without_alt") or []:
+            if image.get("alt_control"):
+                counts[image["alt_control"]] = counts.get(image["alt_control"], 0) + 1
+    ranked = sorted(counts, key=lambda value: (-counts[value], value))
+    return ranked[:MAX_CONTROL_EXAMPLES]
+
+
+def image_items(products: list) -> dict:
+    """Jedes Bild ohne echten Alt-Text, ungekürzt, als Inhalt von `catalog-images.json`.
+
+    Ungekürzt, weil die Marke jedes Bild einzeln anfasst: die Liste einer
+    Maßnahme muss alle tragen. Kein Text außer Handle und Produkttitel.
+    """
+    return {"source": "catalogue",
+            "images": [{"handle": p.get("handle"), "product_title": p.get("title"), **image}
+                       for p in products for image in p.get("images_without_alt") or []],
+            "images_truncated": False}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Katalog-Snapshot aus den CLI-Rohseiten bauen.")
@@ -310,8 +382,8 @@ def main() -> None:
     collection_pages = (json.loads(Path(args.collections).read_text(encoding="utf-8"))
                         if args.collections else [])
     raw_products = products_from_pages(pages)
-    snapshot = build([flatten(p) for p in raw_products],
-                      collections_from_pages(collection_pages),
+    flat = [flatten(p) for p in raw_products]
+    snapshot = build(flat, collections_from_pages(collection_pages),
                       shape_notes=check_shape(raw_products))
 
     out = Path(args.out)
@@ -319,8 +391,11 @@ def main() -> None:
     path = out / "catalog.json"
     path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8")
+    (out / IMAGES_FILE).write_text(json.dumps(image_items(flat), ensure_ascii=False, indent=2) + "\n",
+                                   encoding="utf-8")
     print(f"Geschrieben: {path} ({snapshot['summary']['products_total']} Produkte, "
           f"{snapshot['summary']['variants_total']} Varianten)")
+    print(f"Geschrieben: {out / IMAGES_FILE} (Bilder ohne echten Alt-Text, ungekürzt)")
     for note in snapshot["notes"]:
         print(f"  Hinweis: {note}")
 

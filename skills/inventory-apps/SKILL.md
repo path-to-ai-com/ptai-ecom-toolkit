@@ -120,8 +120,13 @@ bei `appInstallations` beweist nichts. Jede Quelle hat im Ergebnis eine Abdeckun
 10. **Admin-Liste im Browser lesen:** Apps im Admin (Einstellungen > Apps) und Kundenereignisse (getrennte
     Pixel und ihr Inhalt stehen nur dort), im Browser der Person, die die Migration führt und im Admin
     angemeldet ist. Die Admin-API gibt beides einer fremden App nicht heraus. Nur so sind reine
-    Backend-Apps sichtbar. Geht das nicht (kein Browser, Konto ohne Recht auf Apps), die Liste bei der
-    Person anfordern; ohne sie steht die Quelle als `not_readable`.
+    Backend-Apps sichtbar. Bevor der Browser aufgeht, der Person in zwei Sätzen sagen, was Claude dort liest
+    und warum: "Ich lese im Shopify-Admin die installierten Apps und den Code eurer eigenen Pixel unter
+    Kundenereignisse. Shopify gibt beides über die Schnittstelle nur an die App heraus, der es gehört, deshalb
+    brauche ich dafür euren Admin im Browser; ich ändere dort nichts." Name und Kennung jedes eigenen Pixels
+    stehen schon im Mitschnitt (`webPixelsConfigList`, Typ `CUSTOM`); im Admin fehlt nur ihr Code. Geht das
+    nicht (kein Browser, Konto ohne Recht auf Apps), die Liste bei der Person anfordern; ohne sie steht die
+    Quelle als `not_readable`.
 
 11. **Jeden unbekannten Host auflösen.** Jede fremde Domain bekommt Anbieter und Zweck, recherchiert,
     nie weggelassen. Ein Host mit `unknown` blockiert Gate G1. Allgemein gültige Zuordnungen (öffentlicher

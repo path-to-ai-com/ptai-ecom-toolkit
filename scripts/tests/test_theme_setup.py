@@ -279,7 +279,7 @@ class FromShopTech(unittest.TestCase):
 
     def test_veroeffentlichte_sprachen_mit_der_hauptsprache_zuerst(self):
         languages = rows(build(), "languages")["languages"]
-        self.assertEqual(languages["value"], "de, en")
+        self.assertEqual(languages["value"], "Deutsch, Englisch")
         self.assertEqual(languages["note"], "1 Sprache nicht veröffentlicht")
 
     def test_maerkte_als_zahl_der_aktiven_ohne_vergleich(self):

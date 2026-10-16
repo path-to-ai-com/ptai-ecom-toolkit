@@ -5,6 +5,7 @@ stammt aus aufgezeichneten Produktiv-Antworten (Endpoint-Bewertung vom
 12.08.2026), die Werte hier sind neutral: die
 Aufnahmen selbst sind Kundendaten und gehören nicht in ein öffentliches Repo.
 """
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -690,3 +691,51 @@ class TestAnchors(unittest.TestCase):
         shaped = backlinks_pull.shape_anchors(many, META)
         self.assertEqual(len(shaped["anchors_top"]), backlinks_pull.MAX_ANCHORS)
         self.assertTrue(shaped["anchors_truncated"])
+
+
+def broken_link(i, **fields):
+    """Ein Item aus backlinks/backlinks/live in der Form der Doku, mit Feldern, die wir nicht behalten."""
+    return {"type": "backlink", "url_from": f"https://haendler{i}.example/laufrad",
+            "domain_from": f"haendler{i}.example", "url_to": f"https://beispielshop.example/alt-{i}",
+            "url_to_status_code": 404, "url_to_redirect_target": None, "anchor": "Laufrad",
+            "dofollow": True, "first_seen": "2025-03-18 04:06:51 +00:00",
+            "last_seen": "2026-10-01 00:00:00 +00:00", "domain_from_rank": 80,
+            "is_broken": True, "page_from_title": "Laufrad kaufen", **fields}
+
+
+class TestBrokenBacklinks(unittest.TestCase):
+    def test_every_broken_backlink_is_a_row_with_source_and_target(self):
+        shaped = backlinks_pull.shape_broken(backlink_block([broken_link(1), broken_link(2)]), META)
+        self.assertEqual(shaped["summary_broken"], {"total_count": 2, "returned": 2})
+        self.assertFalse(shaped["broken_backlinks_truncated"])
+        row = shaped["broken_backlinks"][0]
+        self.assertEqual(row["url_to"], "https://beispielshop.example/alt-1")
+        self.assertEqual(row["url_to_status_code"], 404)
+        self.assertEqual(set(row), set(backlinks_pull.BROKEN_FIELDS))
+
+    def test_fewer_rows_than_total_count_is_marked_truncated(self):
+        block = backlink_block([broken_link(1)])
+        block[0]["total_count"] = 1200
+        shaped = backlinks_pull.shape_broken(block, META)
+        self.assertTrue(shaped["broken_backlinks_truncated"])
+
+    def test_no_broken_backlinks_is_an_empty_list(self):
+        shaped = backlinks_pull.shape_broken(backlink_block([]), META)
+        self.assertEqual(shaped["broken_backlinks"], [])
+        self.assertFalse(shaped["broken_backlinks_truncated"])
+        self.assertEqual(backlinks_pull.shape_broken([], META)["broken_backlinks"], [])
+
+    def test_the_list_becomes_items_for_a_measure(self):
+        import tempfile
+        from audit import readiness
+        shaped = backlinks_pull.shape_broken(backlink_block([broken_link(1), broken_link(2)]), META)
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "dfs-backlinks.json"
+            source.write_text(json.dumps({"pulled_at": "2026-10-07T21:12:12+00:00", **shaped}),
+                              encoding="utf-8")
+            rows, day = readiness.items_from_snapshot(source, "broken_backlinks")
+            path = readiness.write_items(Path(tmp) / "run", "WBW-09", rows, checked_at=day)
+            items = readiness.read_items(path)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["checked_at"], "2026-10-07")
+        self.assertEqual(items[0]["status"], "open")

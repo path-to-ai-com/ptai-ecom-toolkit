@@ -1136,6 +1136,7 @@ with measures.locked(workspace):
             confidence=..., leverage=..., effort=..., responsible=...,
             data_source=..., check_rule=..., finding_ref=finding["id"],
             intent=..., effect=..., needs=..., evidence_text=...,
+            items=finding.get("items"), items_waiver=...,
             shop=shop, run_id=run_id, today=today)
     measures.save(workspace, backlog)
 ```
@@ -1159,6 +1160,7 @@ Feste Feldabbildung von Befund auf `create()`-Parameter:
 | `effort` | `effort` | unverändert übernommen |
 | `decision`, wenn vorhanden | `title`, `intent` | Die Maßnahme entsteht aus der empfohlenen Option `options[recommended]`: deren `title`, als Handlung umformuliert, wird `title`; deren `text` wird `intent`. Die andere Option wird keine Maßnahme; das Portal zeigt sie in der Herleitung als Geprüfte Alternative. Will der Kunde sie, stellt er eine Rückfrage. Festgelegt am 02.10.2026 (Portal-Spec `2026-10-02-finding-cards-design.md`, Abschnitt 9) |
 | `evidence_text`, wenn vorhanden | `evidence_text` | wörtlich übernommen. Befund und Maßnahme haben denselben Beleg-Satz; einen eigenen schreibt Phase 3 nur für einen Befund ohne |
+| `items`, wenn vorhanden | `items` | unverändert übernommen, etwa `items/WBW-09.csv`: die Liste der Einzelobjekte im Lauf. In der Liste einer Marke steht sie je Store unter `by_shop.<store>` |
 
 Parameter, die erst hier entstehen:
 
@@ -1167,6 +1169,7 @@ Parameter, die erst hier entstehen:
   - Rein geschäftliche Entscheidungen (Sortiment, Preis, Rückgabepolitik): `"Customer"`.
   - Fremdintegration (etwa ein Katalog-Feed aus einem ERP): `"Third Party"`.
   - Das ist eine Heuristik; passt sie im Einzelfall nicht, entscheidet die Sitzung nach Kontext.
+  - **`"Customer"` nur für eine umsetzbare Maßnahme** (seit 15.10.2026, geprüft vor `publish`, Abschnitt "Umsetzbar für die Marke"). Ist der Befund nicht `confirmed`, fehlt die Liste oder setzt die Empfehlung unsere Werkzeuge voraus, bleibt die Maßnahme bei `"Path to AI"`, als Prüfschritt formuliert ("Sprache der Kasse je Markt mit zwei Testkäufen prüfen"), bis sie belegt ist. Danach wechselt sie zur Marke.
   - **Der Auftragsumfang hat Vorrang vor der Disziplin.** Schließt der Auftrag eine Disziplin aus (etwa "Performance Marketing, Ads und Paid Social" im Angebot), bleiben ihre Maßnahmen für das Team relevant, liegen aber bei ihm: `"Customer"`, `intent` aus Sicht des Teams ("Ihr …"), und `needs` sagt in einem Satz, dass die Disziplin nicht Teil des Auftrags ist.
 - **`data_source`:** wo das Feld, das die Maßnahme ändert, gepflegt wird, genau benannt (etwa "Shopify-Theme", "Shopify-Produktverwaltung", "GA4/GTM-Property", "DNS/Sitemap"), nie pauschal "Shopify". Verhindert Arbeit, die beim nächsten Sync verloren geht (Spec Abschnitt 9, Beispiel mit einem Middleware-System).
 - **`check_rule`:** wie ein Folgelauf feststellt, ob die Maßnahme umgesetzt ist.
@@ -1174,6 +1177,7 @@ Parameter, die erst hier entstehen:
   - Lässt sich keine automatische Regel aus einem künftigen Snapshot-Feld formulieren: eine Frage an den Menschen, wörtlich als solche (etwa "Frage an den Kunden: ist die Rückgabepolitik seit dem Audit geändert worden?"), nie ein leerer Wert.
   - **Die Regel nennt den beobachtbaren Zustand, nie die Datei.** Sie steht im Kundendokument unter "Erledigt, wenn"; der Leser hat Fragen zu seinem Shop, nicht zu unseren Snapshots. Richtig: "Mehr als 100 verschiedene Seitentitel über die geprüften Seiten". Falsch: `"crawl.json: mehr als 100 verschiedene Title-Werte"`. Der Folgelauf weiß selbst, wo er nachsieht.
 - **`intent`, `effect`, `needs`, `evidence_text`:** die Erklärung für den Kunden, siehe nächster Abschnitt. Technisch freiwillig, damit ein Folgelauf über einen alten Backlog nicht bricht; `qa.py` warnt für jede Maßnahme, der sie fehlen.
+- **`items_waiver`:** nur, wenn eine Maßnahme eine Menge nennt und trotzdem keine Liste braucht, etwa eine Einstellung im Theme, die auf allen 3.000 Seiten wirkt. Ein Satz mit dem Grund. Nie, um eine fehlende Liste zu überspringen.
 - **`finding_ref`:** die Kennung des Befunds, aus dem die Maßnahme folgt, also `finding["id"]`.
   - Ohne sie zeigt der Report eine Handlung ohne Herkunft, und der Leser kann sie nicht beauftragen, weil er nicht sieht, was gemeint ist und wo es gefunden wurde.
   - Ohne `finding_ref` bleibt nur eine Maßnahme, die aus einer Lücke in der Datenlage folgt und keinen Befund am Shop hat.
@@ -1195,6 +1199,37 @@ Parameter, die erst hier entstehen:
 - Ist die Skill `workos:ecom-language` installiert, enthält sie diese Regeln samt Vokabular; ohne sie gelten die Regeln hier.
 - Die Maßnahme wiederholt den Befund nicht, sie baut auf ihm auf; der Befund steht im Portal über `finding_ref` direkt darüber.
 - **Die Felder sind kein zweiter Report.** Steht in `intent` derselbe Satz wie im `fix` des Befunds, fehlt der Mehrwert. Dann kommt in `intent` der genaue Weg, den wir gehen, und in `effect` die Folge für den Shop.
+
+### Umsetzbar für die Marke
+
+Seit 15.10.2026. Anlass: Eine Marke gab drei Maßnahmen aus einem Audit frei, ihr Claude sollte sie umsetzen, und keine ging. Eine beruhte auf einer einzigen Aufnahme der Kasse (Befund `plausible`), eine nannte 37 defekte Backlinks ohne Liste und verwies auf "die Linkdatenbank", eine hätte den Farbfilter der Galerie gebrochen, weil das Alt-Feld Steuerwerte des Themes trägt. Freigeben heißt nicht umsetzbar; die Arbeit dazwischen ist unsere.
+
+Jede anstehende Maßnahme der Marke (`responsible` `"Customer"` oder `"Third Party"`) ist:
+
+| Regel | Was gilt | Sonst |
+|---|---|---|
+| Belegt | Befund `confidence: "confirmed"`, ohne Befund die Maßnahme | bei `"Path to AI"` als Prüfschritt führen |
+| Vollständig | Nennen Maßnahme oder Befund eine Menge von Einzelobjekten ("37 Backlinks"), liegt die Liste als `items/<befund-id>.csv` im Lauf und steht in `items`. Jede Zeile trägt `checked_at` und `status`; die Zahl der Zeilen ist eine der genannten Zahlen | Liste erzeugen (`audit.readiness items`) oder den Grund in `items_waiver` |
+| Ohne unsere Werkzeuge | Empfehlung, `intent`, `needs` und `data_source` setzen keine Linkdatenbank, kein DataForSEO, keinen Crawl, keinen Snapshot voraus | das Ergebnis als Liste beilegen, die Empfehlung umschreiben |
+| Gegen den Shop geprüft | Eine Maßnahme zu Alt-Texten sagt, wie sie mit Steuerwerten im Alt-Feld umgeht, wenn der Katalog welche meldet | Theme prüfen, Empfehlung anpassen |
+
+**Nach Schritt 3, vor Phase 4:**
+
+```bash
+python3 -m audit.readiness check --workspace . --run-id <run-id>
+```
+
+- Rückgabewert ist die Zahl der Maßnahmen, die nicht umsetzbar sind. Jede einzeln beheben: Zuständigkeit, Liste, Empfehlung, nicht die Regel.
+- `publish` ruft dieselbe Prüfung über die ganze Liste auf und lädt nichts hoch, solange eine Maßnahme der Marke sie nicht besteht.
+- **Vor der Übergabe neu prüfen.** Eine Liste altert: acht Tage nach einem Audit leiteten fast vier von zehn defekten Backlinks schon weiter. `check` nennt eine Liste, die älter als sieben Tage ist, als Hinweis. Neu prüfen:
+
+  ```bash
+  python3 -m audit.readiness recheck --workspace . --measure M-016
+  python3 -m audit.readiness recheck --workspace . --measure M-019 \
+    --against reporting/data/<neu>/catalog-images.json --key images --match image_url
+  ```
+
+  Ohne `--against` ruft der Befehl die Adresse jeder Zeile ab (`url_to`, `url`, `page_url`): erledigt, wenn sie ohne Fehler antwortet. Mit `--against` gilt eine Zeile als erledigt, wenn sie im frischen Snapshot fehlt. Sind alle Zeilen erledigt, geht die Maßnahme nicht an die Marke, sondern wird als erledigt gemeldet. Die neue Fassung der Liste erreicht das Cockpit erst mit einem neuen `publish` des Laufs.
 
 ### Schritt 4: Priorisieren und schreiben
 

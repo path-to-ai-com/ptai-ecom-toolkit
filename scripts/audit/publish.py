@@ -32,11 +32,19 @@ dem Ordner der Marke oder einem Ordner direkt darin (`brand.policies_dir`).
 Sie gehen bei jedem publish mit, nicht nur mit `--brand-only`, weil jedes
 publish `files` im Manifest neu schreibt; sonst verschwänden sie dort mit dem
 nächsten Lauf. Vor dem Kopieren prüft `publish` ihr Format und dass jeder
-Baustein aus `modules` daneben liegt. Vor dem Kopieren prüft `publish` die Liste der Marke
+Baustein aus `modules` daneben liegt, dazu gegen das neueste Setup jedes Stores,
+dass das Cockpit jede offene Vorgabe erklärt und ihre Stores zeigt (`sheet_check`,
+seit 15.10.2026). Ein Setup, das hochgeht, prüft es gegen sein Format. Vor dem Kopieren prüft `publish` die Liste der Marke
 (`shops` und `by_shop` passen zusammen, jeder `finding_id` steht in seinem
 Lauf `finding_run`, wenn der Lauf hier liegt). Die Vorschau geht dann je Marke
 in eine eigene Testmarke `portal-test-<marke>` (D11), sonst überschrieben sich
 die Listen zweier Marken in `portal-test`.
+
+**Keine Aufgabe an die Marke, die nicht umsetzbar ist** (seit 15.10.2026).
+Vor jedem Lauf mit Befunden und vor `--brand-only` prüft `publish` jede
+anstehende Maßnahme der Marke: Befund belegt, Liste der Einzelobjekte im Lauf,
+Empfehlung ohne unsere Werkzeuge (`audit.readiness`). Wochenpuls, Migration
+und Setup ändern keine Maßnahme und laufen ohne diese Prüfung.
 
 **Das Manifest unter Sperre und mit Zähler** (D12). Lesen, Ändern und Schreiben
 des Manifests laufen unter der Sperre der Marke, und das Manifest trägt an der
@@ -274,8 +282,49 @@ def policy_problems(folder: Path) -> list[str]:
     return problems
 
 
-def _check_brand_files(workspace, config: dict, brand_reporting: Path) -> None:
-    """Bricht vor dem Kopieren ab, wenn die Liste oder die Vorgaben der Marke nicht passen."""
+def store_setups(brand_dir: Path, workspace: Path, current: Path | None = None) -> dict:
+    """Das neueste Setup je Store, als `shop` auf Inhalt.
+
+    Gesucht wird in jedem Ordner direkt im Ordner der Marke und im Workspace dieses Stores, je unter
+    `reporting/runs/<datum>-setup/setup.json`; es gilt der Lauf mit dem spätesten Namen. `current` ist das
+    Setup des Laufs, der gerade hochgeht, und gilt immer für seinen Store.
+    """
+    newest: dict = {}
+    folders = [child for child in sorted(brand_dir.iterdir())
+               if child.is_dir() and not child.name.startswith(".")]
+    for folder in [*folders, workspace]:
+        for path in (folder / "reporting" / "runs").glob("*-setup/setup.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            shop = data.get("shop") if isinstance(data, dict) else None
+            if shop and (shop not in newest or path.parent.name > newest[shop][0]):
+                newest[shop] = (path.parent.name, data)
+    if current is not None:
+        data = json.loads(current.read_text(encoding="utf-8"))
+        newest[data.get("shop")] = (current.parent.name, data)
+    return {shop: data for shop, (_run, data) in newest.items()}
+
+
+def sheet_check(folder: Path, brand_dir: Path, workspace: Path,
+                current_setup: Path | None = None) -> tuple[list, list]:
+    """Fehler und Hinweise zum Blatt jeder Vorgabe im Cockpit (`theme.policies.sheet_problems`)."""
+    from theme import policies
+    data = json.loads((folder / brand_mod.POLICIES_NAME).read_text(encoding="utf-8"))
+    setups = store_setups(brand_dir, workspace, current_setup)
+    reference = data.get("reference_shop")
+    return policies.sheet_problems(data, setups.get(reference),
+                                   [setup for shop, setup in setups.items() if shop != reference])
+
+
+def _check_brand_files(workspace, config: dict, brand_reporting: Path,
+                       current_setup: Path | None = None) -> None:
+    """Bricht vor dem Kopieren ab, wenn die Liste oder die Vorgaben der Marke nicht passen.
+
+    Zu den Vorgaben gehört, dass das Cockpit jede offene erklären kann (`sheet_check`). `current_setup` ist
+    `setup.json` des Laufs, der gerade hochgeht, falls er ein Setup ist.
+    """
     backlog = measures.peek(workspace)
     if not measures.is_v2(backlog):
         raise SystemExit(f"{brand_reporting / 'measures.json'} ist keine Liste im "
@@ -289,6 +338,32 @@ def _check_brand_files(workspace, config: dict, brand_reporting: Path) -> None:
     if problems:
         raise SystemExit("Die Vorgaben der Marke gelten so nicht, nichts kopiert:\n  "
                          + "\n  ".join(problems))
+    if folder is None:
+        return
+    problems, hints = sheet_check(folder, brand_reporting.parent, Path(workspace), current_setup)
+    for hint in hints:
+        print(f"Hinweis: {hint}", file=sys.stderr)
+    if problems:
+        raise SystemExit("Die Vorgaben der Marke wären im Cockpit nicht verständlich, nichts kopiert:\n  "
+                         + "\n  ".join(problems))
+
+
+def _check_readiness(workspace, config: dict) -> None:
+    """Bricht vor dem Kopieren ab, wenn eine Maßnahme der Marke nicht umsetzbar ist.
+
+    Belegt, vollständig, machbar (`audit.readiness`, seit 15.10.2026). Für
+    die Liste eines Stores wie für die einer Marke; eine Liste, die älter als
+    eine Woche ist, steht nur als Hinweis da.
+    """
+    from audit import readiness
+    reasons, hints = readiness.problems(measures.peek(workspace),
+                                        readiness.runs_resolver(workspace, config))
+    for hint in hints:
+        print(f"Hinweis: {hint}", file=sys.stderr)
+    if reasons:
+        raise SystemExit("Maßnahmen der Marke sind noch nicht umsetzbar, nichts kopiert. "
+                         "Einzeln prüfen mit python3 -m audit.readiness check:\n  "
+                         + "\n  ".join(reasons))
 
 
 def _load_manifest(target: Path, brand: str, config: dict) -> tuple[Path, dict, int | None]:
@@ -369,6 +444,16 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
         files = {single: (run_dir / single).stat().st_size}
         # Eine lebende Fassung: jede neue ersetzt die alte, statt v02, v03 zu öffnen.
         replace = True
+        if kind == "setup":
+            # Ein Setup entsteht auch von Hand; das Format gilt trotzdem, bevor es sofort sichtbar ist.
+            from theme import setup as setup_mod
+            try:
+                problems = setup_mod.validate(json.loads((run_dir / single).read_text(encoding="utf-8")))
+            except ValueError as exc:
+                problems = [f"{single} ist kein JSON ({exc})"]
+            if problems:
+                raise SystemExit(f"{single} in {run_id} gilt so nicht, nichts kopiert:\n  "
+                                 + "\n  ".join(problems))
     else:
         files = manifest.collect_files(run_dir)
     if not files:
@@ -382,7 +467,11 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
     # Liste der Marke, und die Kopie im Lauf zeigte einen halben Stand (D4).
     with brand_mod.lock(workspace):
         if brand_reporting is not None:
-            _check_brand_files(workspace, config, brand_reporting)
+            _check_brand_files(workspace, config, brand_reporting,
+                               run_dir / "setup.json" if kind == "setup" else None)
+        # Wochenpuls, Migration und Setup ändern keine Maßnahme.
+        if kind not in AUTO_RELEASED:
+            _check_readiness(workspace, config)
         backlog_dir = measures.file_path(workspace).parent
 
         # **Das Manifest wird vor dem Kopieren gelesen**, weil der Zielpfad an
@@ -505,6 +594,7 @@ def prepare_brand_only(workspace, target, account_slug: str | None = None) -> di
     brand, _shop = destination(config, account_slug)
     with brand_mod.lock(workspace):
         _check_brand_files(workspace, config, brand_reporting)
+        _check_readiness(workspace, config)
         manifest_path, manifest_data, base_revision = _load_manifest(target, brand, config)
         brand_files = _copy_brand_files(brand_reporting, target, brand)
         manifest_data["files"] = brand_files

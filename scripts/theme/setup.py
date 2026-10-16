@@ -57,6 +57,19 @@ TRACKERS = (
 )
 #: Kategorien aus `hosts.json`, die keine App sind: die Plattform selbst, Schriften und Bibliotheken.
 NOT_APP_CATEGORIES = ("shopify", "fonts", "cdn_library")
+#: Sprachen, wie der Shopify-Admin sie auf Deutsch nennt. Ein Kürzel ohne Eintrag bleibt stehen.
+LANGUAGE_NAMES = {
+    "de": "Deutsch", "en": "Englisch", "fr": "Französisch", "it": "Italienisch", "es": "Spanisch",
+    "nl": "Niederländisch", "pl": "Polnisch", "pt": "Portugiesisch", "da": "Dänisch", "sv": "Schwedisch",
+    "nb": "Norwegisch", "fi": "Finnisch", "cs": "Tschechisch", "de-CH": "Deutsch (Schweiz)",
+    "fr-CH": "Französisch (Schweiz)", "it-CH": "Italienisch (Schweiz)", "en-US": "Englisch (USA)",
+    "en-GB": "Englisch (Vereinigtes Königreich)",
+}
+
+
+def language_name(locale: str) -> str:
+    """Der Name einer Sprache für die Zeile Sprachen, sonst ihr Kürzel."""
+    return LANGUAGE_NAMES.get(locale, locale)
 
 
 class SetupError(ValueError):
@@ -308,7 +321,7 @@ def _languages_group(shop_tech: dict) -> dict:
                            key=lambda l: (not l.get("primary"), l["locale"]))
         hidden = len(locales) - len(published)
         rows.append({"key": "languages", "label": "Sprachen",
-                     "value": ", ".join(l["locale"] for l in published) or "keine veröffentlicht",
+                     "value": ", ".join(language_name(l["locale"]) for l in published) or "keine veröffentlicht",
                      "note": f"{_count(hidden, 'Sprache', 'Sprachen')} nicht veröffentlicht" if hidden else None})
     if _unread(shop_tech, "markets"):
         rows.append({"key": "markets", "label": "Märkte", "value": "nicht gelesen", "compare": False,

@@ -43,6 +43,8 @@ Aufruf:
     python3 -m theme.policies import --brand-workspace <ordner mit policies.json> --file <antworten.json | ->
         [--workspace <ws>]
     python3 -m theme.policies sync --file <ausgabe von get_policies | -> [--workspace <ws>]
+    python3 -m theme.policies sheets --source <policies.json> --setup <setup.json des Referenz-Stores>
+        [--setup <setup.json eines weiteren Stores> ...]
 """
 import argparse
 import json
@@ -153,6 +155,95 @@ def validate(data) -> list:
         if "modules" in rule:
             errors += _module_errors(rule.get("modules"), key if isinstance(key, str) else "", where)
     return errors
+
+
+#: Verweis auf eine Zeile einer Tabelle des Betreibers. Im Blatt einer Vorgabe versteht ihn niemand.
+INTERNAL_REFERENCE = re.compile(r"\bZeile \d+\b")
+
+
+def rows_of(key: str, app: str | None, entries: list) -> set:
+    """Die Zeilen im Setup, die das Cockpit einer Vorgabe zuordnet, wie `rowsOf` in `lib/brand-policies.ts`.
+
+    Gefunden wird über den Schlüssel der Regel, die App ihrer Frage und die Dienste aus `keep` und `drop`.
+    """
+    rows = {key}
+    if app:
+        rows.add(app)
+    for entry in entries:
+        for service in entry if isinstance(entry, list) else [entry]:
+            rows.add(service if service.startswith("app:") else f"app:{service}")
+    return rows
+
+
+def setup_row_keys(setup: dict) -> set:
+    """Die Schlüssel aller Zeilen eines Setups, über Live-Ansicht und Entwurf."""
+    keys = set()
+    for view in (setup.get("views") or {}).values():
+        for group in (view or {}).get("groups") or []:
+            for row in group.get("rows") or []:
+                if isinstance(row, dict) and row.get("key"):
+                    keys.add(row["key"])
+    return keys
+
+
+def sheet_problems(data: dict, reference_setup: dict | None, setups: list | None = None) -> tuple[list, list]:
+    """Was im Blatt einer Vorgabe im Cockpit fehlen würde, als Fehler und Hinweise.
+
+    Das Blatt zeigt je Vorgabe eine Erklärung, die Empfehlung und die Tabelle „In den Stores“. Die Erklärung
+    einer offenen Vorgabe kommt aus ihrer Frage in `policy_questions` im Setup des Referenz-Stores; fehlt die
+    Frage, zeigt das Cockpit die Notiz der Regel, und die ist für den Betreiber geschrieben. Die Tabelle findet
+    ihre Zeilen über `rows_of` in allen Setups der Marke; ohne Treffer fehlt sie. Anlass: Am 15.10.2026 zeigte
+    das Blatt einer offenen Vorgabe nur „Zeile 21, Rückfrage.“ aus der Tabelle des Betreibers und keine Stores.
+
+    Fehler gelten für offene Vorgaben und für Fragen, denn die entscheidet die Marke im Cockpit. Eine
+    entschiedene Regel ohne Zeile ist nur ein Hinweis: ihr Blatt zeigt dann Vorgabe und Entscheidung ohne
+    Tabelle, und davon gibt es heute viele. `setups` sind die Setups der übrigen Stores.
+    """
+    questions = {}
+    for question in (reference_setup or {}).get("policy_questions") or []:
+        if isinstance(question, dict) and question.get("key"):
+            questions[question["key"]] = question
+    rules = [rule for rule in data.get("rules") or [] if isinstance(rule, dict) and rule.get("key")]
+    open_rules = [rule for rule in rules if rule.get("rule") == "open"]
+    if reference_setup is None:
+        if not open_rules:
+            return [], []
+        return [f"Setup des Referenz-Stores {data.get('reference_shop')} nicht gefunden. Ohne es lässt sich nicht "
+                f"prüfen, ob das Cockpit die offenen Vorgaben erklärt: "
+                f"{', '.join(rule['key'] for rule in open_rules)}."], []
+    known = set()
+    for setup in [reference_setup, *(setups or [])]:
+        known |= setup_row_keys(setup)
+    problems, hints = [], []
+    unmatched_decided = []
+    for rule in rules:
+        key, subject = rule["key"], rule.get("subject") or rule["key"]
+        question = questions.get(key)
+        if rule.get("rule") == "open" and question is None:
+            problems.append(f"{subject} ({key}) ist offen, aber ohne Frage in policy_questions des Referenz-Stores. "
+                            f"Das Cockpit zeigte im Blatt nur die Notiz der Regel.")
+        rows = rows_of(key, (question or {}).get("app"), [*(rule.get("keep") or []), *(rule.get("drop") or [])])
+        if rows & known:
+            continue
+        if rule.get("rule") == "open":
+            problems.append(f"{subject} ({key}) hat keine Zeile im Setup der Stores (gesucht: "
+                            f"{', '.join(sorted(rows))}). Das Blatt zeigte keine Tabelle „In den Stores“.")
+        else:
+            unmatched_decided.append(key)
+    rule_keys = {rule["key"] for rule in rules}
+    for key, question in questions.items():
+        if key not in rule_keys and not rows_of(key, question.get("app"), []) & known:
+            problems.append(f"Frage {key} hat keine Zeile im Setup der Stores. Das Blatt zeigte keine Tabelle "
+                            f"„In den Stores“.")
+        for field in ("text", "context", "reason"):
+            match = INTERNAL_REFERENCE.search(str(question.get(field) or ""))
+            if match:
+                problems.append(f"Frage {key}: {field} verweist auf „{match.group(0)}“ einer Tabelle des Betreibers. "
+                                f"Im Cockpit versteht das niemand.")
+    if unmatched_decided:
+        hints.append(f"{len(unmatched_decided)} entschiedene Vorgaben ohne Zeile im Setup, ihr Blatt zeigt keine "
+                     f"Tabelle „In den Stores“: {', '.join(unmatched_decided)}.")
+    return problems, hints
 
 
 def module_path_problem(key: str, path) -> str | None:
@@ -717,14 +808,24 @@ def _read_json(path: str | None, what: str):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="theme.policies")
-    parser.add_argument("command", choices=("apply", "check", "import", "sync"))
+    parser.add_argument("command", choices=("apply", "check", "import", "sync", "sheets"))
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--source")
     parser.add_argument("--brand-workspace", help="Ordner mit policies.json der Marke (import)")
     parser.add_argument("--file", help="Antworten aus get_setup (import) oder Ausgabe von get_policies (sync) "
                                        "als JSON-Datei, - für stdin")
+    parser.add_argument("--setup", action="append", default=[],
+                        help="setup.json eines Stores (sheets), zuerst der Referenz-Store")
     args = parser.parse_args(argv)
     try:
+        if args.command == "sheets":
+            if not args.source or not args.setup:
+                raise PolicyError("sheets braucht --source und mindestens ein --setup (zuerst der Referenz-Store).")
+            setups = [_read_json(path, "einem Setup") for path in args.setup]
+            problems, hints = sheet_problems(load_source(args.source), setups[0], setups[1:])
+            print(json.dumps({"problems": problems, "hints": hints}, ensure_ascii=False))
+            # 1 heißt Befund: das Cockpit könnte mindestens eine offene Vorgabe nicht erklären.
+            return 1 if problems else 0
         if args.command == "import":
             if not args.brand_workspace:
                 raise PolicyError("--brand-workspace fehlt (Ordner mit policies.json der Marke).")

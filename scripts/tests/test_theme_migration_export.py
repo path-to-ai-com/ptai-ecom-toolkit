@@ -62,6 +62,14 @@ class QuestionsInExportTest(ExportWorkspace):
         self.assertEqual([q["id"] for q in data["questions"]], [second["id"]])
         self.assertEqual(data["ruled"], [{"id": "R-001", "text": "Kontaktformular wie heute", "source": "as_today"}])
 
+    def test_antwort_von_path_to_ai_traegt_ihre_rolle(self):
+        entry = self.ask()
+        questions.import_answers(self.ws, [{"id": entry["id"], "value": "wie heute", "by": "Pat Betreiber",
+                                            "at": "2026-01-13T09:12:00+00:00", "role": "operator"}])
+        self.assertEqual(self.export()["questions"][0]["answer"],
+                         {"value": "wie heute", "by": "Pat Betreiber", "at": "2026-01-13T09:12:00+00:00",
+                          "via": "cockpit", "role": "operator"})
+
     def test_alte_frage_ohne_neue_felder_wird_exportiert(self):
         write(questions.path(self.ws), {"questions": [
             {"id": "Q-001", "gate": "G1-decisions", "text": "Alte Frage?", "options": ["ja", "nein"],

@@ -48,8 +48,10 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   heute und Entwurf, wo es einen sichtbaren Unterschied gibt, und Empfehlung mit Grund (Abschnitt
   "Fragen an das Team"). Beantwortet werden sie im Cockpit; Claude stellt sie nicht in der Sitzung zur
   Antwort, sondern verweist auf das Blatt der Migration im Cockpit (Reiter "Entscheidungen", Gruppe
-  "Ausstehend"). Antworten trägt nur eine Person aus `theme_migration.people` ein; "Team", "vorläufig"
-  oder "später" ist keine Antwort, die Frage bleibt offen. Claude entscheidet nie an Stelle der Person.
+  "Ausstehend"). In der Sitzung trägt nur eine Person aus `theme_migration.people` eine Antwort ein; im
+  Cockpit antworten die Mitglieder der Marke und Path to AI, und jede dieser Antworten gilt. "Team",
+  "vorläufig" oder "später" ist keine Antwort, die Frage bleibt offen. Claude entscheidet nie an Stelle der
+  Person.
 - **Die Vorgaben der Marke gelten als entschieden.** Das Cockpit ist ihre einzige Quelle: beim Start der
   Migration holt `get_policies` die gültige Fassung, `policies sync` schreibt sie nach
   `migration/policies.json` und die Bausteine nach `migration/policy-modules/`, `policies apply` trägt sie
@@ -384,8 +386,8 @@ Phase 0.
    denn, die Person beantwortet die offenen Fragen hier in der Sitzung (`questions answer`).
 4. **Antworten übernehmen:** `get_migration` mit `brand` aus `portal.brand` und `shop` aus
    `portal.shop` aufrufen; fehlt einer der beiden, nennt `list_shops` des Cockpits die Slugs. Aus jeder
-   Frage mit `cockpit_answer` einen Eintrag `{"id", "value", "by", "at"}` bilden und alle zusammen
-   eintragen:
+   Frage mit `cockpit_answer` einen Eintrag `{"id", "value", "by", "at", "role"}` bilden (`role` nur, wenn
+   das Cockpit es angibt) und alle zusammen eintragen:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/bin/theme" questions import --file - <<'JSON'
@@ -394,8 +396,9 @@ Phase 0.
    ```
 
    Ausgabe: `imported` und `skipped` je mit Grund, Exit 1, wenn etwas übersprungen wurde. Eine
-   übersprungene Antwort bleibt offen; den Grund der Person nennen (etwa: Name nicht in
-   `theme_migration.people`). Jede übernommene Antwort als `answer` ins Journal, etwa "Q-004: Vor der
+   übersprungene Antwort bleibt offen; den Grund der Person nennen (etwa: Sammelname statt einer Person).
+   Eine Antwort von Path to AI (`role: operator`) gilt wie die der Marke; im Journal steht sie mit dem
+   Kennzeichen, etwa "Q-002: Vor der Abnahme, Pat Betreiber (Path to AI), im Cockpit". Jede übernommene Antwort als `answer` ins Journal, etwa "Q-004: Vor der
    Abnahme, Erika Muster, im Cockpit". Danach `run_state show`, damit `migration.json` die Antworten
    trägt.
 5. **Vorgaben der Marke übernehmen:** `get_policies` des Cockpits mit `brand` aus `portal.brand` (sonst
@@ -462,7 +465,11 @@ Bevor eine Sitzung endet, auch wenn sie an einer offenen Frage anhält:
 
 - `handover write` schreibt `migration/next.json` neu: `now` für den Kopf des Blatts im Cockpit
   ("Schritt 3 von 9: <now>"), `after` für den Text unter "Migration fortsetzen", `operator_tasks` für
-  das, was der Betreiber tun muss, bevor es weitergeht (ohne `--operator-task` nichts). Die Datei trägt den aktuellen Schritt; steht der Lauf später in einem anderen
+  das, was der Betreiber tun muss, bevor es weitergeht (ohne `--operator-task` nichts).
+- Was die Marke selbst liefern muss, ist keine Aufgabe des Betreibers: ein Konto bei einem Dienst der Marke
+  (etwa CookieFirst für die eigene Domain), eine Kennung, ein Zugang, eine Freigabe im eigenen Admin. Dafür
+  einen Punkt per `open_items add` mit `--owner` aus `theme_migration.people` anlegen und ihn in `after`
+  nennen. `--operator-task` nur für das, was Path to AI tun muss, etwa einen Baustein im Cockpit bereitstellen. Die Datei trägt den aktuellen Schritt; steht der Lauf später in einem anderen
   Schritt, gilt sie nicht mehr, und das Cockpit zeigt nur den Namen des Schritts.
 - `after` in der Sprache des Kunden, mit ihr und euch, jedes Fachwort erklärt, etwa: "Beantwortet
   die zwei Fragen im Cockpit und startet die Migration danach neu. Claude baut den Entwurf dann um und
@@ -729,9 +736,9 @@ der Betreiber." G4 entscheidet der Betreiber mit der Person der Marke in `theme-
   weiter; als `--operator-task` festhalten und weiterarbeiten.
 - **Ein Wert für einen Baustein fehlt** (etwa die Container-ID): nicht raten und nicht aus einem anderen
   Store übernehmen; Punkt `blocker` in der Liste und weiterbauen.
-- **`questions import` überspringt eine Antwort:** der Grund steht in `skipped`. Meist steht die Person
-  nicht in `theme_migration.people`. In der Sitzung klären, ob sie für die Marke entscheidet; erst nach
-  dem Ja eintragen und den Import wiederholen.
+- **`questions import` überspringt eine Antwort:** der Grund steht in `skipped`, etwa ein Sammelname oder
+  "später". Die Frage bleibt offen; die Person im Cockpit neu antworten lassen oder in der Sitzung
+  `questions answer` mit ihrem Namen.
 - **`run_state version` meldet ein älteres Plugin:** erst aktualisieren lassen, nicht mit der älteren
   Fassung weiterschreiben.
 - **`run_state` meldet eine andere Sitzung:** nur eine Sitzung je Lauf. Die andere schließen lassen;

@@ -35,7 +35,13 @@ def store(root: Path) -> Path:
 def setup_run(ws: Path, value: str) -> None:
     run = ws / "reporting" / "runs" / SETUP
     write(run / "state.json", {"run_id": SETUP, "cadence": "setup", "title": "Setup"})
-    write(run / "setup.json", {"schema": 1, "shop": "beispielshop", "value": value})
+    # Gültig nach `reference/setup-format.md`, sonst hält `publish` an; `source` trägt die Fassung.
+    write(run / "setup.json", {
+        "schema": 1, "shop": "beispielshop", "reference_shop": None, "collected_at": "2026-10-12T10:00:00+00:00",
+        "source": value, "automatic": False, "views": {"live": {
+            "theme": {"name": "Horizon", "version": None, "id": None},
+            "groups": [{"key": "theme", "label": "Theme", "rows": [
+                {"key": "theme", "label": "Theme", "value": "Horizon"}]}]}}})
 
 
 class RunKind(unittest.TestCase):
@@ -109,7 +115,7 @@ class SingleFileKinds(unittest.TestCase):
         self.assertEqual(entry["title"], "Setup")
         self.assertTrue(entry["released"])
         stored = json.loads((Path(second["path"]) / "setup.json").read_text(encoding="utf-8"))
-        self.assertEqual(stored["value"], "zweite")
+        self.assertEqual(stored["source"], "zweite")
 
     def test_eine_neue_migration_braucht_kein_visible(self):
         publish.prepare(self.ws, MIGRATION, self.bucket, today=date(2026, 10, 12))

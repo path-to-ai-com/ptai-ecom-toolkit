@@ -59,7 +59,7 @@ VERSION = 2
 
 #: Was je Store unter `by_shop.<shop>` steht. Alles andere gilt für die Maßnahme.
 SHOP_FIELDS = ("status", "history", "finding_run", "finding_id",
-               "evidence", "evidence_text")
+               "evidence", "evidence_text", "items")
 
 #: Sicherheit einer Maßnahme, geordnet nach fallender Verlässlichkeit.
 #: "hypothesis" entscheidet allein über `type`, siehe `create()`.
@@ -158,7 +158,9 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
            shop: str | None = None, run_id: str | None = None,
            finding_id: str | None = None,
            finding_run: str | None = None,
-           target_metric: str | None = None) -> dict:
+           target_metric: str | None = None,
+           items: str | None = None,
+           items_waiver: str | None = None) -> dict:
     """Legt eine neue Maßnahme an und gibt ein neues Dokument zurück.
 
     Validiert vollständig, bevor eine ID vergeben wird: eine abgelehnte
@@ -205,6 +207,12 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
     `gsc_clicks`). Der Wochenpuls nennt damit Maßnahmen als zeitlichen Bezug,
     später rechnet das Cockpit daraus die Wirkung. Ohne messbares Ziel bleibt es
     leer (Spec Wächter und Wirkung im Repo `ptai-portal`, Abschnitt 3.1).
+
+    `items` ist die Liste der Einzelobjekte im Lauf des Befunds, etwa
+    `items/WBW-09.csv`, je Store; `items_waiver` der Grund, warum eine
+    Maßnahme trotz genannter Menge keine braucht. Beide stehen nur, wenn sie
+    übergeben werden. Ob eine Maßnahme der Marke sie braucht, prüft
+    `audit.readiness` vor `publish` (seit 15.10.2026).
     """
     if not title:
         raise ValueError("titel darf nicht leer sein")
@@ -275,7 +283,9 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
                 "finding_id": finding or None,
                 "evidence": evidence,
                 "evidence_text": clean(evidence_text),
+                **({"items": clean(items)} if clean(items) else {}),
             }},
+            **({"items_waiver": clean(items_waiver)} if clean(items_waiver) else {}),
         })
         return {**backlog, "next_id": backlog["next_id"] + 1,
                 "measures": [*backlog["measures"], entry]}
@@ -298,6 +308,8 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
         "effect": clean(effect),
         "needs": clean(needs),
         "evidence_text": clean(evidence_text),
+        **({"items": clean(items)} if clean(items) else {}),
+        **({"items_waiver": clean(items_waiver)} if clean(items_waiver) else {}),
         # Eine Hypothese wird nie zur Maßnahme, sie wird zum Test.
         "type": "test" if confidence == "hypothesis" else "measure",
         "status": "open",

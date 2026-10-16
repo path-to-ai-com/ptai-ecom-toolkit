@@ -8,8 +8,8 @@ ein, oder die Entscheidung blieb "vorläufig", oder der Lauf stand still. Deshal
 - Eine Frage gehört zu genau einem Gate: G1 (Abstimmung), G2 (Zuordnung) oder G4 (Abnahme).
 - Höchstens zehn offene Fragen je Gate. Was vorentschieden ist (Vorgaben der Marke, feste Regeln), wird nicht
   gefragt.
-- Beantworten kann nur eine Person aus `theme_migration.people`. Ein Sammelname wie "Team" ist keine Person,
-  "vorläufig" oder "später" ist keine Antwort; die Frage bleibt dann offen und das Gate auch.
+- In der Sitzung beantworten kann nur eine Person aus `theme_migration.people`. Ein Sammelname wie "Team" ist
+  keine Person, "vorläufig" oder "später" ist keine Antwort; die Frage bleibt dann offen und das Gate auch.
 - `run_state gate` verweigert G1 und G2, solange eine Frage ihres Gates offen ist.
 
 Seit 0.3.14 beantwortet das Team die Fragen im Cockpit, nicht mehr in der Sitzung. Dort steht keine Sitzung
@@ -29,7 +29,10 @@ zieht `withdraw` sie zurück: Status `withdrawn`, und ihr Ergebnis steht als Pun
 Gate an.
 
 Die Antworten aus dem Cockpit holt die Skill beim Start über das Werkzeug `get_migration` des Cockpits und trägt
-sie mit `import` ein: nur, wenn die Person in `theme_migration.people` steht und die Frage im Repo noch offen ist.
+sie mit `import` ein, wenn die Frage im Repo noch offen ist. Wer im Cockpit antworten darf, regelt das Cockpit:
+die Mitglieder der Marke und Path to AI. Seine Antwort gilt, auch wenn die Person nicht in
+`theme_migration.people` steht (seit 0.3.17; vorher blieb am 15.10.2026 eine Antwort von Path to AI im Repo
+offen, während das Cockpit die Frage als entschieden zeigte).
 Eine im Repo eingetragene Antwort gilt; eine spätere im Cockpit ändert sie nicht. Was nicht übernommen wird,
 bleibt offen und steht mit Grund in der Ausgabe. Jede Antwort trägt, woher sie kam (`answered_via`: `session`
 oder `cockpit`).
@@ -253,14 +256,15 @@ def answer(workspace, question_id: str, by: str, text: str, now: datetime | None
 
 
 def import_answers(workspace, entries, now: datetime | None = None) -> dict:
-    """Trägt Antworten aus dem Cockpit ein, `[{"id", "value", "by", "at"}]` aus `get_migration`.
+    """Trägt Antworten aus dem Cockpit ein, `[{"id", "value", "by", "at", "role"}]` aus `get_migration`.
 
-    Übernommen wird nur, was eine Person aus `theme_migration.people` zu einer im Repo offenen Frage
-    entschieden hat. Alles andere bleibt, wie es ist, und steht mit Grund unter `skipped`.
+    Übernommen wird, was eine Person im Cockpit zu einer im Repo offenen Frage entschieden hat. Das Cockpit
+    lässt nur Mitglieder der Marke und Path to AI antworten und trägt ihren Namen ein; deshalb gilt hier nicht
+    `theme_migration.people`, nur ein Name muss da sein und darf kein Sammelname sein. Alles andere bleibt, wie
+    es ist, und steht mit Grund unter `skipped`.
     """
     if not isinstance(entries, list):
         raise QuestionError('Erwartet eine Liste [{"id", "value", "by", "at"}] aus get_migration.')
-    allowed = people(workspace)
     questions = load(workspace)
     by_id = {q["id"]: q for q in questions}
     imported, skipped = [], []
@@ -275,18 +279,20 @@ def import_answers(workspace, entries, now: datetime | None = None) -> dict:
             if found["status"] != "open":
                 raise QuestionError(_not_open(found))
             value = _decision(entry.get("value"))
-            if not allowed:
-                raise QuestionError("theme_migration.people ist leer; ohne die Personen, die entscheiden, wird "
-                                    "keine Antwort aus dem Cockpit übernommen.")
-            if by not in allowed:
-                raise QuestionError(f"{by or '(ohne Namen)'} steht nicht in theme_migration.people "
-                                    f"({', '.join(allowed)}).")
+            if not by:
+                raise QuestionError("Die Antwort aus dem Cockpit trägt keinen Namen.")
+            if GROUP_NAMES.search(by):
+                raise QuestionError(f"{by!r} ist ein Sammelname. Eine Entscheidung trägt den Namen einer Person.")
         except QuestionError as error:
             skipped.append({"id": question_id or None, "by": by or None, "reason": str(error)})
             continue
         found.update({"status": "answered", "answer": value, "answered_by": by,
                       "answered_at": _stamp(entry.get("at"), now), "answered_via": "cockpit"})
-        imported.append({"id": question_id, "value": value, "by": by, "at": found["answered_at"]})
+        item = {"id": question_id, "value": value, "by": by, "at": found["answered_at"]}
+        # Antwortet Path to AI, sagt das Cockpit es mit `role: operator`; die Herkunft bleibt an der Antwort.
+        if str(entry.get("role") or "").strip() == "operator":
+            found["answered_role"] = item["role"] = "operator"
+        imported.append(item)
     if imported:
         save(workspace, questions)
     return {"imported": imported, "skipped": skipped}

@@ -13,7 +13,8 @@ Abgrenzung zum Subagenten für SEO-Inhalte: **Er prüft, ob die Texte für die r
 
 Nur diese drei Dateien, jede über den vollen Pfad. Nie das Verzeichnis `reporting/data/<run-id>/` als Ganzes lesen.
 
-- `reporting/data/<run-id>/catalog.json` (Textlängen, SEO-Felder, Bilder, Alt-Texte, Collections)
+- `reporting/data/<run-id>/catalog.json` (Textlängen, SEO-Felder, Bilder, Alt-Texte, Steuerwerte im Alt-Feld, Collections)
+- `reporting/data/<run-id>/catalog-images.json` (jedes Bild ohne echten Alt-Text, nur als Quelle der Liste, nicht zum Lesen)
 - `reporting/data/<run-id>/crawl.json` (Titel, Beschreibungen, Textmenge, Bilder je Seite)
 - `reporting/runs/<run-id>/screens.json` (Index der Screenshots, **liegt in `runs/`, nicht in `data/`**)
 
@@ -47,7 +48,9 @@ Screenshots:
    - **Die Linse schreibt hier keine eigene Datei.** Du schreibst, nach dem Befund-Schema unten: `severity: crit` wird `hoch`, `warn` wird `mittel`, ein `ok`-Befund steht im Fließtext, nicht in der Befundliste.
 4. **Katalogzahlen zu den Linsenpunkten.** Die Linse prüft die Seitentypen aus dem Screenshot-Satz; du hast den vollständigen Katalog. Ihn zu ihren Punkten ergänzen, statt die Repräsentativität eines Bildes zu schätzen:
    - Punkt 3, Produkttexte: `catalog.json > summary` mit `products_total`, `products_without_description`, `products_without_seo_title` und `products_without_seo_description`. Die Linse sieht eine Produktseite, der Katalog zeigt, für wie viele der Befund gilt.
-   - Punkt 4, Bilder: `summary.images_total` gegen `images_without_alt`, dazu die Bildanzahl je Produkt. **Der Alt-Text ist hier eine Katalogzahl, kein Screenshot-Fund.** Anteile immer mit Zähler und Nenner ("37 von 842"), nie "viele".
+   - Punkt 4, Bilder: `summary.images_total` gegen `summary.images_with_alt`, dazu die Bildanzahl je Produkt. **Der Alt-Text ist hier eine Katalogzahl, kein Screenshot-Fund.** Anteile immer mit Zähler und Nenner ("37 von 842"), nie "viele".
+     - **Steuerwerte im Alt-Feld** (`summary.images_with_alt_control`, `products_with_alt_control`, `alt_control_examples`, seit 15.10.2026) sind weder Alt-Text noch Lücke: das Theme liest sie, meist für den Farbfilter der Galerie (`#color_…`). Wer sie mit einer Beschreibung überschreibt, bricht den Filter. Ist die Zahl größer null, nennt der Befund sie getrennt, und `fix` sagt, wie sie bleiben: Beschreibung nur für Bilder ohne Steuerwert, oder erst die Galerie im Theme auf eine andere Quelle umstellen. Am 15.10.2026 hätte eine Maßnahme ohne diese Unterscheidung bei einer Marke den Farbfilter gebrochen.
+     - Die Liste der Bilder ohne echten Alt-Text liegt ungekürzt in `catalog-images.json` (Schlüssel `images`, je Bild `handle`, `image_url`, `alt_control`). Ein Befund mit Zahl bringt sie als `items/<befund-id>.csv` mit (`--source reporting/data/<run-id>/catalog-images.json --key images`). Fehlt die Datei (Katalog von vor dem 15.10.2026), den Katalog neu ziehen, bevor eine Zahl an die Marke geht.
    - Punkt 1, Kategorieseite: `summary.collections_total` gegen `collections_without_description`. Eine Kategorieseite ohne eigenen Text verkauft nicht und erklärt das Sortiment nicht.
    - Punkt 5, ausverkaufte Artikel: **die Zahl allein ist kein Befund.** Ob ein nicht kaufbares Produkt fehlerhaft oder ausverkauft ist, weiß der Katalog nicht; das klärt `audit-commerce` mit der Verkaufshistorie. Deine Frage: Was bietet der Shop dem Kunden an dieser Stelle an?
 5. **Bewertungslage.** In diesem Ausbaustand nicht beantwortbar (siehe oben): `blocked_question`, kein Befund.
@@ -140,6 +143,21 @@ Vertrag: `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Vor dem ersten Bef
 - `url`: die betroffene Seite im Shop, nur `https`. Entfällt, wenn der Befund den ganzen Shop betrifft.
 - `proof`: Beleg aus Bausteinen. Eine Kennzahl als `{"type": "metric", "ref": <Index in metrics>}`, nie ein zweites Mal ausgeschrieben; keine Zahl der Aussage in anderer Rundung wiederholen. Typisch hier: ein `image` der Seite mit markierter Stelle, `quote` für einen Produkttext im Wortlaut, `rows` für betroffene Produkte.
 - `decision`: nur bei zwei echten, verschiedenen Wegen, mit `recommended` und `reason`. Phase 3 macht die empfohlene Option zur Maßnahme, das Portal zeigt die andere als Geprüfte Alternative.
+
+**Umsetzbar für die Marke** (seit 15.10.2026). Was die Marke selbst umsetzt, muss sie ohne Rückfrage umsetzen können; `publish` prüft das vor dem Hochladen (`scripts/audit/readiness.py`) und hält eine Maßnahme an, die es nicht ist. Anlass: drei freigegebene Maßnahmen aus einem Audit, keine ließ sich umsetzen.
+
+- **Belegt.** `confidence: "confirmed"` nur für einen reproduzierbaren Befund. Eine einzelne Aufnahme, ein einzelner Kaufweg oder ein Screenshot zeigen einen Fall, nicht jeden Besuch: `plausible`. Daraus wird keine Aufgabe der Marke, sondern ein Prüfschritt bei uns.
+- **Vollständig.** Nennt der Befund eine Menge von Einzelobjekten, die jemand einzeln anfassen muss (Seiten, Bilder, Links, Produkte, URLs), liegt die Liste als `items/<befund-id>.csv` im Lauf, und der Befund verweist darauf: `"items": "items/<befund-id>.csv"`. Phase 3 übernimmt den Verweis in die Maßnahme. Erzeugen aus dem Snapshot:
+
+  ```bash
+  PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.readiness items \
+    --run-dir reporting/runs/<run-id> --name <befund-id> \
+    --source reporting/data/<run-id>/<snapshot>.json --key <liste>
+  ```
+
+  Jede Zeile trägt das Datum ihrer Prüfung (`checked_at`) und ihren Stand (`status`). Die Zahl in `statement` und `metrics` ist die Zahl der Zeilen. Ist die Liste im Snapshot gekürzt (`<liste>_truncated: true`), verweigert der Befehl sie; dann nennt der Befund die Lücke, statt einer Zahl ohne Liste.
+- **Ohne unsere Werkzeuge.** `fix` nennt nur, was die Marke hat: Shopify-Admin, Theme, Search Console, Google Ads, GA4. Nie Linkdatenbank, DataForSEO, unser Crawl, Snapshot oder einen Dateinamen wie `crawl.json`. Was wir dort gefunden haben, geht als Liste mit.
+- **Gegen den Aufbau des Shops geprüft.** Ändert die Empfehlung ein Feld (Alt-Text, Metafeld, Tag, Produkttyp, Einstellung des Themes), vorher prüfen, ob Theme oder App das Feld anders nutzen: Steuerwerte im Feld (`catalog.json > summary.images_with_alt_control`, `alt_control_examples`), Verwendung im Theme-Code, wenn eine Theme-Sicherung vorliegt (`migration/snapshots/`). Fehlt beides in den Eingabedateien, sagt `fix`, was vor dem Ändern zu prüfen ist, und `confidence` bleibt `plausible`.
 
 **Bilder als Auftrag.** Zeigt ein Bild, was der Befund meint: einen `image`- oder `phone`-Baustein mit `capture`, `alt` und `title` schreiben, ohne `src`. Nach Phase 2 nimmt `shoot_proof.py` jedes Bild auf (Vertrag, Abschnitt "Aufnahme-Auftrag capture").
 

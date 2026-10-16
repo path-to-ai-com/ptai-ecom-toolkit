@@ -44,12 +44,13 @@ SNAPSHOT_NAMES = {
 #: Mit Sicherheitszuschlag, und der ist kein Aberglaube: die Preise haben eine
 #: Zeilenkomponente, und gemessen wurde an einer kleinen Domain mit 23
 #: verweisenden Domains. Ein Shop mit 40.000 Ranking-Keywords liefert mehr
-#: Zeilen und kostet mehr. `backlinks` deckt fünf Aufrufe ab, `dfs_rankings`
-#: zwei ohne und drei mit `--with-history`.
+#: Zeilen und kostet mehr. `backlinks` deckt sechs Aufrufe ab (seit
+#: 15.10.2026 mit der Liste der defekten Backlinks), `dfs_rankings` zwei ohne
+#: und drei mit `--with-history`.
 ESTIMATE_USD = {
     "dfs_rankings": 0.06,
     "dfs_keywords": 0.15,
-    "backlinks": 0.15,
+    "backlinks": 0.18,
     "competitors": 0.04,
     "shopping": 0.02,
 }

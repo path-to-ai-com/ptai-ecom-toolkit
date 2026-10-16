@@ -99,5 +99,10 @@ Werkzeug `get_setup` des Cockpits und trägt sie mit `theme.policies import` in 
 | `recommendation` | eine der `options`, oder `null` für ausdrücklich keine Empfehlung. Das Feld steht immer |
 | `reason` | der Grund der Empfehlung, ohne Empfehlung worauf es ankommt. Pflicht |
 
+Jede Regel mit `rule: open` in `policies.json` braucht hier eine Frage, und jede Frage eine Zeile im Setup eines
+Stores; `publish` prüft das vor jedem Upload (`reference/theme-migration/policies-format.md`, Abschnitt "Antworten
+aus dem Cockpit"). Ein Setup, das hochgeht, prüft `publish` außerdem gegen dieses Format, auch wenn es von Hand
+entstanden ist.
+
 `get_setup` hängt an jede Frage `cockpit_answer` (`{value, by, at}`, die neueste Antwort im Cockpit, oder `null`) und
 gibt Rückfragen dazu als `cockpit_questions` zurück. Beides steht nie in `setup.json`.

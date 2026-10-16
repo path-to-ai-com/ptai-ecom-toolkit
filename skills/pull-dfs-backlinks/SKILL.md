@@ -1,11 +1,11 @@
 ---
 name: pull-dfs-backlinks
-description: Zieht über DataForSEO das Backlinkprofil einer Domain (Bestand, verweisende Domains, Ankertexte) samt normalisiertem Autoritäts-Score und Toxizitäts-Score im Vergleich zu den Wettbewerbern und schreibt das Ergebnis als Snapshot. Einsetzen, wenn ein Audit den Baseline-Block SEO Sichtbarkeit braucht oder der Nutzer Stärke und Sauberkeit des Linkprofils wissen will. Jeder Aufruf kostet, Obergrenze aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
+description: Zieht über DataForSEO das Backlinkprofil einer Domain (Bestand, verweisende Domains, Ankertexte, die einzelnen Backlinks auf defekte Seiten) samt normalisiertem Autoritäts-Score und Toxizitäts-Score im Vergleich zu den Wettbewerbern und schreibt das Ergebnis als Snapshot. Einsetzen, wenn ein Audit den Baseline-Block SEO Sichtbarkeit braucht oder der Nutzer Stärke und Sauberkeit des Linkprofils wissen will. Jeder Aufruf kostet, Obergrenze aus config.json > dfs_budget_usd. Liest reporting/config.json und .env im Kunden-Workspace.
 ---
 
 # pull-dfs-backlinks: Linkprofil, Autorität und Toxizität
 
-Zieht das Backlinkprofil plus Autoritäts-Score und Toxizitäts-Score.
+Zieht das Backlinkprofil plus Autoritäts-Score und Toxizitäts-Score, dazu die Liste der Backlinks auf defekte Seiten.
 
 ## Kennzahlen
 
@@ -21,7 +21,7 @@ Zieht das Backlinkprofil plus Autoritäts-Score und Toxizitäts-Score.
 
 ## Endpunkte und Kosten
 
-Fünf Endpunkte, rund 0,12 USD.
+Sechs Endpunkte, rund 0,15 USD.
 
 | Teil | Endpunkt | Kosten | Wofür |
 |---|---|---:|---|
@@ -30,9 +30,23 @@ Fünf Endpunkte, rund 0,12 USD.
 | Anker | `backlinks/anchors/live` | 0,024 USD plus Zeilen | Ankertext-Verteilung |
 | Autorität | `backlinks/bulk_ranks/live` | 0,024 USD je 5 Domains | eigener Score gegen Wettbewerber |
 | Toxizität | `backlinks/bulk_spam_score/live` | 0,024 USD je 5 Domains | Disavow-Bedarf statt Linkaufbau |
+| Defekte Backlinks | `backlinks/backlinks/live`, `filters: ["is_broken", "=", true]`, `mode: as_is` | rund 0,03 USD für rund 50 Zeilen | die Liste zur Zahl `broken_backlinks`, je Link Quelle und Ziel |
 
 - Kadenz: quartalsweise.
-- Nur ein Fehler im Summary ist fatal. Scheitert einer der vier übrigen, wird der Snapshot ohne diesen Teil geschrieben.
+- Nur ein Fehler im Summary ist fatal. Scheitert einer der fünf übrigen, wird der Snapshot ohne diesen Teil geschrieben.
+
+## Die Liste, nicht nur die Zahl
+
+- Seit 15.10.2026. Vorher stand im Audit "37 Backlinks führen auf Seiten, die nicht mehr funktionieren", die Maßnahme ging an die Marke, und niemand dort wusste, welche davon. Die Liste lag nur in unserem Werkzeug.
+- Eine Maßnahme der Marke, die eine Menge nennt, braucht die Liste im Lauf; ohne sie bricht `publish` ab (`audit.readiness`). Aus diesem Snapshot entsteht sie mit:
+
+```bash
+PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.readiness items \
+  --run-dir reporting/runs/<run-id> --name <befund-id> \
+  --source reporting/data/<run-id>/dfs-backlinks.json --key broken_backlinks
+```
+
+- Jede Zeile trägt das Datum ihrer Prüfung (`checked_at`, aus `pulled_at`) und ihren Stand (`status`). Die Liste altert: acht Tage nach dem Audit leiteten fast vier von zehn schon weiter. Vor der Übergabe prüft `python3 -m audit.readiness recheck --measure <M-…>` jedes Ziel neu.
 
 ## Voraussetzungen
 
@@ -73,6 +87,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-dfs-backlinks/scripts/backlinks_pull.
   "anchors_top": [{"anchor", "backlinks", "referring_domains"}],
   "authority": [{"domain", "rank", "own"}],
   "spam_score": [{"domain", "spam_score", "own"}],
+  "summary_broken": {"total_count": 37, "returned": 37},
+  "broken_backlinks": [{"url_from", "domain_from", "url_to", "url_to_status_code",
+                        "url_to_redirect_target", "anchor", "dofollow",
+                        "first_seen", "last_seen", "domain_from_rank"}],
+  "broken_backlinks_truncated": false,
   "notes": []
 }
 ```
@@ -85,15 +104,17 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/pull-dfs-backlinks/scripts/backlinks_pull.
 - **Ohne verweisende Domains ist die Dofollow-Quote `null`**, nicht 0; eine 0 hieße "keine einzige folgt".
 - **Toxizitäts-Score: `null` = nicht gemessen, `0` = sauber.** Davon hängt ab, ob eine Disavow-Empfehlung in den Report kommt.
 - **Leeres Ergebnis ist ein Befund**, kein Fehler: Nullen plus Vermerk.
+- **`broken_backlinks` ist ungekürzt** bis zur Grenze der API (1.000 Zeilen). Nennt `total_count` mehr, steht `broken_backlinks_truncated` auf true, und `audit.readiness items` verweigert die Liste. `summary.broken_backlinks` bleibt die Zahl aus dem Profil; beide stammen aus verschiedenen Endpunkten und können um wenige Links abweichen.
+- **Einzelne Backlinks haben `dofollow`**, anders als die verweisenden Domains (siehe oben).
 
 ## Antwortformat (an echten Antworten geprüft)
 
-- `referring_domains`, `anchors`, `bulk_ranks` und `bulk_spam_score` liefern unter `result[0].items`; nur `summary` ist flach.
+- `referring_domains`, `anchors`, `bulk_ranks`, `bulk_spam_score` und `backlinks` liefern unter `result[0].items`; nur `summary` ist flach. `backlinks` nennt daneben `total_count`.
 - `_items()` liest genau diese Form. Keine Toleranz für eine zweite Form, sonst bleibt eine dritte unbemerkt.
 - **Autoritäts-Score läuft bis 1.000** (geprüft an zwei großen Vergleichsdomains, 680 und 812). Nicht als 0 bis 100 lesen.
 - **Alle übergebenen Domains kommen zurück** (drei von drei).
 - **Toxizitäts-Score ist eine ganze Zahl von 0 bis 100.**
-- Preis: **0,024 USD je Aufruf**, fünf Aufrufe rund 0,12 USD. `ESTIMATE_USD["backlinks"]` steht auf 0,15 inklusive Zuschlag.
+- Preis: **0,024 USD je Aufruf**, fünf Aufrufe rund 0,12 USD, dazu die defekten Backlinks mit Zeilenpreis (rund 0,03 USD für rund 50 Zeilen). `ESTIMATE_USD["backlinks"]` steht auf 0,18 inklusive Zuschlag.
 
 ## Prüfstand der Zahlen
 
@@ -120,5 +141,5 @@ Die Search-Console-API hat keinen Endpunkt für den Links-Bericht.
 | Fall | Verhalten |
 |---|---|
 | **Budgetdeckel erreicht** | Abbruch vor dem Aufruf, Quelle "nicht verfügbar". |
-| **Ein Teil scheitert** | Nur das Summary ist fatal; die übrigen vier hinterlassen eine Warnung und einen Snapshot ohne diesen Teil. |
+| **Ein Teil scheitert** | Nur das Summary ist fatal; die übrigen fünf hinterlassen eine Warnung und einen Snapshot ohne diesen Teil. Fehlt `broken_backlinks`, gibt es für eine Maßnahme zu defekten Backlinks keine Liste, und `publish` hält sie an. |
 | **Keine Wettbewerber in der Config** | Autorität und Toxizität nur für die eigene Domain; die Analyse behandelt sie als Wert ohne Maßstab. |

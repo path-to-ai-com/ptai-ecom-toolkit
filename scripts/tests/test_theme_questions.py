@@ -180,19 +180,38 @@ class ImportTest(PeopleWorkspace):
                          ("answered", "wie heute", "Erika Muster", "cockpit"))
         self.assertEqual(stored["answered_at"], "2026-01-13T09:12:00+00:00")
 
-    def test_person_ausserhalb_von_people_bleibt_offen_mit_grund(self):
+    def test_antwort_von_path_to_ai_gilt_auch_ausserhalb_von_people(self):
+        # Das Cockpit entscheidet, wer antworten darf; am 15.10.2026 blieb sonst eine Antwort von Path to AI offen.
         entry = self.ask()
-        result = questions.import_answers(self.ws, [{"id": entry["id"], "value": "wie heute", "by": "Gast Person"}])
-        self.assertEqual(result["imported"], [])
-        self.assertIn("theme_migration.people", result["skipped"][0]["reason"])
-        self.assertEqual(questions.load(self.ws)[0]["status"], "open")
+        result = questions.import_answers(self.ws, [{"id": entry["id"], "value": "Vor der Abnahme",
+                                                     "by": "Pat Betreiber", "at": self.AT}])
+        self.assertEqual(result["skipped"], [])
+        stored = questions.load(self.ws)[0]
+        self.assertEqual((stored["status"], stored["answered_by"], stored["answered_via"]),
+                         ("answered", "Pat Betreiber", "cockpit"))
+        self.assertNotIn("answered_role", stored)
 
-    def test_ohne_people_wird_nichts_uebernommen(self):
+    def test_rolle_operator_bleibt_an_der_antwort(self):
+        entry = self.ask()
+        result = questions.import_answers(self.ws, [{"id": entry["id"], "value": "Vor der Abnahme",
+                                                     "by": "Pat Betreiber", "at": self.AT, "role": "operator"}])
+        self.assertEqual(result["imported"][0]["role"], "operator")
+        self.assertEqual(questions.load(self.ws)[0]["answered_role"], "operator")
+
+    def test_ohne_people_wird_die_antwort_aus_dem_cockpit_uebernommen(self):
         entry = self.ask()
         write(self.ws / "reporting" / "config.json", {"theme_migration": {}})
         result = questions.import_answers(self.ws, [{"id": entry["id"], "value": "wie heute", "by": "Erika Muster"}])
+        self.assertEqual([i["id"] for i in result["imported"]], [entry["id"]])
+
+    def test_sammelname_oder_ohne_namen_bleibt_offen_mit_grund(self):
+        entry = self.ask()
+        result = questions.import_answers(self.ws, [{"id": entry["id"], "value": "wie heute", "by": "Team Nord"},
+                                                    {"id": entry["id"], "value": "wie heute", "by": ""}])
         self.assertEqual(result["imported"], [])
-        self.assertIn("leer", result["skipped"][0]["reason"])
+        self.assertIn("Sammelname", result["skipped"][0]["reason"])
+        self.assertIn("keinen Namen", result["skipped"][1]["reason"])
+        self.assertEqual(questions.load(self.ws)[0]["status"], "open")
 
     def test_im_repo_beantwortete_frage_behaelt_ihre_antwort(self):
         entry = self.ask()
@@ -229,7 +248,7 @@ class ImportTest(PeopleWorkspace):
         code, result = run(["import", "--workspace", str(self.ws), "--file", str(answers)])
         self.assertEqual(code, 0, result)
         self.assertEqual(result["imported"][0]["by"], "Erika Muster")
-        stdin = io.StringIO(json.dumps([{"id": second["id"], "value": "wie heute", "by": "Gast Person"}]))
+        stdin = io.StringIO(json.dumps([{"id": second["id"], "value": "wie heute", "by": "Team"}]))
         with mock.patch("sys.stdin", stdin):
             code, result = run(["import", "--workspace", str(self.ws), "--file", "-"])
         self.assertEqual(code, 1)

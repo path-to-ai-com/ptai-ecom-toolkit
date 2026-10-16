@@ -321,9 +321,17 @@ def _question(q: dict, people: list) -> dict:
         "recommendation": q.get("recommendation") or None, "reason": q.get("reason") or None,
         # Ohne eigene Angabe entscheidet jede Person aus theme_migration.people.
         "decider": q.get("decider") or people,
-        "answer": {"value": q.get("answer"), "by": q.get("answered_by"), "at": q.get("answered_at"),
-                   "via": q.get("answered_via") or "session"} if answered else None,
+        "answer": _answer(q) if answered else None,
     }
+
+
+def _answer(q: dict) -> dict:
+    """Die Antwort einer Frage; `role` nur, wenn Path to AI geantwortet hat (seit 0.3.17)."""
+    answer = {"value": q.get("answer"), "by": q.get("answered_by"), "at": q.get("answered_at"),
+              "via": q.get("answered_via") or "session"}
+    if q.get("answered_role") == "operator":
+        answer["role"] = "operator"
+    return answer
 
 
 def repo_name(workspace) -> str:

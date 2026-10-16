@@ -331,3 +331,55 @@ class TestSoldOut(unittest.TestCase):
         # Rohdaten aus einer Abfrage ohne availableForSale: None, nie 0.
         snapshot = catalog_build.build([catalog_build.flatten(product())], [])
         self.assertIsNone(snapshot["summary"]["products_sold_out"])
+
+
+class TestAltControl(unittest.TestCase):
+    """Steuerwerte eines Themes im Alt-Feld (#color_…) sind kein Alt-Text (seit 15.10.2026)."""
+
+    def setUp(self):
+        self.products = [
+            product("rad", images=(("a.jpg", "#color_matt-silber"), ("b.jpg", "Rad von vorn"),
+                                   ("c.jpg", None))),
+            product("helm", images=(("d.jpg", "#color_red"), ("e.jpg", " #color_red "))),
+            product("glocke", images=(("f.jpg", "Glocke"),)),
+        ]
+        self.flats = [catalog_build.flatten(p) for p in self.products]
+
+    def test_a_control_value_does_not_count_as_alt_text(self):
+        flat = self.flats[0]
+        self.assertEqual((flat["images"], flat["images_with_alt"], flat["images_with_alt_control"]),
+                         (3, 1, 1))
+        self.assertTrue(catalog_build.is_alt_control("#color_red"))
+        self.assertFalse(catalog_build.is_alt_control("Rad #1 von vorn"))
+
+    def test_count_and_affected_products_are_reported_separately(self):
+        built = catalog_build.build(self.flats, [])
+        summary = built["summary"]
+        self.assertEqual(summary["images_with_alt"], 2)
+        self.assertEqual(summary["images_with_alt_control"], 3)
+        self.assertEqual(summary["products_with_alt_control"], 2)
+        self.assertEqual(built["products_with_alt_control"], ["rad", "helm"])
+        self.assertFalse(built["products_with_alt_control_truncated"])
+        self.assertEqual(built["alt_control_examples"], ["#color_red", "#color_matt-silber"])
+        self.assertIn("Farbfilter", " ".join(built["notes"]))
+        # Die Bildliste gehört nicht in den Snapshot, nur in catalog-images.json.
+        self.assertNotIn("images_without_alt", json.dumps(built))
+
+    def test_products_with_only_control_values_miss_alt(self):
+        built = catalog_build.build(self.flats, [])
+        self.assertIn("helm", built["products_with_missing_alt"])
+
+    def test_without_control_values_no_note(self):
+        built = catalog_build.build([catalog_build.flatten(product())], [])
+        self.assertEqual(built["summary"]["images_with_alt_control"], 0)
+        self.assertEqual(built["alt_control_examples"], [])
+        self.assertNotIn("Steuerwert", " ".join(built["notes"]))
+
+    def test_every_image_without_real_alt_text_is_listed_uncut(self):
+        items = catalog_build.image_items(self.flats)
+        self.assertFalse(items["images_truncated"])
+        self.assertEqual([i["image_url"] for i in items["images"]], ["a.jpg", "c.jpg", "d.jpg", "e.jpg"])
+        self.assertEqual(items["images"][0], {"handle": "rad", "product_title": "RAD",
+                                              "image_url": "a.jpg",
+                                              "alt_control": "#color_matt-silber"})
+        self.assertIsNone(items["images"][1]["alt_control"])

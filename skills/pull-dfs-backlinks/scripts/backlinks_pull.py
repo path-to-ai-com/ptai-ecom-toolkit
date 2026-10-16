@@ -6,7 +6,14 @@ Aufruf:
       --out ... --run-id ... --run-date ... --account-slug ... --budget-cap ... \
       --location-code <code> --language-code <lang> [--sandbox]
 
-Schreibt <out>/dfs-backlinks.json aus fünf Endpunkten.
+Schreibt <out>/dfs-backlinks.json aus sechs Endpunkten.
+
+**Die Liste, nicht nur die Zahl.** Seit 15.10.2026 holt der Pull auch die
+Backlinks auf Seiten, die nicht mehr funktionieren, einzeln
+(`backlinks/backlinks/live`, `is_broken`). Vorher stand im Audit "37 defekte
+Backlinks", und die Marke wusste nicht, welche; die Liste lag nur in unserem
+Werkzeug. Sie geht als `items/<befund>.csv` an die Maßnahme
+(`audit.readiness items`).
 
 **Der Benchmark gegen Semrush und Ahrefs hat hier eine Lücke benannt**
 (Endpoint-Bewertung vom 12.08.2026): rohe Backlink-Zahlen sagen wenig, den
@@ -39,6 +46,11 @@ ENDPOINT_ANCHORS = "backlinks/anchors/live"
 #: (0 bis 100). Beide nehmen bis zu fünf Ziele je Aufruf.
 ENDPOINT_RANKS = "backlinks/bulk_ranks/live"
 ENDPOINT_SPAM = "backlinks/bulk_spam_score/live"
+
+#: Einzelne Backlinks, gefiltert auf die, deren Ziel nicht mehr funktioniert.
+#: `mode: as_is` liefert jeden Link, nicht einen je Domain. Am 15.10.2026 für
+#: einen Shop mit rund 50 defekten Backlinks rund 0,03 USD.
+ENDPOINT_BROKEN = "backlinks/backlinks/live"
 
 MAX_DOMAINS = 200
 MAX_ANCHORS = 200
@@ -180,6 +192,31 @@ def shape_spam(rows: list, meta: dict) -> dict:
         for entry in _items(rows)]}
 
 
+#: Felder je defektem Backlink: woher, wohin, was das Ziel heute liefert.
+BROKEN_FIELDS = ("url_from", "domain_from", "url_to", "url_to_status_code",
+                 "url_to_redirect_target", "anchor", "dofollow", "first_seen", "last_seen",
+                 "domain_from_rank")
+
+
+def shape_broken(rows: list, meta: dict) -> dict:
+    """Die Backlinks auf defekte Seiten, ungekürzt bis zur Grenze der API.
+
+    Ungekürzt, weil die Marke jeden einzelnen umleiten muss: eine Liste, die
+    nicht alles trägt, ist für sie dieselbe Frage wie gar keine. Liefert die
+    API weniger, als `total_count` nennt, steht `broken_backlinks_truncated`
+    auf true, und `audit.readiness items` verweigert die Liste.
+    """
+    block = rows[0] if rows and isinstance(rows[0], dict) else {}
+    entries = block.get("items") or []
+    total = block.get("total_count")
+    return {
+        "summary_broken": {"total_count": total, "returned": len(entries)},
+        "broken_backlinks": [{field: row.get(field) for field in BROKEN_FIELDS}
+                             for row in entries if isinstance(row, dict)],
+        "broken_backlinks_truncated": bool(total is not None and total > len(entries)),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backlinkprofil als Snapshot ziehen.")
     parser.add_argument("--target", required=True, help="Domain ohne Protokoll")
@@ -210,6 +247,8 @@ def main() -> None:
         (ENDPOINT_ANCHORS, {**base_task, "limit": API_LIMIT}, shape_anchors, True, False),
         (ENDPOINT_RANKS, {"targets": targets}, with_target(shape_ranks), True, False),
         (ENDPOINT_SPAM, {"targets": targets}, with_target(shape_spam), True, False),
+        (ENDPOINT_BROKEN, {**base_task, "mode": "as_is", "limit": API_LIMIT,
+                           "filters": ["is_broken", "=", True]}, shape_broken, True, False),
     )
     written = None
     for endpoint, task, shaper, merge, required in steps:

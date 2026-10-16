@@ -713,5 +713,95 @@ class ValidateModules(unittest.TestCase):
         module = {"name": "Banner A", "path": "policy-modules/cookie_banner/a.md", "description": None}
         self.assertEqual(self.errors([module]), [])
 
+
+def setup_with(rows: list, shop: str = "beispielshop", questions: list | None = None) -> dict:
+    """Ein erfundenes Setup mit diesen Zeilen in der Live-Ansicht."""
+    data = {"schema": 1, "shop": shop, "reference_shop": "beispielshop", "views": {"live": {
+        "theme": {"name": "Horizon", "version": None, "id": None},
+        "groups": [{"key": "apps", "label": "Apps im Theme", "rows": [
+            {"key": key, "label": key, "value": "eingebunden"} for key in rows]}]}}}
+    if questions is not None:
+        data["policy_questions"] = questions
+    return data
+
+
+def question(key: str, app: str | None = None, **changes) -> dict:
+    data = {"key": key, "subject": key, "app": app, "text": f"{key}: in allen Stores wie im Beispielshop?",
+            "context": f"{key} ist heute nur im Beispielshop eingebunden.", "options": OPTIONS,
+            "recommendation": OPTIONS[0], "reason": "In den anderen Stores wäre es eine neue Funktion."}
+    data.update(changes)
+    return data
+
+
+class SheetProblems(unittest.TestCase):
+    """Seit 15.10.2026: Das Blatt jeder offenen Vorgabe im Cockpit hat Erklärung und Tabelle „In den Stores“."""
+
+    def test_offene_vorgabe_mit_frage_und_zeile_gilt(self):
+        data = source(rules=[{"key": "search", "subject": "Suche", "rule": "open"}])
+        reference = setup_with(["app:suche"], questions=[question("search", "app:suche")])
+        self.assertEqual(policies.sheet_problems(data, reference), ([], []))
+
+    def test_offene_vorgabe_ohne_frage_haelt_an(self):
+        data = source(rules=[{"key": "search", "subject": "Suche", "rule": "open", "note": "Zeile 21, Rückfrage."}])
+        problems, _hints = policies.sheet_problems(data, setup_with(["search"], questions=[]))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("ohne Frage", problems[0])
+
+    def test_offene_vorgabe_ohne_zeile_in_keinem_store_haelt_an(self):
+        data = source(rules=[{"key": "search_and_ugc", "subject": "Suche, UGC", "rule": "open"}])
+        reference = setup_with(["app:suche"], questions=[question("search_and_ugc")])
+        problems, _hints = policies.sheet_problems(data, reference)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("keine Zeile", problems[0])
+
+    def test_zeile_in_einem_anderen_store_genuegt(self):
+        data = source(rules=[{"key": "quiz", "subject": "Quiz", "rule": "open"}])
+        reference = setup_with([], questions=[question("quiz", "app:quiz")])
+        other = setup_with(["app:quiz"], shop="zweitshop")
+        self.assertEqual(policies.sheet_problems(data, reference, [other]), ([], []))
+
+    def test_verweis_auf_eine_tabellenzeile_haelt_an(self):
+        data = source(rules=[{"key": "search", "subject": "Suche", "rule": "open"}])
+        reference = setup_with(["app:suche"], questions=[question("search", "app:suche", context="Zeile 21.")])
+        problems, _hints = policies.sheet_problems(data, reference)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Zeile 21", problems[0])
+
+    def test_frage_ohne_regel_braucht_eine_zeile(self):
+        data = source(rules=[{"key": "languages", "subject": "Sprachen", "rule": "may_differ"}])
+        problems, _hints = policies.sheet_problems(
+            data, setup_with(["languages"], questions=[question("bundles", "app:bundles")]))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("bundles", problems[0])
+
+    def test_entschiedene_vorgabe_ohne_zeile_ist_nur_ein_hinweis(self):
+        problems, hints = policies.sheet_problems(source(), setup_with(
+            ["app:banner-a", "languages", "app:t"], questions=[question("translation", "app:t")]))
+        self.assertEqual(problems, [])
+        self.assertEqual(hints, [])
+        problems, hints = policies.sheet_problems(source(), setup_with(
+            ["app:t"], questions=[question("translation", "app:t")]))
+        self.assertEqual(problems, [])
+        self.assertIn("cookie_banner, languages", hints[0])
+
+    def test_ohne_setup_des_referenz_stores_halten_nur_offene_vorgaben_an(self):
+        problems, _hints = policies.sheet_problems(source(), None)
+        self.assertIn("nicht gefunden", problems[0])
+        decided = source(rules=[{"key": "languages", "subject": "Sprachen", "rule": "may_differ"}])
+        self.assertEqual(policies.sheet_problems(decided, None), ([], []))
+
+    def test_cli_sheets_meldet_befund_mit_exit_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            write(folder / "policies.json", source())
+            write(folder / "setup.json", setup_with(["app:banner-a"], questions=[]))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = policies.main(["sheets", "--source", str(folder / "policies.json"),
+                                      "--setup", str(folder / "setup.json")])
+        self.assertEqual(code, 1)
+        self.assertIn("translation", json.loads(out.getvalue())["problems"][0])
+
+
 if __name__ == "__main__":
     unittest.main()

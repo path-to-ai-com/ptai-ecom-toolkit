@@ -63,7 +63,7 @@ Holt den Produktkatalog über die Shopify CLI und berechnet einen aggregierten S
      --out "reporting/data/<run-id>"
    ```
 
-6. Melden: Produkte, Varianten, Anteil mit vollständigen SEO-Feldern, Anteil Bilder mit Alt-Text, jeden Hinweis aus `notes` wörtlich.
+6. Melden: Produkte, Varianten, Anteil mit vollständigen SEO-Feldern, Anteil Bilder mit Alt-Text, Bilder mit Steuerwert im Alt-Feld, jeden Hinweis aus `notes` wörtlich.
 
 ## Feldnamen vor dem ersten Lauf prüfen
 
@@ -89,6 +89,7 @@ Holt den Produktkatalog über die Shopify CLI und berechnet einen aggregierten S
     "description_length_p10": 0, "description_length_p50": 230,
     "description_length_p90": 1400,
     "images_total": 512, "images_with_alt": 96, "share_images_with_alt": 0.1875,
+    "images_with_alt_control": 40, "products_with_alt_control": 18,
     "variants_total": 3370, "variants_without_sku": 4, "variants_without_cost": 3370,
     "products_with_duplicate_description": 18, "duplicate_description_groups": 6,
     "products_sold_out": 9,
@@ -98,6 +99,8 @@ Holt den Produktkatalog über die Shopify CLI und berechnet einen aggregierten S
   "products_without_seo_title_truncated": false,
   "products_without_seo_description": ["..."],
   "products_with_missing_alt": ["..."],
+  "products_with_alt_control": ["..."],
+  "alt_control_examples": ["#color_red", "..."],
   "products_without_cost": ["..."],
   "products_sold_out": ["..."],
   "products_index": [{"handle": "...", "skus": ["SKU-1"], "status": "ACTIVE", "vendor": "...",
@@ -131,6 +134,12 @@ Holt den Produktkatalog über die Shopify CLI und berechnet einen aggregierten S
   - Zusammengezählt wäre die Lücke zu hoch.
   - Hat **keine** Variante einen Einkaufspreis: Hinweis in `notes`, Marge und Deckungsbeitrag nicht berechenbar (Spec Abschnitt 19).
 - **Anteile ohne Nenner sind `null`.** Ein Katalog ohne Bilder hat keinen Alt-Text-Anteil; 0 hieße "kein Bild hat Alt-Text".
+- **Steuerwerte im Alt-Feld sind kein Alt-Text** (seit 15.10.2026).
+  - Ein Wert, der mit `#` beginnt (`#color_matt-silber`), ist ein Schalter des Themes, meist für den Farbfilter der Galerie. Er zählt nicht in `images_with_alt`, sondern in `images_with_alt_control`; die Produkte stehen in `products_with_alt_control`, die häufigsten Werte in `alt_control_examples`, dazu ein Hinweis in `notes`.
+  - Bis dahin zählten solche Werte als Alt-Text. Eine Maßnahme "Alt-Texte ergänzen" ging an eine Marke, und das Befüllen hätte den Farbfilter gebrochen. Eine Empfehlung zu Alt-Texten prüft deshalb vorher, wie das Theme das Feld nutzt (`snapshot-theme`, `map-theme`).
+- **`catalog-images.json` neben `catalog.json`:** jedes Bild ohne echten Alt-Text, ungekürzt, je Bild `handle`, `product_title`, `image_url`, `alt_control` (der Steuerwert oder `null`).
+  - Nicht für die Analyse gedacht, sondern als Quelle der Liste einer Maßnahme: `python3 -m audit.readiness items --key images --source reporting/data/<run-id>/catalog-images.json`.
+  - Gegen eine frische Fassung prüft `python3 -m audit.readiness recheck --against … --key images --match image_url` die Liste vor der Übergabe neu.
 - **Listen auf 200 gekappt.** Der Zähler im `summary` nennt die volle Menge, `_truncated` zeigt die Kürzung. Für mehr fragt die Analyse die Rohseiten gezielt ab.
 
 ## Fehlerbilder

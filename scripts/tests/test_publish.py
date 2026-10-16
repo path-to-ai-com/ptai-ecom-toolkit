@@ -764,3 +764,59 @@ class TestBrandPolicies(unittest.TestCase):
             "brands/beispielmarke/policies.json", "brands/beispielmarke/policy-modules/tag_manager/README.md",
             "brands/beispielmarke/policy-modules/tag_manager/snippets/tag-manager.liquid"])
         self.assertEqual(sorted(json.loads(bucket.objects[self.KEY])["files"]), self.EXPECTED)
+
+
+    def write_setup(self, shop: str, run: str, rows: list, questions: list | None = None) -> Path:
+        data = {"schema": 1, "shop": shop, "reference_shop": "eu", "collected_at": "2026-01-13T10:00:00+00:00",
+                "source": "aus dem Repo der Migration", "automatic": False, "views": {"live": {
+                    "theme": {"name": "Horizon", "version": None, "id": None},
+                    "groups": [{"key": "apps", "label": "Apps im Theme", "rows": [
+                        {"key": key, "label": key, "value": "eingebunden", "present": True} for key in rows]}]}}}
+        if questions is not None:
+            data["policy_questions"] = questions
+        folder = self.brand_ws / shop / "reporting" / "runs" / run
+        self.bs.write_json(folder / "state.json", {"run_id": run, "cadence": "setup"})
+        return self.bs.write_json(folder / "setup.json", data)
+
+    OPEN_RULE = {"key": "search", "subject": "Suche", "rule": "open", "note": "Zeile 21, Rückfrage."}
+    QUESTION = {"key": "search", "subject": "Suche", "app": "app:suche",
+                "text": "Suche: in allen Stores wie in EU?", "context": "Die Suche ist heute nur in EU eingebunden.",
+                "options": ["Abweichung erlauben", "An EU angleichen"], "recommendation": "Abweichung erlauben",
+                "reason": "In UK wäre sie eine neue Funktion."}
+
+    def test_offene_vorgabe_ohne_erklaerung_haelt_an(self):
+        self.write_policies(self.brand_ws, {**self.POLICIES, "rules": [*self.POLICIES["rules"], self.OPEN_RULE]})
+        self.write_setup("eu", "2026-01-13-setup", ["app:suche"], questions=[])
+        with self.assertRaises(SystemExit) as raised, contextlib.redirect_stderr(io.StringIO()):
+            publish.prepare_brand_only(self.eu, self.target)
+        self.assertIn("nicht verständlich", str(raised.exception))
+        self.assertIn("ohne Frage", str(raised.exception))
+        self.assertFalse((self.target / "brands").exists())
+
+    def test_offene_vorgabe_mit_frage_und_zeile_geht_hoch(self):
+        self.write_policies(self.brand_ws, {**self.POLICIES, "rules": [*self.POLICIES["rules"], self.OPEN_RULE]})
+        self.write_setup("eu", "2026-01-12-setup", ["app:suche"], questions=[])
+        self.write_setup("eu", "2026-01-13-setup", ["app:suche"], questions=[self.QUESTION])
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            publish.prepare_brand_only(self.eu, self.target)
+        self.assertEqual(self.brand_files(), self.EXPECTED)
+        self.assertIn("2 entschiedene Vorgaben ohne Zeile", err.getvalue())
+
+    def test_das_setup_das_hochgeht_gilt_fuer_seinen_store(self):
+        self.write_policies(self.brand_ws, {**self.POLICIES, "rules": [*self.POLICIES["rules"], self.OPEN_RULE]})
+        self.write_setup("eu", "2026-01-12-setup", ["app:suche"], questions=[])
+        self.write_setup("eu", "2026-01-13-setup", ["app:suche"], questions=[self.QUESTION])
+        with contextlib.redirect_stderr(io.StringIO()):
+            result = publish.prepare(self.eu, "2026-01-13-setup", self.target)
+        self.assertEqual(result["run_id"], "2026-01-13-setup")
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            publish.prepare(self.eu, "2026-01-12-setup", self.target)
+
+    def test_ein_ungueltiges_setup_geht_nicht_hoch(self):
+        path = self.write_setup("eu", "2026-01-13-setup", ["app:suche"])
+        data = self.bs.read(path)
+        data["views"]["live"]["groups"][0]["key"] = "sonstiges"
+        self.bs.write_json(path, data)
+        with self.assertRaises(SystemExit) as raised:
+            publish.prepare(self.eu, "2026-01-13-setup", self.target)
+        self.assertIn("setup.json", str(raised.exception))

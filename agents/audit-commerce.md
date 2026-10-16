@@ -164,6 +164,21 @@ Vertrag: `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`. Vor dem ersten Bef
 - `proof`: Beleg aus Bausteinen. Eine Kennzahl als `{"type": "metric", "ref": <Index in metrics>}`, nie ein zweites Mal ausgeschrieben; keine Zahl der Aussage in anderer Rundung wiederholen. Typisch hier: `dist` für die Umsatzverteilung über Sortiment oder Monate, `rows` für die Artikel, auf denen der Befund beruht.
 - `decision`: nur bei zwei echten, verschiedenen Wegen, mit `recommended` und `reason`. Phase 3 macht die empfohlene Option zur Maßnahme, das Portal zeigt die andere als Geprüfte Alternative.
 
+**Umsetzbar für die Marke** (seit 15.10.2026). Was die Marke selbst umsetzt, muss sie ohne Rückfrage umsetzen können; `publish` prüft das vor dem Hochladen (`scripts/audit/readiness.py`) und hält eine Maßnahme an, die es nicht ist. Anlass: drei freigegebene Maßnahmen aus einem Audit, keine ließ sich umsetzen.
+
+- **Belegt.** `confidence: "confirmed"` nur für einen reproduzierbaren Befund. Eine einzelne Aufnahme, ein einzelner Kaufweg oder ein Screenshot zeigen einen Fall, nicht jeden Besuch: `plausible`. Daraus wird keine Aufgabe der Marke, sondern ein Prüfschritt bei uns.
+- **Vollständig.** Nennt der Befund eine Menge von Einzelobjekten, die jemand einzeln anfassen muss (Seiten, Bilder, Links, Produkte, URLs), liegt die Liste als `items/<befund-id>.csv` im Lauf, und der Befund verweist darauf: `"items": "items/<befund-id>.csv"`. Phase 3 übernimmt den Verweis in die Maßnahme. Erzeugen aus dem Snapshot:
+
+  ```bash
+  PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.readiness items \
+    --run-dir reporting/runs/<run-id> --name <befund-id> \
+    --source reporting/data/<run-id>/<snapshot>.json --key <liste>
+  ```
+
+  Jede Zeile trägt das Datum ihrer Prüfung (`checked_at`) und ihren Stand (`status`). Die Zahl in `statement` und `metrics` ist die Zahl der Zeilen. Ist die Liste im Snapshot gekürzt (`<liste>_truncated: true`), verweigert der Befehl sie; dann nennt der Befund die Lücke, statt einer Zahl ohne Liste.
+- **Ohne unsere Werkzeuge.** `fix` nennt nur, was die Marke hat: Shopify-Admin, Theme, Search Console, Google Ads, GA4. Nie Linkdatenbank, DataForSEO, unser Crawl, Snapshot oder einen Dateinamen wie `crawl.json`. Was wir dort gefunden haben, geht als Liste mit.
+- **Gegen den Aufbau des Shops geprüft.** Ändert die Empfehlung ein Feld (Alt-Text, Metafeld, Tag, Produkttyp, Einstellung des Themes), vorher prüfen, ob Theme oder App das Feld anders nutzen: Steuerwerte im Feld (`catalog.json > summary.images_with_alt_control`, `alt_control_examples`), Verwendung im Theme-Code, wenn eine Theme-Sicherung vorliegt (`migration/snapshots/`). Fehlt beides in den Eingabedateien, sagt `fix`, was vor dem Ändern zu prüfen ist, und `confidence` bleibt `plausible`.
+
 **Keine Bilder.** Bild-Aufträge (`capture`) schreiben nur die Analysen Conversion, Content und Vertrauen, weil nur sie Screenshots lesen. Beleg hier: Kennzahl, Tabelle, Verteilung oder Liste.
 
 ### explanation und benchmark

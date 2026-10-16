@@ -50,7 +50,7 @@ EXPECTED_TOOL = "Bash"
 #: `reviews.json` steht hier bewusst mit: `pull-reviews` kommt erst in Stufe 3,
 #: aber `audit-content-brand` nennt die Datei schon als bekannte Lücke.
 DATA_SNAPSHOTS = {
-    "ads.json", "catalog.json", "crawl.json", "cwv.json",
+    "ads.json", "catalog.json", "catalog-images.json", "crawl.json", "cwv.json",
     "dfs-backlinks.json", "dfs-competitors.json", "dfs-keywords.json",
     "dfs-rankings.json", "dfs-shopping.json", "ga4.json", "geo.json",
     "gsc.json", "reviews.json", "shop-tech.json", "shopify.json",
