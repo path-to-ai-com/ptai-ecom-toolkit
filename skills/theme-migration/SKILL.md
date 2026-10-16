@@ -424,6 +424,9 @@ Phase 0.
      erledigt sein muss.
    - Meldet `sync` `changed: true` oder `apply` `unchanged: false`: die geänderten Dateien unter `migration/`
      committen und pushen, etwa `policies: synced 2026-01-13.1 from the cockpit`.
+   - Trägt eine entschiedene Regel unter `needs` einen Eintrag für diesen Store (`portal.shop` in `shops`),
+     ihn der Person nennen und als Punkt per `open_items add` mit `--owner` aus `theme_migration.people`
+     anlegen, wenn er dort noch fehlt: Das muss das Team selbst liefern, etwa ein Konto oder eine Kennung.
    - `available: false`: die Marke führt keine Vorgaben im Cockpit; nichts zu tun.
    - Offen sind die Regeln aus `still_open`. Ist der eigene Store nicht der Referenz-Store
      (`reference_shop`), jede nennen und auf das Cockpit verweisen: entschieden wird unter Setup auf der

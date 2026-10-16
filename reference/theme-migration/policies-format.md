@@ -7,7 +7,7 @@ diese Entscheidungen gelten im Lauf jedes Stores (`theme.policies apply`, beim S
 "Antworten aus dem Cockpit").
 
 Seit 0.3.16 ist das Cockpit die einzige Quelle der Vorgaben für die Stores. Der Betreiber lädt `policies.json` und
-den Ordner `policy-modules/` aus dem Ordner der Marke mit `audit.publish --brand-only` hoch (Abschnitt "Im
+den Ordner `policy-modules/` aus dem Ordner der Marke mit `audit.publish --policies-only` hoch (Abschnitt "Im
 Cockpit"). Das Werkzeug `get_policies` gibt die gültige Fassung zurück, Datei plus Antworten aus dem Cockpit, und
 `sync` schreibt sie beim Start von `theme-migration` in das Repo des Stores (Abschnitt "Fassung aus dem Cockpit").
 Ein Store braucht dafür weder den Ordner der Marke noch ein anderes Repo.
@@ -50,10 +50,15 @@ Ein Store braucht dafür weder den Ordner der Marke noch ein anderes Repo.
 | `rules[].key` | Merkmal, eindeutig, englisch |
 | `rules[].subject` | Bezeichnung für Menschen |
 | `rules[].rule` | `same_as_reference`, `open` oder `may_differ` |
-| `rules[].target` | Zielwert in Worten, erscheint im Cockpit als "bis zum Launch: …" |
+| `rules[].target` | Zielwert in Worten; im Cockpit steht er im Blatt einer Vorgabe nur, wenn keine Zeile des Setups zu ihr gehört. Sonst zeigt das Blatt je Store das Ziel zum Launch aus dem Setup des Referenz-Stores |
 | `rules[].keep`, `rules[].drop` | Dienst-IDs wie in `apps.json` (`app:<handle>`), nur bei `same_as_reference`. Ein Eintrag darf eine Liste von Schreibweisen desselben Dienstes sein, etwa `["cookiefirst", "app:cookiefirst-cookie-consent"]`, weil die Inventare der Stores ihn verschieden benennen. Beim Behalten genügt eine vorhandene Schreibweise; fehlt jede, entsteht ein Punkt zum Einbauen |
-| `rules[].note` | Begründung oder offene Frage, für den Betreiber und Claude. Im Cockpit erklärt sich eine offene Regel über ihre Frage in `policy_questions`, nicht über die Notiz |
+| `rules[].note` | Notiz für den Betreiber und Claude, etwa die Zeile einer eigenen Tabelle. Im Cockpit steht sie nie; dort erklären `context` und `reason` die Regel |
 | `rules[].decided_by`, `rules[].decided_at` | optional: wer diese Regel entschieden hat und wann, gesetzt von `import` für eine Antwort aus dem Cockpit. Sie gehen statt der Angaben der Datei an die Entscheidungen im Lauf |
+| `rules[].context` | Pflicht vor dem Hochladen, seit 0.3.18: worum es geht, in zwei bis drei Sätzen für das Team der Marke, in der Sprache von E-Commerce-Leuten, mit ihr und euch. Steht im Cockpit als erster Absatz im Blatt der Vorgabe |
+| `rules[].reason` | Pflicht vor dem Hochladen: warum so entschieden; bei `open` warum empfohlen, ohne Empfehlung, worauf es bei der Entscheidung ankommt. Im Cockpit "Begründung" oder "Empfehlung" |
+| `rules[].recommendation` | optional, nur bei `open`: `same_as_reference` oder `may_differ`; im Dropdown trägt diese Option "Empfohlen" |
+| `rules[].outcomes` | Pflicht vor dem Hochladen: je Option (`same_as_reference`, `may_differ`) ein Satz, was sie für genau diese Vorgabe bewirkt, mit den Namen der Stores, etwa "AT und CH laden den Tag Manager zum Launch direkt im Theme". Steht im Cockpit unter dem Wert im Dropdown |
+| `rules[].needs` | Pflicht vor dem Hochladen: je Option eine Liste `{"shops": [<slug>], "text": "<Satz>"}`, was das Team der Marke tun muss, etwa ein Konto anlegen; leer, wenn nichts. Im Cockpit "Eure Mitwirkung" mit den Stores als Pille. Was Path to AI tun muss, steht hier nicht |
 | `rules[].modules` | optional, seit 0.3.16: Bausteine, mit denen ein Store die Regel im Theme umsetzt, je `{"name", "path", "description"}`. `name` steht im Cockpit an der Regel ("Baustein: <name>"), `description` (optional) sagt in einem Satz, was die Datei ist. `path` ist immer `policy-modules/<key>/<datei>`, auch mit Unterordnern, nie mit `..` oder Backslash; die Datei liegt im Ordner `policy-modules/` neben `policies.json`. Ein Baustein ist eine Vorlage mit Beschreibung (`README.md`), kein Code eines bestimmten Stores |
 
 ## Was `apply` im Lauf eines Stores tut
@@ -77,8 +82,14 @@ Bausteine (`modules`) trägt `apply` nicht ein; sie baut der Neubau ein (Skill `
 Seit 0.3.16. Der Betreiber lädt die Vorgaben aus dem Ordner der Marke hoch:
 
 ```bash
-python3 -m audit.publish --workspace <store> --brand-only --target <leerer ordner> --upload
+python3 -m audit.publish --workspace <store> --policies-only --target <leerer ordner> --upload
 ```
+
+`--policies-only` (seit 16.10.2026) lädt nur `policies.json`, die Bausteine und das Manifest. Maßnahmen und
+Anforderungen der Marke bleiben im Bucket, wie sie sind, und die Prüfung der Maßnahmen (`audit.readiness`) läuft
+nicht; eine neue Fassung der Vorgaben wartet so nicht auf die Maßnahmen. Im Manifest ersetzt die Fassung jeden
+Eintrag der Vorgaben unter `files`, auch Bausteine, die es nicht mehr gibt. `--brand-only` lädt die Vorgaben
+zusammen mit Maßnahmen und Anforderungen und hält an, solange eine Maßnahme der Marke nicht umsetzbar ist.
 
 `policies.json` und jede Datei unter `policy-modules/` gehen nach `brands/<brand>/` im Bucket und stehen im Manifest
 unter `files`, neben `measures.json`. Gesucht wird `policies.json` im Ordner der Marke (`brand_workspace`), sonst
@@ -240,3 +251,13 @@ Ausgabe:
 
 Exit 0, wenn nichts übersprungen wurde, 1, wenn etwas übersprungen wurde, 2 bei einem Fehler (Ordner ohne
 `policies.json`, kein JSON, keine Liste).
+
+## Texte für die Marke (seit 0.3.18)
+
+`audit.publish` hält vor dem Kopieren an, solange einer Regel `context`, `reason`, eine der beiden `outcomes`
+oder `needs` fehlt oder einer dieser Texte auf eine Zeile einer Tabelle des Betreibers verweist ("Zeile 21").
+Anlass: Am 16.10.2026 zeigte das Blatt "Google Tag Manager" im Cockpit nur "eigener Code im Theme wie <Referenz-Store>",
+und niemand verstand, dass der Tag Manager damit ohne App lädt.
+
+`sync` übernimmt die Texte ins Repo des Stores, zählt sie aber nicht als geänderte Regel: Eine neue Fassung,
+die nur Texte ändert, verlangt keinen Neubau (`apply_needed: false`), und `apply` lässt `applied_at` stehen.

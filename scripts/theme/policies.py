@@ -30,7 +30,7 @@ Entscheiden dürfen alle Mitglieder der Marke; das Plugin kennt sie nicht, und d
 antworten. Deshalb gilt jede Antwort aus dem Cockpit, und ihr Name steht an der Regel.
 
 Seit 0.3.16 ist das Cockpit die einzige Quelle der Vorgaben (Vertrag V15). Der Betreiber lädt `policies.json` und
-den Ordner `policy-modules/` der Marke mit `audit.publish --brand-only` hoch; das Werkzeug `get_policies` gibt
+den Ordner `policy-modules/` der Marke mit `audit.publish --policies-only` hoch; das Werkzeug `get_policies` gibt
 die gültige Fassung zurück, Datei plus Antworten aus dem Cockpit, je Regel die Bausteine (`modules`) mit dem
 Inhalt ihrer Dateien. `sync` schreibt diese Fassung nach `migration/policies.json` im Repo des Stores und die
 Bausteine nach `migration/policy-modules/<key>/`; danach greift `apply` wie bisher, mit
@@ -154,6 +154,42 @@ def validate(data) -> list:
             errors.append(f"{where}: decided_by und decided_at fehlen an der Regel und an der Datei")
         if "modules" in rule:
             errors += _module_errors(rule.get("modules"), key if isinstance(key, str) else "", where)
+        errors += _text_errors(rule, where)
+    return errors
+
+
+#: Die Texte einer Regel für die Marke (seit 16.10.2026), Format in `reference/theme-migration/policies-format.md`.
+TEXT_FIELDS = ("context", "reason", "recommendation", "outcomes", "needs")
+DECIDED_RULES = ("same_as_reference", "may_differ")
+
+
+def _text_errors(rule: dict, where: str) -> list:
+    """Fehler in der Form der Texte für die Marke; ob sie da sind, prüft `explanation_problems`."""
+    errors = []
+    for field in ("context", "reason"):
+        if field in rule and (not isinstance(rule[field], str) or not rule[field].strip()):
+            errors.append(f"{where}.{field} muss ein nicht leerer Text sein")
+    if "recommendation" in rule:
+        if rule["recommendation"] not in DECIDED_RULES:
+            errors.append(f"{where}.recommendation muss eines von {DECIDED_RULES} sein")
+        elif rule.get("rule") != "open":
+            errors.append(f"{where}.recommendation nur bei einer offenen Regel")
+    if "outcomes" in rule:
+        outcomes = rule["outcomes"]
+        if not isinstance(outcomes, dict) or set(outcomes) - set(DECIDED_RULES) or not all(
+                isinstance(v, str) and v.strip() for v in outcomes.values()):
+            errors.append(f"{where}.outcomes muss je Option ({', '.join(DECIDED_RULES)}) einen Satz tragen")
+    if "needs" in rule:
+        needs = rule["needs"]
+        if not isinstance(needs, dict) or set(needs) - set(DECIDED_RULES):
+            errors.append(f"{where}.needs muss je Option ({', '.join(DECIDED_RULES)}) eine Liste sein")
+        else:
+            for option, entries in needs.items():
+                if not isinstance(entries, list) or not all(
+                        isinstance(e, dict) and isinstance(e.get("text"), str) and e["text"].strip()
+                        and isinstance(e.get("shops", []), list) and all(isinstance(s, str) and s for s in e.get("shops", []))
+                        for e in entries):
+                    errors.append(f"{where}.needs.{option} muss eine Liste von {{shops, text}} sein")
     return errors
 
 
@@ -184,6 +220,43 @@ def setup_row_keys(setup: dict) -> set:
                 if isinstance(row, dict) and row.get("key"):
                     keys.add(row["key"])
     return keys
+
+
+def explanation_problems(data: dict) -> list:
+    """Was einer Regel fehlt, damit ihr Blatt im Cockpit ohne Path to AI verständlich ist (seit 16.10.2026).
+
+    Jede Regel braucht `context` (worum es geht), `reason` (warum so entschieden oder empfohlen), `outcomes`
+    mit der Folge beider Optionen und `needs` mit dem, was das Team je Option tun muss, leer, wenn nichts. Kein
+    Text verweist auf eine Zeile einer Tabelle des Betreibers. Anlass: Am 16.10.2026 zeigte das Blatt „Google
+    Tag Manager“ bei einer Marke nur „eigener Code im Theme wie <Referenz-Store>“, und niemand verstand, dass der Tag
+    Manager damit ohne App lädt.
+    """
+    problems = []
+    for rule in data.get("rules") or []:
+        if not isinstance(rule, dict) or not rule.get("key"):
+            continue
+        key, subject = rule["key"], rule.get("subject") or rule["key"]
+        missing = [f for f in ("context", "reason") if not (isinstance(rule.get(f), str) and rule[f].strip())]
+        outcomes = rule.get("outcomes") if isinstance(rule.get("outcomes"), dict) else {}
+        missing += [f"outcomes.{o}" for o in DECIDED_RULES if not (isinstance(outcomes.get(o), str) and outcomes[o].strip())]
+        needs = rule.get("needs") if isinstance(rule.get("needs"), dict) else None
+        if needs is None:
+            missing.append("needs")
+        else:
+            missing += [f"needs.{o}" for o in DECIDED_RULES if not isinstance(needs.get(o), list)]
+        if missing:
+            problems.append(f"{subject} ({key}): {', '.join(missing)} fehlt. Ohne diese Texte zeigt das Blatt im Cockpit "
+                            f"nur Stichworte.")
+        texts = [rule.get("context"), rule.get("reason"), *outcomes.values(),
+                 *(e.get("text") for entries in (needs or {}).values() if isinstance(entries, list)
+                   for e in entries if isinstance(e, dict))]
+        for text in texts:
+            match = INTERNAL_REFERENCE.search(str(text or ""))
+            if match:
+                problems.append(f"{subject} ({key}) verweist auf „{match.group(0)}“ einer Tabelle des Betreibers. "
+                                f"Im Cockpit versteht das niemand.")
+                break
+    return problems
 
 
 def sheet_problems(data: dict, reference_setup: dict | None, setups: list | None = None) -> tuple[list, list]:
@@ -622,7 +695,8 @@ def stores_needing_apply(brand_workspace, source: dict, workspace=None) -> list:
 
 #: Was an einer Regel zählt, wenn `sync` meldet, ob sie sich geändert hat. Wer entschieden hat, ändert die
 #: Regel nicht; das steht in `decided_by` und `decided_at` der neuen Fassung.
-_UNCOUNTED = ("decided_by", "decided_at")
+#: Was keinen Neubau verlangt: wer entschieden hat und die Texte für die Marke im Cockpit (`TEXT_FIELDS`).
+_UNCOUNTED = ("decided_by", "decided_at", "context", "reason", "recommendation", "outcomes", "needs")
 
 
 def _rule_changes(before: list, after: list) -> list:
@@ -662,7 +736,8 @@ def _cockpit_brand(workspace) -> str | None:
 #: `cockpit_questions`, Felder der Datei, die das Format nicht kennt), wechselt mit jedem Abruf oder gehört
 #: in die Sitzung, nicht ins Repo. `null` heißt "fehlt".
 SOURCE_FIELDS = ("version", "reference_shop", "decided_by", "decided_at")
-RULE_FIELDS = ("key", "subject", "rule", "target", "keep", "drop", "note", "decided_by", "decided_at")
+RULE_FIELDS = ("key", "subject", "rule", "target", "keep", "drop", "note", "decided_by", "decided_at",
+               *("context", "reason", "recommendation", "outcomes", "needs"))
 MODULE_FIELDS = ("name", "path", "description")
 
 
@@ -776,7 +851,9 @@ def sync(workspace, data) -> dict:
     removed = _remove_stale_modules(workspace, set(contents))
     missing = [{**m, "path": f"migration/{m['path']}"} for m in missing]
     changes = _rule_changes(previous.get("rules") or [] if isinstance(previous, dict) else [], source["rules"])
-    keep_stamp = (isinstance(previous, dict) and previous_version == source["version"]
+    # Eine neue Version, die nur Texte für die Marke ändert (`_UNCOUNTED`), verlangt keinen Neubau: Der
+    # Zeitpunkt der Anwendung bleibt, und Schritt 3 springt nicht auf nacharbeiten (seit 16.10.2026).
+    keep_stamp = (isinstance(previous, dict)
                   and isinstance(previous.get("applied_at"), str) and previous["applied_at"].strip()
                   and not changes and not written and not removed)
     copy = {**source, "applied_at": previous["applied_at"]} if keep_stamp else source

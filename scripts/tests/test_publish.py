@@ -662,8 +662,16 @@ class TestBrandPolicies(unittest.TestCase):
                                 "description": "Einbindung wie im Referenz-Store"},
                                {"name": "Tag Manager",
                                 "path": "policy-modules/tag_manager/snippets/tag-manager.liquid",
-                                "description": "Snippet mit Platzhalter"}]},
-                  {"key": "languages", "subject": "Sprachen", "rule": "may_differ"}],
+                                "description": "Snippet mit Platzhalter"}],
+                   **{"context": "Der Tag Manager lädt Dienste ohne eigene App.", "reason": "So wie im Referenz-Store.",
+                      "outcomes": {"same_as_reference": "Jeder Store lädt ihn im Theme.",
+                                   "may_differ": "Jeder Store lädt ihn wie heute."},
+                      "needs": {"same_as_reference": [], "may_differ": []}}},
+                  {"key": "languages", "subject": "Sprachen", "rule": "may_differ",
+                   "context": "Die Sprachen eines Stores.", "reason": "Je Markt verschieden.",
+                   "outcomes": {"same_as_reference": "Alle Stores wie der Referenz-Store.",
+                                "may_differ": "Jeder Store behält seine Sprachen."},
+                   "needs": {"same_as_reference": [], "may_differ": []}}],
     }
 
     def setUp(self):
@@ -765,6 +773,73 @@ class TestBrandPolicies(unittest.TestCase):
             "brands/beispielmarke/policy-modules/tag_manager/snippets/tag-manager.liquid"])
         self.assertEqual(sorted(json.loads(bucket.objects[self.KEY])["files"]), self.EXPECTED)
 
+    def _policies_only(self, bucket: FakeBucket, *argv) -> int:
+        env = {"SUPABASE_URL": FakeBucket.URL, "SUPABASE_SERVICE_ROLE_KEY": "k"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch("urllib.request.urlopen", bucket.urlopen), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return publish.main(["--workspace", str(self.eu), "--target", str(self.target),
+                                 "--policies-only", *argv])
+
+    def _remote_manifest(self) -> dict:
+        remote = manifest.add_run(manifest.empty("beispielmarke", "Beispielmarke"),
+                                  shop="eu", run_id=self.RUN, kind="audit",
+                                  cadence="audit", period=None, run_date="2026-09-01",
+                                  files={"audit.pdf": 4})
+        remote["files"] = {"measures.json": 100, "feedback.json": 20, "policies.json": 10,
+                           "policy-modules/alt/README.md": 5}
+        remote["revision"] = 7
+        return remote
+
+    def test_nur_vorgaben_laedt_weder_massnahmen_noch_anforderungen(self):
+        self.write_policies(self.brand_ws)
+        bucket = FakeBucket({self.KEY: json.dumps(self._remote_manifest()).encode("utf-8")})
+        self.assertEqual(self._policies_only(bucket, "--upload"), 0)
+        self.assertEqual(sorted(bucket.uploads()), [
+            "brands/beispielmarke/manifest.json", "brands/beispielmarke/policies.json",
+            "brands/beispielmarke/policy-modules/tag_manager/README.md",
+            "brands/beispielmarke/policy-modules/tag_manager/snippets/tag-manager.liquid"])
+        uploaded = json.loads(bucket.objects[self.KEY])
+        self.assertEqual(uploaded["files"]["measures.json"], 100)
+        self.assertEqual(uploaded["files"]["feedback.json"], 20)
+        self.assertNotIn("policy-modules/alt/README.md", uploaded["files"])
+        self.assertEqual(sorted(name for name in uploaded["files"] if publish.is_policy_file(name)),
+                         ["policies.json", "policy-modules/tag_manager/README.md",
+                          "policy-modules/tag_manager/snippets/tag-manager.liquid"])
+        self.assertEqual([r["run_id"] for r in uploaded["runs"]], [self.RUN])
+        self.assertEqual(uploaded["revision"], 8)
+
+    def test_nur_vorgaben_wartet_nicht_auf_umsetzbare_massnahmen(self):
+        self.write_policies(self.brand_ws)
+        with mock.patch.object(publish, "_check_readiness",
+                               side_effect=SystemExit("Maßnahmen der Marke sind noch nicht umsetzbar")):
+            with self.assertRaises(SystemExit):
+                publish.prepare_brand_only(self.eu, self.brand_ws.parent / "andere")
+            result = publish.prepare_policies_only(self.eu, self.target)
+        self.assertEqual(result["policy_files"], 3)
+        self.assertFalse((self.target / "brands/beispielmarke/measures.json").exists())
+
+    def test_nur_vorgaben_prueft_die_vorgaben(self):
+        folder = self.write_policies(self.brand_ws)
+        (folder / "policy-modules/tag_manager/README.md").unlink()
+        with self.assertRaises(SystemExit) as raised:
+            publish.prepare_policies_only(self.eu, self.target)
+        self.assertIn("policy-modules/tag_manager/README.md", str(raised.exception))
+        self.assertFalse((self.target / "brands").exists())
+
+    def test_nur_vorgaben_ohne_vorgaben_haelt_an(self):
+        with self.assertRaises(SystemExit) as raised:
+            publish.prepare_policies_only(self.eu, self.target)
+        self.assertIn("policies.json", str(raised.exception))
+        self.assertFalse((self.target / "brands").exists())
+
+    def test_nur_vorgaben_nimmt_keinen_lauf_und_nicht_zugleich_alles(self):
+        self.write_policies(self.brand_ws)
+        for argv in (["--run-id", self.RUN], ["--brand-only"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                publish.main(["--workspace", str(self.eu), "--target", str(self.target),
+                              "--policies-only", *argv])
+
 
     def write_setup(self, shop: str, run: str, rows: list, questions: list | None = None) -> Path:
         data = {"schema": 1, "shop": shop, "reference_shop": "eu", "collected_at": "2026-01-13T10:00:00+00:00",
@@ -778,7 +853,11 @@ class TestBrandPolicies(unittest.TestCase):
         self.bs.write_json(folder / "state.json", {"run_id": run, "cadence": "setup"})
         return self.bs.write_json(folder / "setup.json", data)
 
-    OPEN_RULE = {"key": "search", "subject": "Suche", "rule": "open", "note": "Zeile 21, Rückfrage."}
+    OPEN_RULE = {"key": "search", "subject": "Suche", "rule": "open", "note": "Zeile 21, Rückfrage.",
+                 "context": "Die Suche im Shop.", "reason": "Wichtig ist, ob die Treffer gleich gut sind.",
+                 "outcomes": {"same_as_reference": "Alle Stores suchen wie der Referenz-Store.",
+                              "may_differ": "Jeder Store behält seine Suche."},
+                 "needs": {"same_as_reference": [], "may_differ": []}}
     QUESTION = {"key": "search", "subject": "Suche", "app": "app:suche",
                 "text": "Suche: in allen Stores wie in EU?", "context": "Die Suche ist heute nur in EU eingebunden.",
                 "options": ["Abweichung erlauben", "An EU angleichen"], "recommendation": "Abweichung erlauben",
@@ -820,3 +899,19 @@ class TestBrandPolicies(unittest.TestCase):
         with self.assertRaises(SystemExit) as raised:
             publish.prepare(self.eu, "2026-01-13-setup", self.target)
         self.assertIn("setup.json", str(raised.exception))
+
+
+class ExplanationTest(unittest.TestCase):
+    """Ohne Texte für die Marke geht keine Vorgabe ins Cockpit (seit 16.10.2026)."""
+
+    def test_fehlende_texte_und_verweise_auf_die_tabelle_des_betreibers_halten_an(self):
+        from theme import policies
+        data = {"rules": [
+            {"key": "gtm", "subject": "Tag Manager", "rule": "same_as_reference", "target": "eigener Code"},
+            {"key": "ok", "subject": "Fertig", "rule": "open", "context": "Worum es geht.", "reason": "Zeile 21, Rückfrage.",
+             "outcomes": {"same_as_reference": "A.", "may_differ": "B."}, "needs": {"same_as_reference": [], "may_differ": []}},
+        ]}
+        problems = policies.explanation_problems(data)
+        self.assertEqual(len(problems), 2)
+        self.assertIn("context, reason, outcomes.same_as_reference, outcomes.may_differ, needs fehlt", problems[0])
+        self.assertIn("Zeile 21", problems[1])

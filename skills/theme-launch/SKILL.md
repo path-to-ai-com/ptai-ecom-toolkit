@@ -31,14 +31,14 @@ Plugin. Die Stores lesen sie seit 0.3.16 nur aus dem Cockpit (`get_policies`, `p
 
 ```bash
 PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" python3 -m audit.publish --workspace <store-workspace> \
-  --brand-only --target "$(mktemp -d)" --upload
+  --policies-only --target "$(mktemp -d)" --upload
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies apply --source <pfad>/policies.json
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" policies check --source <pfad>/policies.json
 ```
 
-- `--brand-only` lädt `policies.json` und jede Datei unter `policy-modules/` mit den übrigen Dateien der
-  Marke hoch und prüft vorher Format und Bausteine. Jeder Store übernimmt die Fassung beim nächsten Start
-  seiner Migration.
+- `--policies-only` lädt nur `policies.json` und jede Datei unter `policy-modules/` hoch und prüft vorher
+  Format, Bausteine und das Blatt jeder Vorgabe im Cockpit. Maßnahmen und Anforderungen der Marke bleiben
+  unberührt. Jeder Store übernimmt die Fassung beim nächsten Start seiner Migration.
 - Ein Baustein ist eine Vorlage mit `README.md`: was er tut, wo er ins Theme gehört, welche Werte ein
   Store einsetzt. Nie den eingebauten Code eines Stores als Baustein hochladen; Präfix und Werte setzt
   jeder Store selbst ein.

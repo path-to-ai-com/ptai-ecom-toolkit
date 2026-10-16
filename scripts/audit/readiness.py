@@ -36,10 +36,31 @@ vor der Übergabe neu. Geprüft wird beim Abruf, nicht im Takt über alle
 Maßnahmen; das gehört später zum Wächter. Eine Liste, deren Zeilen alle
 erledigt sind, geht nicht als Aufgabe an die Marke: die Maßnahme ist erledigt.
 
-`publish` ruft `problems()` vor jedem Lauf mit Befunden und vor
+**Es gilt der jüngere Stand** (seit 16.10.2026). Hat die Marke eine Maßnahme
+für einen Store im Cockpit als in Arbeit, umgesetzt, verworfen oder überholt
+gemeldet (`audit.portal.reported_statuses`), und ist die Meldung jünger als
+der letzte Eintrag in der `history` dieses Stores, liegt sie dort bei der
+Marke und wird nicht geprüft. So rechnet auch das Cockpit
+(`lib/effective-status.ts` in `ptai-portal`): verglichen wird der Tag, am
+selben Tag gilt die Datei. Ohne diese Regel hielte eine Maßnahme, die die
+Marke schon umsetzt oder umgesetzt hat, das nächste publish an.
+
+**Punkte der Marke selbst** (seit 16.10.2026). Eine Maßnahme, die aus einer
+Anforderung der Marke angelegt wurde (`created_measures` in `feedback.json`,
+`audit.feedback`), beruht auf ihrer Aussage, nicht auf einem Befund aus
+einem Audit. Für sie gilt "Belegt" nicht. "Vollständig" und "Machbar" prüfen
+nur, was wir selbst als Empfehlung hineingeschrieben haben (`intent`,
+`needs`), nicht ihren Titel, den Beleg aus ihrer Quelle oder unsere
+Prüfregel.
+
+`publish` ruft `check_workspace()` vor jedem Lauf mit Befunden und vor
 `--brand-only` auf und bricht bei einem Fund ab; eine Liste, die älter als
-`MAX_AGE_DAYS` ist, meldet es als Hinweis. Wochenpuls, Migration und Setup
-ändern keine Maßnahme und laufen ohne diese Prüfung.
+`MAX_AGE_DAYS` ist, meldet es als Hinweis. Die gemeldeten Stände holt es über
+das Cockpit, wenn `reporting/config.json` einen Block `portal` hat, und nur,
+wenn es etwas anzuhalten gibt: eine Meldung nimmt eine Maßnahme heraus, nie
+eine hinzu. Ist das Cockpit dann nicht erreichbar, bricht es ab wie der Lauf,
+statt ohne die Meldungen zu prüfen. Wochenpuls, Migration und Setup ändern
+keine Maßnahme und laufen ohne diese Prüfung.
 
 CLI:
     python3 -m audit.readiness check --workspace <store-workspace> [--run-id <lauf-id>]
@@ -61,7 +82,7 @@ from datetime import date
 from pathlib import Path
 
 from audit import brand as brand_mod
-from audit import measures
+from audit import measures, portal
 
 #: Wer eine Maßnahme der Marke umsetzt. Nur sie prüft dieses Modul.
 BRAND_SIDE = ("Customer", "Third Party")
@@ -125,6 +146,10 @@ _ALT_CONTROL_HANDLED = re.compile(r"#\w|Steuerwert|Steuer-?Tag|Filter", re.I)
 
 #: Spalten, in denen `recheck` ohne Angabe die Adresse sucht, in dieser Folge.
 URL_COLUMNS = ("url_to", "url", "page_url")
+
+#: Gemeldete Stände aus dem Cockpit, mit denen eine Maßnahme in einem Store
+#: bei der Marke liegt: in Arbeit oder erledigt.
+HANDLED_STATUSES = ("in_progress", "implemented", "rejected", "obsolete")
 
 
 # ------------------------------------------------------------ Text lesen
@@ -238,12 +263,49 @@ def _flat(measure: dict, entry: dict | None) -> dict:
     return flat
 
 
-def measure_problems(flat: dict, run_dir: Path | None) -> list[str]:
+def latest_reports(reported) -> dict[tuple[str, str], dict]:
+    """Je Store und Maßnahme die jüngste Meldung aus dem Cockpit."""
+    latest: dict[tuple[str, str], dict] = {}
+    for row in reported or []:
+        key = (row.get("shop"), row.get("measure_id"))
+        if key not in latest or str(row.get("set_at") or "") > str(latest[key].get("set_at") or ""):
+            latest[key] = row
+    return latest
+
+
+def handled_by(flat: dict, shop: str | None, latest: dict) -> dict | None:
+    """Die Meldung, mit der die Maßnahme in diesem Store bei der Marke liegt, sonst `None`.
+
+    Bei der Marke heißt in Arbeit, umgesetzt, verworfen oder überholt gemeldet
+    (`HANDLED_STATUSES`), an einem späteren Tag als der letzte Eintrag in der
+    `history`; am selben Tag gilt die Datei, wie im Cockpit. Ohne Store
+    (Liste eines Stores, v1) zählt jede Meldung zur Maßnahme, wie in
+    `measures.is_excluded()`.
+    """
+    mid = flat.get("id")
+    if shop is None:
+        report = max((row for (_shop, m), row in latest.items() if m == mid),
+                     key=lambda row: str(row.get("set_at") or ""), default=None)
+    else:
+        report = latest.get((shop, mid))
+    if not report or report.get("status") not in HANDLED_STATUSES:
+        return None
+    set_day = str(report.get("set_at") or "")[:10]
+    history = [h for h in flat.get("history") or [] if isinstance(h, dict)]
+    last_day = str(history[-1].get("date") or "")[:10] if history else ""
+    return report if set_day > last_day else None
+
+
+def measure_problems(flat: dict, run_dir: Path | None, from_request: bool = False) -> list[str]:
     """Was eine Maßnahme der Marke noch nicht umsetzbar macht, als Sätze.
 
     `run_dir` ist der Lauf ihres Befunds, `None` oder ein fehlender Ordner,
     wenn er nicht auf diesem Rechner liegt: dann zählen Sicherheit und Text
     der Maßnahme allein, und ob die Liste daliegt, ist nicht prüfbar.
+
+    `from_request`: aus einer Anforderung der Marke angelegt. Dann gilt
+    "Belegt" nicht, und von der Maßnahme zählt nur unsere Empfehlung
+    (`intent`, `needs`); Titel, Beleg und Prüfregel geben ihren Punkt wieder.
     """
     local = run_dir is not None and Path(run_dir).is_dir()
     fid = measures.finding_of(flat)
@@ -252,7 +314,7 @@ def measure_problems(flat: dict, run_dir: Path | None) -> list[str]:
 
     # 1. Belegt: die Sicherheit des Befunds, ohne ihn die der Maßnahme.
     confidence = (finding or {}).get("confidence") or flat.get("confidence")
-    if confidence != "confirmed":
+    if confidence != "confirmed" and not from_request:
         source = f"Befund {fid}" if finding and finding.get("confidence") else "Maßnahme"
         problems.append(
             f"{source} ist {confidence or 'ohne Sicherheit'}, nicht confirmed. Eine Aufgabe der Marke "
@@ -260,8 +322,11 @@ def measure_problems(flat: dict, run_dir: Path | None) -> list[str]:
             "(responsible \"Path to AI\", Titel als Prüfung).")
 
     # 2. Vollständig: Menge heißt Liste, und die Liste ist ganz.
-    text = _join(flat.get("title"), flat.get("intent"), flat.get("needs"), flat.get("check_rule"),
-                 flat.get("evidence_text"))
+    if from_request:
+        text = _join(flat.get("intent"), flat.get("needs"))
+    else:
+        text = _join(flat.get("title"), flat.get("intent"), flat.get("needs"), flat.get("check_rule"),
+                     flat.get("evidence_text"))
     if finding:
         text = _join(text, finding.get("statement"), finding.get("fix"), finding.get("evidence_text"))
     counts = quantities(text)
@@ -280,7 +345,8 @@ def measure_problems(flat: dict, run_dir: Path | None) -> list[str]:
         problems += _items_problems(ref, run_dir if local else None, counts)
 
     # 3. Machbar: kein Werkzeug von uns, und das Alt-Feld so, wie das Theme es nutzt.
-    advice = _join(flat.get("intent"), flat.get("needs"), flat.get("data_source"),
+    advice = _join(flat.get("intent"), flat.get("needs"),
+                   None if from_request else flat.get("data_source"),
                    (finding or {}).get("fix"),
                    *[(option or {}).get("text") for option in
                      (((finding or {}).get("decision") or {}).get("options") or [])
@@ -291,7 +357,7 @@ def measure_problems(flat: dict, run_dir: Path | None) -> list[str]:
             f"die Empfehlung setzt ein Werkzeug von Path to AI voraus ({', '.join(tools)}). "
             "Die Marke hat es nicht: das Ergebnis als Liste beilegen und die Empfehlung "
             "ohne das Werkzeug schreiben.")
-    topic = _join(flat.get("title"), flat.get("intent"))
+    topic = (flat.get("intent") or "") if from_request else _join(flat.get("title"), flat.get("intent"))
     if local and _ALT_TOPIC.search(topic):
         controlled = alt_control_count(run_dir)
         if controlled and not _ALT_CONTROL_HANDLED.search(_join(topic, flat.get("needs"),
@@ -364,20 +430,29 @@ def runs_resolver(workspace, config: dict | None = None):
 
 
 def check(backlog: dict, runs_dir_of, run_id: str | None = None,
-          today: date | None = None) -> list[dict]:
+          today: date | None = None, reported: list[dict] | None = None,
+          requested: set[str] | None = None) -> list[dict]:
     """Jede Maßnahme der Marke mit Gründen gegen die Übergabe oder einem Hinweis.
 
     `runs_dir_of(shop)` gibt den Ordner `runs/` eines Stores. Mit `run_id` nur
-    die Maßnahmen, deren Befund aus diesem Lauf stammt. `problems` hält die
-    Übergabe an, `hints` nicht: eine Liste älter als `MAX_AGE_DAYS`.
+    die Maßnahmen, deren Befund aus diesem Lauf stammt. `reported` sind die
+    gemeldeten Stände aus dem Cockpit (`audit.portal.reported_statuses`); was
+    die Marke dort später als in Arbeit oder erledigt gemeldet hat, wird nicht
+    geprüft (`handled_by()`). `requested` sind die Kennungen der Maßnahmen, die
+    aus einer Anforderung der Marke angelegt wurden (`requested_measures()`).
+    `problems` hält die Übergabe an, `hints` nicht: eine Liste älter als
+    `MAX_AGE_DAYS`.
     """
+    latest = latest_reports(reported)
     out = []
     for shop, flat in tasks(backlog):
         frun = flat.get("finding_run") or flat.get("created_run_id")
         if run_id and frun != run_id:
             continue
+        if latest and handled_by(flat, shop, latest):
+            continue
         run_dir = Path(runs_dir_of(shop)) / frun if frun else None
-        found = measure_problems(flat, run_dir)
+        found = measure_problems(flat, run_dir, flat.get("id") in (requested or ()))
         hints = []
         ref = flat.get("items")
         path = run_dir / str(ref) if ref and run_dir is not None else None
@@ -396,14 +471,72 @@ def _where(entry: dict) -> str:
     return f"{entry['measure']} ({entry['shop']})" if entry["shop"] else entry["measure"]
 
 
-def problems(backlog: dict, runs_dir_of, run_id: str | None = None,
-             today: date | None = None) -> tuple[list[str], list[str]]:
-    """Wie `check()`, als Zeilen für `publish`: (Gründe, Hinweise)."""
+def lines(found: list[dict]) -> tuple[list[str], list[str]]:
+    """Das Ergebnis von `check()` als Zeilen für `publish`: (Gründe, Hinweise)."""
     reasons, hints = [], []
-    for entry in check(backlog, runs_dir_of, run_id, today):
+    for entry in found:
         reasons += [f"{_where(entry)}: {text}" for text in entry["problems"]]
         hints += [f"{_where(entry)}: {text}" for text in entry["hints"]]
     return reasons, hints
+
+
+def problems(backlog: dict, runs_dir_of, run_id: str | None = None,
+             today: date | None = None, reported: list[dict] | None = None,
+             requested: set[str] | None = None) -> tuple[list[str], list[str]]:
+    """Wie `check()`, als Zeilen für `publish`: (Gründe, Hinweise)."""
+    return lines(check(backlog, runs_dir_of, run_id, today, reported, requested))
+
+
+def requested_measures(workspace) -> set[str]:
+    """Die Maßnahmen, die aus einer Anforderung der Marke angelegt wurden.
+
+    Aus `created_measures` in `feedback.json` (`audit.feedback`), der Datei der
+    Marke oder des Stores. Dieselbe Angabe liest das Cockpit, um eine solche
+    Maßnahme als "noch nicht gemessen" zu zeigen.
+    """
+    from audit import feedback  # spät: feedback zieht die Ablage der Marke nach
+
+    return {mid for entry in feedback.load(str(workspace)) if isinstance(entry, dict)
+            for mid in entry.get("created_measures") or []}
+
+
+def cockpit_reports(workspace, config: dict | None = None) -> list[dict] | None:
+    """Die gemeldeten Stände der Marke aus dem Cockpit, `None` ohne Block `portal`.
+
+    Marke und Store kommen aus `portal` in `reporting/config.json`. Kein
+    Rückfall: ist das Cockpit nicht erreichbar, steigt `portal.PortalError` auf.
+    """
+    config = brand_mod.read_config(workspace) if config is None else config
+    target = config.get("portal")
+    if not isinstance(target, dict):
+        return None
+    brand, shop = target.get("brand"), target.get("shop")
+    if not (isinstance(brand, str) and isinstance(shop, str)):
+        raise portal.PortalError(f"Block portal in {Path(workspace) / 'reporting' / 'config.json'} "
+                                 "ohne brand oder shop")
+    return portal.reported_statuses(brand, shop, workspace)
+
+
+def check_workspace(workspace, config: dict | None = None, run_id: str | None = None,
+                    today: date | None = None) -> list[dict]:
+    """`check()` für einen Store-Workspace, mit den Anforderungen der Marke aus
+    `feedback.json` und ihren Meldungen aus dem Cockpit.
+
+    Das Cockpit wird nur gefragt, wenn ohne Meldungen etwas ansteht: eine
+    Meldung nimmt eine Maßnahme heraus, nie eine hinzu. Ist es dann nicht
+    erreichbar, steigt `portal.PortalError` auf, statt ohne die Meldungen
+    weiterzuprüfen.
+    """
+    workspace = Path(workspace)
+    config = brand_mod.read_config(workspace) if config is None else config
+    backlog, runs_dir_of = measures.peek(workspace), runs_resolver(workspace, config)
+    requested = requested_measures(workspace)
+    found = check(backlog, runs_dir_of, run_id, today, requested=requested)
+    if found:
+        reported = cockpit_reports(workspace, config)
+        if reported is not None:
+            found = check(backlog, runs_dir_of, run_id, today, reported, requested)
+    return found
 
 
 # ------------------------------------------------------------ Liste schreiben
@@ -644,8 +777,15 @@ def main(argv=None) -> int:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1
 
-    workspace = Path(args.workspace)
-    found = check(measures.peek(workspace), runs_resolver(workspace), args.run_id)
+    try:
+        found = check_workspace(Path(args.workspace), run_id=args.run_id)
+    except portal.PortalError as exc:
+        print(f"Fehler: {exc}. Ohne die gemeldeten Stände aus dem Cockpit nicht geprüft.",
+              file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"Fehler: {exc}", file=sys.stderr)
+        return 1
     blocked = [e for e in found if e["problems"]]
     for entry in found:
         print(f"{_where(entry)} {entry['title']}")

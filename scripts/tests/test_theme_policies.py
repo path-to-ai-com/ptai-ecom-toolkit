@@ -403,6 +403,24 @@ class Sync(unittest.TestCase):
     def apply_copy(self, now=NOW) -> dict:
         return policies.apply(self.ws, policies.load_source(policies.copy_path(self.ws)), now=now)
 
+    def test_neue_version_nur_mit_texten_fuer_die_marke_verlangt_keinen_neubau(self):
+        policies.sync(self.ws, cockpit())
+        first = self.apply_copy()
+        texts = cockpit(version="2026-01-20.1")
+        texts["rules"][0].update({
+            "context": "Der Banner fragt die Einwilligung ab.", "reason": "Ein Anbieter für alle Stores.",
+            "outcomes": {"same_as_reference": "Alle Stores mit Banner A.", "may_differ": "Jeder Store behält seinen."},
+            "needs": {"same_as_reference": [{"shops": ["nordshop"], "text": "Konto anlegen."}], "may_differ": []}})
+        result = policies.sync(self.ws, texts)
+        self.assertFalse(result["apply_needed"])
+        self.assertEqual(result["rules_changed"], [])
+        copy = read(policies.copy_path(self.ws))
+        self.assertEqual(copy["rules"][0]["needs"]["same_as_reference"][0]["text"], "Konto anlegen.")
+        self.assertEqual(policies.validate(copy), [])
+        again = self.apply_copy(now=datetime(2026, 1, 20, tzinfo=timezone.utc))
+        self.assertTrue(again["unchanged"])
+        self.assertEqual(again["applied_at"], first["applied_at"])
+
     def test_schreibt_die_fassung_ohne_inhalt_und_die_bausteine_daneben(self):
         result = policies.sync(self.ws, cockpit())
         copy = read(policies.copy_path(self.ws))

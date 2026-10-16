@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from unittest import mock
 
-from audit import measures, publish, readiness
+from audit import feedback, measures, portal, publish, readiness
 
 from tests import brand_support as bs
 
@@ -333,6 +333,168 @@ class TestRecheck(unittest.TestCase):
         self.assertIn("alle 3 Zeilen sind erledigt", self.brand.reasons()[0])
 
 
+def report(mid="M-016", status="implemented", shop="eu", set_at="2026-10-12T10:52:58+00:00"):
+    """Ein gemeldeter Stand aus dem Cockpit, wie `portal.reported_statuses()` ihn liefert."""
+    return {"shop": shop, "measure_id": mid, "status": status, "note": "", "set_at": set_at}
+
+
+class TestReported(unittest.TestCase):
+    """Es gilt der jüngere Stand: was die Marke später erledigt gemeldet hat, ist keine Aufgabe."""
+
+    def setUp(self):
+        # Ohne Liste und nur plausibel: ohne Meldung hält die Maßnahme an.
+        self.brand = Brand(self, [measure(mid="M-003", finding="CRO-01")],
+                           [finding("CRO-01", confidence="plausible")])
+
+    def check(self, *reports):
+        return readiness.check(measures.peek(self.brand.eu), readiness.runs_resolver(self.brand.eu),
+                               None, TODAY, list(reports))
+
+    def test_in_progress_or_done_after_the_last_entry_is_not_checked(self):
+        for status in ("in_progress", "implemented", "rejected", "obsolete"):
+            with self.subTest(status=status):
+                self.assertEqual(self.check(report("M-003", status)), [])
+
+    def test_without_reports_the_measure_is_checked(self):
+        self.assertEqual([e["measure"] for e in self.check()], ["M-003"])
+
+    def test_a_report_back_to_open_does_not_count(self):
+        self.assertEqual([e["measure"] for e in self.check(report("M-003", "open"))], ["M-003"])
+
+    def test_on_the_day_of_the_last_entry_the_file_counts(self):
+        found = self.check(report("M-003", set_at="2026-10-07T18:00:00+00:00"))
+        self.assertEqual([e["measure"] for e in found], ["M-003"])
+
+    def test_a_later_entry_in_the_file_overrides_the_report(self):
+        doc = measure(mid="M-003", finding="CRO-01")
+        doc["by_shop"]["eu"]["history"].append({"status": "open", "date": "2026-10-14",
+                                                "run_id": "2026-10-14-report"})
+        self.brand.save([doc])
+        self.assertEqual([e["measure"] for e in self.check(report("M-003"))], ["M-003"])
+
+    def test_the_latest_report_counts(self):
+        reports = (report("M-003", "implemented", set_at="2026-10-12T10:00:00+00:00"),
+                   report("M-003", "open", set_at="2026-10-13T09:00:00+00:00"))
+        self.assertEqual([e["measure"] for e in self.check(*reports)], ["M-003"])
+        self.assertEqual(self.check(reports[0]), [])
+
+    def test_a_report_from_another_store_does_not_count(self):
+        self.assertEqual([e["measure"] for e in self.check(report("M-003", shop="uk"))], ["M-003"])
+
+    def test_in_a_store_list_every_report_on_the_measure_counts(self):
+        backlog = {"version": 1, "next_id": 4, "measures": [{
+            "id": "M-003", "title": "Kaufleiste einblenden", "responsible": "Customer",
+            "confidence": "plausible", "status": "open", "intent": None, "needs": None,
+            "history": [{"status": "open", "date": "2026-10-07"}]}]}
+        found = readiness.check(backlog, lambda shop: self.brand.eu / "reporting" / "runs",
+                                None, TODAY, [report("M-003", shop="de")])
+        self.assertEqual(found, [])
+
+
+class TestFromRequest(unittest.TestCase):
+    """Ein Punkt aus einer Anforderung der Marke braucht keinen Befund; geprüft wird nur unsere Empfehlung."""
+
+    def setUp(self):
+        self.brand = Brand(self, [])
+
+    def requested(self, **fields):
+        fields = {"title": "Kundenfotos auf den Produktseiten zeigen",
+                  "data_source": "Aufgabenliste der Marke",
+                  "check_rule": "Auf den Produktseiten stehen Fotos von Kundinnen und Kunden.",
+                  "intent": "Ihr bindet Fotos aus Bewertungen auf den Produktseiten ein.", **fields}
+        doc = measure(mid="M-088", finding=None, confidence="plausible", **fields)
+        self.brand.save([doc])
+        return readiness.check(measures.peek(self.brand.eu), readiness.runs_resolver(self.brand.eu),
+                               None, TODAY, requested={"M-088"})
+
+    def test_a_point_of_the_brand_needs_no_confirmed_finding(self):
+        self.assertEqual(self.requested(), [])
+
+    def test_the_same_measure_from_an_audit_would_stop(self):
+        self.brand.save([measure(mid="M-088", finding=None, confidence="plausible")])
+        found = readiness.check(measures.peek(self.brand.eu), readiness.runs_resolver(self.brand.eu),
+                                None, TODAY)
+        self.assertIn("Maßnahme ist plausible", found[0]["problems"][0])
+
+    def test_a_quantity_in_our_recommendation_needs_its_list(self):
+        found = self.requested(intent="Ihr ergänzt die 37 Produktseiten ohne Kundenfoto.")
+        self.assertIn("nennt 37 Produktseiten, aber keine Liste", found[0]["problems"][0])
+
+    def test_a_quantity_in_title_evidence_or_check_rule_is_the_brands_own(self):
+        found = self.requested(title="Fotos für 99 Produkte ergänzen",
+                               evidence_text="Laut eurer Liste fehlen 99 Produktbilder.",
+                               check_rule="Die Kollektion zeigt eine Auswahl statt 99 ungeordneter Produkte.")
+        self.assertEqual(found, [])
+
+    def test_our_tools_in_the_recommendation_stop(self):
+        found = self.requested(needs="Die Liste aus unserem Crawl.")
+        self.assertIn("Werkzeug von Path to AI", found[0]["problems"][0])
+
+    def test_the_source_of_the_request_is_no_tool_of_ours(self):
+        self.assertEqual(self.requested(data_source="Export der Aufgabenliste, export.json"), [])
+
+    def test_the_workspace_reads_the_points_from_feedback(self):
+        self.requested()
+        bs.write_json(feedback.feedback_path(str(self.brand.eu)), {"version": 2, "entries": [
+            {"id": "FB-001", "title": "Kundenfotos", "links": [], "created_measures": ["M-088"]}]})
+        with mock.patch.object(portal, "reported_statuses") as asked:
+            self.assertEqual(readiness.check_workspace(self.brand.eu, today=TODAY), [])
+        asked.assert_not_called()
+
+
+class TestCockpit(unittest.TestCase):
+    """Die Meldungen kommen über das Cockpit, ohne Rückfall auf eine Prüfung ohne sie."""
+
+    def setUp(self):
+        self.brand = Brand(self, [measure(mid="M-003", finding="CRO-01")],
+                           [finding("CRO-01", confidence="plausible")])
+
+    def test_the_cockpit_is_asked_for_the_brand_and_store_of_the_config(self):
+        with mock.patch.object(portal, "reported_statuses", return_value=[report("M-003")]) as asked:
+            found = readiness.check_workspace(self.brand.eu, today=TODAY)
+        self.assertEqual(found, [])
+        self.assertEqual(asked.call_args.args[:2], (bs.BRAND, "eu"))
+
+    def test_nothing_to_stop_asks_nothing(self):
+        self.brand.save([measure(mid="M-003", finding="CRO-01", responsible="Path to AI")])
+        with mock.patch.object(portal, "reported_statuses") as asked:
+            self.assertEqual(readiness.check_workspace(self.brand.eu, today=TODAY), [])
+        asked.assert_not_called()
+
+    def test_without_portal_block_the_measures_are_checked_without_reports(self):
+        config_path = self.brand.eu / "reporting" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config.pop("portal")
+        bs.write_json(config_path, config)
+        with mock.patch.object(portal, "reported_statuses") as asked:
+            found = readiness.check_workspace(self.brand.eu, today=TODAY)
+        self.assertEqual([e["measure"] for e in found], ["M-003"])
+        asked.assert_not_called()
+
+    def test_an_unreachable_cockpit_stops_the_check(self):
+        with mock.patch.object(portal, "reported_statuses",
+                               side_effect=portal.PortalError("Cockpit nicht erreichbar")):
+            with self.assertRaises(portal.PortalError):
+                readiness.check_workspace(self.brand.eu, today=TODAY)
+
+    def test_cli_check_skips_what_the_brand_reported_done(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), \
+                mock.patch.object(portal, "reported_statuses", return_value=[report("M-003")]):
+            code = readiness.main(["check", "--workspace", str(self.brand.eu), "--run-id", RUN])
+        self.assertEqual(code, 0)
+        self.assertNotIn("M-003", out.getvalue())
+
+    def test_cli_check_stops_without_the_cockpit(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch.object(portal, "reported_statuses",
+                                  side_effect=portal.PortalError("Cockpit nicht erreichbar")):
+            code = readiness.main(["check", "--workspace", str(self.brand.eu)])
+        self.assertEqual(code, 1)
+        self.assertIn("Cockpit nicht erreichbar", err.getvalue())
+
+
 class TestPublish(unittest.TestCase):
     """publish hält eine nicht umsetzbare Maßnahme der Marke an, nur bei Läufen mit Befunden."""
 
@@ -340,6 +502,10 @@ class TestPublish(unittest.TestCase):
         self.brand = Brand(self, [measure(mid="M-027", finding="CRO-05")],
                            [finding("CRO-05", confidence="plausible")])
         self.target = self.brand.brand_ws.parent / "bucket"
+        # Nie das echte Cockpit: ohne Meldung der Marke.
+        patcher = mock.patch.object(portal, "reported_statuses", return_value=[])
+        self.reported = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_an_audit_with_an_unready_measure_copies_nothing(self):
         with self.assertRaises(SystemExit) as raised:
@@ -350,6 +516,19 @@ class TestPublish(unittest.TestCase):
     def test_brand_only_stops_too(self):
         with self.assertRaises(SystemExit):
             publish.prepare_brand_only(self.brand.eu, self.target)
+
+    def test_a_measure_the_brand_reported_implemented_does_not_stop(self):
+        self.reported.return_value = [report("M-027")]
+        with contextlib.redirect_stderr(io.StringIO()):
+            result = publish.prepare_brand_only(self.brand.eu, self.target)
+        self.assertEqual(result["brand"], bs.BRAND)
+
+    def test_an_unreachable_cockpit_copies_nothing(self):
+        self.reported.side_effect = portal.PortalError("Cockpit nicht erreichbar")
+        with self.assertRaises(SystemExit) as raised:
+            publish.prepare(self.brand.eu, RUN, self.target)
+        self.assertIn("Gemeldete Stände aus dem Cockpit nicht lesbar", str(raised.exception))
+        self.assertFalse(self.target.exists())
 
     def test_a_pulse_runs_without_the_check(self):
         pulse = "2026-10-12-pulse"

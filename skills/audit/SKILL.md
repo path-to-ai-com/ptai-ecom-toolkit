@@ -1221,6 +1221,8 @@ python3 -m audit.readiness check --workspace . --run-id <run-id>
 
 - Rückgabewert ist die Zahl der Maßnahmen, die nicht umsetzbar sind. Jede einzeln beheben: Zuständigkeit, Liste, Empfehlung, nicht die Regel.
 - `publish` ruft dieselbe Prüfung über die ganze Liste auf und lädt nichts hoch, solange eine Maßnahme der Marke sie nicht besteht.
+- **Es gilt der jüngere Stand** (seit 16.10.2026). Hat die Marke eine Maßnahme für einen Store im Cockpit als in Arbeit, umgesetzt, verworfen oder überholt gemeldet, und ist die Meldung jünger als der letzte Eintrag in `history` dieses Stores, liegt sie bei der Marke und wird nicht geprüft; am selben Tag gilt die Datei, wie im Cockpit. `check` und `publish` holen die Meldungen über `audit.portal`, wenn `reporting/config.json` einen Block `portal` hat. Ist das Cockpit nicht erreichbar, brechen beide ab, statt ohne die Meldungen zu prüfen.
+- **Punkte der Marke selbst** (seit 16.10.2026). Eine Maßnahme, die aus einer Anforderung der Marke angelegt wurde (`created_measures` in `feedback.json`), braucht keinen belegten Befund. "Vollständig" und "Ohne unsere Werkzeuge" gelten nur für unsere Empfehlung darin (`intent`, `needs`), nicht für Titel, Beleg oder Prüfregel, die ihren Punkt wiedergeben.
 - **Vor der Übergabe neu prüfen.** Eine Liste altert: acht Tage nach einem Audit leiteten fast vier von zehn defekten Backlinks schon weiter. `check` nennt eine Liste, die älter als sieben Tage ist, als Hinweis. Neu prüfen:
 
   ```bash

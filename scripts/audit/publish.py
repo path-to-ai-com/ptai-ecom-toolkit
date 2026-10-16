@@ -43,8 +43,18 @@ die Listen zweier Marken in `portal-test`.
 **Keine Aufgabe an die Marke, die nicht umsetzbar ist** (seit 15.10.2026).
 Vor jedem Lauf mit Befunden und vor `--brand-only` prüft `publish` jede
 anstehende Maßnahme der Marke: Befund belegt, Liste der Einzelobjekte im Lauf,
-Empfehlung ohne unsere Werkzeuge (`audit.readiness`). Wochenpuls, Migration
-und Setup ändern keine Maßnahme und laufen ohne diese Prüfung.
+Empfehlung ohne unsere Werkzeuge (`audit.readiness`). Was die Marke im
+Cockpit später als in Arbeit, umgesetzt, verworfen oder überholt gemeldet hat,
+liegt bei ihr und hält nicht an, und ein Punkt aus ihrer eigenen Anforderung
+braucht keinen Befund (seit 16.10.2026); die Meldungen kommen über
+`audit.portal`, und ist das Cockpit nicht erreichbar, bricht `publish` ab.
+Wochenpuls, Migration und Setup ändern keine Maßnahme und laufen ohne diese
+Prüfung.
+
+**Nur die Vorgaben** (`--policies-only`, seit 16.10.2026): `policies.json` und
+die Bausteine gehen ohne Maßnahmen und Anforderungen hoch, geprüft wie bei
+jedem anderen Weg, aber ohne die Prüfung der Maßnahmen. Eine neue Fassung der
+Vorgaben wartet so nicht darauf, dass jede Maßnahme der Marke umsetzbar ist.
 
 **Das Manifest unter Sperre und mit Zähler** (D12). Lesen, Ändern und Schreiben
 des Manifests laufen unter der Sperre der Marke, und das Manifest trägt an der
@@ -56,6 +66,7 @@ CLI:
     python3 -m audit.publish --workspace . --run-id 2026-09-08-audit \\
         --target ~/tmp/bucket        # lokal, solange kein Bucket steht
     python3 -m audit.publish --workspace . --brand-only --target <leer> --upload
+    python3 -m audit.publish --workspace . --policies-only --target <leer> --upload
 """
 from __future__ import annotations
 
@@ -309,13 +320,15 @@ def store_setups(brand_dir: Path, workspace: Path, current: Path | None = None) 
 
 def sheet_check(folder: Path, brand_dir: Path, workspace: Path,
                 current_setup: Path | None = None) -> tuple[list, list]:
-    """Fehler und Hinweise zum Blatt jeder Vorgabe im Cockpit (`theme.policies.sheet_problems`)."""
+    """Fehler und Hinweise zum Blatt jeder Vorgabe im Cockpit (`theme.policies.sheet_problems`), dazu jeder
+    fehlende Text für die Marke (`theme.policies.explanation_problems`, seit 16.10.2026)."""
     from theme import policies
     data = json.loads((folder / brand_mod.POLICIES_NAME).read_text(encoding="utf-8"))
     setups = store_setups(brand_dir, workspace, current_setup)
     reference = data.get("reference_shop")
-    return policies.sheet_problems(data, setups.get(reference),
-                                   [setup for shop, setup in setups.items() if shop != reference])
+    problems, hints = policies.sheet_problems(data, setups.get(reference),
+                                              [setup for shop, setup in setups.items() if shop != reference])
+    return problems + policies.explanation_problems(data), hints
 
 
 def _check_brand_files(workspace, config: dict, brand_reporting: Path,
@@ -334,13 +347,22 @@ def _check_brand_files(workspace, config: dict, brand_reporting: Path,
         raise SystemExit("Die Liste der Marke passt nicht, nichts kopiert:\n  "
                          + "\n  ".join(problems))
     folder = brand_mod.policies_dir(brand_reporting.parent)
-    problems = policy_problems(folder) if folder is not None else []
+    if folder is not None:
+        _check_policies(folder, brand_reporting.parent, workspace, current_setup)
+
+
+def _check_policies(folder: Path, brand_dir: Path, workspace,
+                    current_setup: Path | None = None) -> None:
+    """Bricht vor dem Kopieren ab, wenn die Vorgaben der Marke so nicht gelten oder im Cockpit unverständlich wären.
+
+    Format und Bausteine (`policy_problems`), dazu das Blatt jeder Vorgabe gegen das neueste Setup jedes Stores
+    (`sheet_check`). Gilt für jeden Weg, auf dem Vorgaben hochgehen.
+    """
+    problems = policy_problems(folder)
     if problems:
         raise SystemExit("Die Vorgaben der Marke gelten so nicht, nichts kopiert:\n  "
                          + "\n  ".join(problems))
-    if folder is None:
-        return
-    problems, hints = sheet_check(folder, brand_reporting.parent, Path(workspace), current_setup)
+    problems, hints = sheet_check(folder, brand_dir, Path(workspace), current_setup)
     for hint in hints:
         print(f"Hinweis: {hint}", file=sys.stderr)
     if problems:
@@ -353,11 +375,19 @@ def _check_readiness(workspace, config: dict) -> None:
 
     Belegt, vollständig, machbar (`audit.readiness`, seit 15.10.2026). Für
     die Liste eines Stores wie für die einer Marke; eine Liste, die älter als
-    eine Woche ist, steht nur als Hinweis da.
+    eine Woche ist, steht nur als Hinweis da. Was die Marke im Cockpit später
+    als in Arbeit, umgesetzt, verworfen oder überholt gemeldet hat, hält nicht
+    an, und ein Punkt aus ihrer eigenen Anforderung braucht keinen Befund (seit
+    16.10.2026); ist das Cockpit dafür nicht erreichbar, bricht es ab.
     """
-    from audit import readiness
-    reasons, hints = readiness.problems(measures.peek(workspace),
-                                        readiness.runs_resolver(workspace, config))
+    from audit import portal, readiness
+    try:
+        found = readiness.check_workspace(workspace, config)
+    except portal.PortalError as exc:
+        raise SystemExit(f"Gemeldete Stände aus dem Cockpit nicht lesbar, nichts kopiert: {exc}") from exc
+    except ValueError as exc:
+        raise SystemExit(f"Anforderungen der Marke nicht lesbar, nichts kopiert: {exc}") from exc
+    reasons, hints = readiness.lines(found)
     for hint in hints:
         print(f"Hinweis: {hint}", file=sys.stderr)
     if reasons:
@@ -390,6 +420,11 @@ def _copy_brand_files(brand_reporting: Path, target: Path, brand: str) -> dict:
     folder = brand_mod.policies_dir(brand_reporting.parent)
     if folder is not None:
         sources.update(brand_mod.policy_files(folder))
+    return _copy_to_brand(sources, target, brand)
+
+
+def _copy_to_brand(sources: dict, target: Path, brand: str) -> dict:
+    """Kopiert je Name die Quelle nach `brands/<slug>/<name>` im Ziel und gibt die Größen; fehlende bleiben weg."""
     files = {}
     for name, source in sources.items():
         if source.exists():
@@ -398,6 +433,11 @@ def _copy_brand_files(brand_reporting: Path, target: Path, brand: str) -> dict:
             shutil.copy2(source, dest)
             files[name] = source.stat().st_size
     return files
+
+
+def is_policy_file(name: str) -> bool:
+    """Gehört der Name unter `files` im Manifest zu den Vorgaben der Marke (`policies.json`, `policy-modules/…`)?"""
+    return name == brand_mod.POLICIES_NAME or name.startswith(f"{brand_mod.POLICY_MODULES_DIR}/")
 
 
 def prepare(workspace, run_id: str, target, today: date | None = None,
@@ -606,6 +646,47 @@ def prepare_brand_only(workspace, target, account_slug: str | None = None) -> di
             "manifest_base_revision": base_revision}
 
 
+def prepare_policies_only(workspace, target, account_slug: str | None = None) -> dict:
+    """Nur die Vorgaben der Marke mit ihren Bausteinen und das Manifest, ohne Maßnahmen und Anforderungen.
+
+    Seit 16.10.2026. `--brand-only` lädt Vorgaben, Maßnahmen und Anforderungen zusammen und hält an, solange
+    eine Maßnahme der Marke nicht umsetzbar ist (`audit.readiness`). Eine neue Fassung der Vorgaben wartete
+    damit auf die Maßnahmen, obwohl sie keine ändert, und die Stores bauten ihre Migration so lange nach der
+    alten. Geprüft werden deshalb nur die Vorgaben, wie bei jedem anderen Weg (`_check_policies`).
+
+    Im Manifest ersetzt die Fassung jeden Eintrag der Vorgaben unter `files`, auch Bausteine, die es nicht
+    mehr gibt; Maßnahmen, Anforderungen und Läufe bleiben, wie sie im Manifest stehen. Ins Ziel kommen nur
+    das Manifest und die Dateien der Vorgaben, und `upload` lädt nur, was im Ziel liegt: `measures.json`
+    und `feedback.json` im Bucket bleiben unberührt.
+    """
+    workspace, target = Path(workspace), Path(target)
+    config = load_config(workspace)
+    brand_reporting = brand_mod.brand_reporting_dir(workspace, config)
+    if brand_reporting is None:
+        raise SystemExit("--policies-only braucht brand_workspace in reporting/config.json: "
+                         "ohne Ordner der Marke gibt es keine Vorgaben der Marke.")
+    check_preview_target(config, account_slug, True)
+    brand, _shop = destination(config, account_slug)
+    with brand_mod.lock(workspace):
+        folder = brand_mod.policies_dir(brand_reporting.parent)
+        if folder is None:
+            raise SystemExit(f"Im Ordner der Marke {brand_reporting.parent} liegt keine "
+                             f"{brand_mod.POLICIES_NAME}. Nichts kopiert.")
+        _check_policies(folder, brand_reporting.parent, workspace)
+        manifest_path, manifest_data, base_revision = _load_manifest(target, brand, config)
+        policy_files = _copy_to_brand(brand_mod.policy_files(folder), target, brand)
+        kept = {name: size for name, size in (manifest_data.get("files") or {}).items()
+                if not is_policy_file(name)}
+        manifest_data["files"] = {**kept, **policy_files}
+        manifest_data["revision"] = (base_revision or 0) + 1
+        manifest.save(manifest_path, manifest_data)
+    return {"brand": brand, "policy_files": len(policy_files),
+            "kept_files": len(kept),
+            "manifest": str(manifest_path),
+            "manifest_revision": manifest_data["revision"],
+            "manifest_base_revision": base_revision}
+
+
 #: Wie eine Datei im Bucket ausgeliefert wird. Ohne den richtigen Typ laedt der
 #: Browser die Web-Fassung herunter, statt sie anzuzeigen.
 CONTENT_TYPES = {".html": "text/html", ".pdf": "application/pdf",
@@ -767,15 +848,23 @@ def main(argv=None) -> int:
                    help="nur die Dateien der Marke (Maßnahmen, Anforderungen, "
                         "Vorgaben mit Bausteinen) und das Manifest, kein Lauf; "
                         "für den Umzug einer Marke und neue Vorgaben")
+    p.add_argument("--policies-only", action="store_true",
+                   help="nur die Vorgaben der Marke mit ihren Bausteinen und das "
+                        "Manifest, keine Maßnahmen, keine Anforderungen, kein Lauf; "
+                        "für eine neue Fassung der Vorgaben")
     p.add_argument("--upload", action="store_true",
                    help="danach in den Bucket laden, braucht SUPABASE_URL und "
                         "SUPABASE_SERVICE_ROLE_KEY in der Umgebung; liegt im "
                         "Ziel kein Manifest, kommt es vorher aus dem Bucket")
     a = p.parse_args(argv)
-    if not a.brand_only and not a.run_id:
-        p.error("--run-id fehlt (nur mit --brand-only verzichtbar)")
+    if a.brand_only and a.policies_only:
+        p.error("--brand-only und --policies-only schließen sich aus")
+    if not (a.brand_only or a.policies_only) and not a.run_id:
+        p.error("--run-id fehlt (nur mit --brand-only oder --policies-only verzichtbar)")
     if a.brand_only and a.run_id:
         p.error("--brand-only lädt keinen Lauf, --run-id weglassen")
+    if a.policies_only and a.run_id:
+        p.error("--policies-only lädt keinen Lauf, --run-id weglassen")
 
     url = key = None
     if a.upload:
@@ -810,6 +899,12 @@ def main(argv=None) -> int:
                                         account_slug=a.account_slug)
             print(f"{result['brand_files']} Dateien der Marke nach "
                   f"{Path(a.target) / 'brands' / result['brand']}")
+        elif a.policies_only:
+            result = prepare_policies_only(a.workspace, a.target,
+                                           account_slug=a.account_slug)
+            print(f"{result['policy_files']} Dateien der Vorgaben nach "
+                  f"{Path(a.target) / 'brands' / result['brand']}; "
+                  f"{result['kept_files']} übrige Dateien der Marke bleiben im Bucket, wie sie sind")
         else:
             result = prepare(a.workspace, a.run_id, a.target,
                              note=a.note, replace=a.replace,
@@ -836,7 +931,7 @@ def main(argv=None) -> int:
             if upload_result["errors"]:
                 return 1
 
-    if a.brand_only:
+    if a.brand_only or a.policies_only:
         return 0
     if result["released"]:
         print("Freigabe: ja, übernommen. Der Kunde sieht diese Fassung.")
