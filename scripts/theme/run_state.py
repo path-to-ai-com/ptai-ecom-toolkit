@@ -19,6 +19,7 @@ Aufruf:
     python3 -m theme.run_state upgrade [--run-id <id>]
     python3 -m theme.run_state claim --force [--run-id <id>]
     python3 -m theme.run_state version [--run-id <id>]
+    python3 -m theme.run_state cockpit [--run-id <id>]
 
 Neben `state.json` liegt `journal.jsonl`: eine Zeile je Ereignis mit Zeitstempel.
 `phase`, `gate` und `set` schreiben ihr Ereignis selbst, `log` hält fest, was
@@ -56,6 +57,12 @@ als der installierten, etwa weil eine andere Person mit einem neueren Plugin wei
 die Sitzung an, bis das Plugin aktualisiert ist; sonst schriebe die ältere Fassung den Lauf mit älteren Regeln
 weiter. `version` liest nur: kein `migration.json`, keine Sperre, damit der Arbeitsbaum vor dem `git pull`
 sauber bleibt.
+
+Seit 0.3.17 gibt `cockpit` die Eingabe für das Werkzeug `report_migration` des Cockpits aus: Marke, Store, Lauf
+und `migration.json`, wie sie im Lauf liegt. Damit gibt das Claude des Teams den Stand selbst ins Cockpit, nach
+jedem Push und am Ende jeder Sitzung. Bis dahin kam `migration.json` nur mit `publish` des Betreibers in den
+Bucket, und eine in der Sitzung beantwortete Frage stand im Cockpit weiter offen (15.10.2026).
+Wie `version` liest `cockpit` nur.
 """
 import argparse
 import json
@@ -515,10 +522,40 @@ def version_status(workspace: Path, run_id: str | None = None) -> dict:
                      "aktualisieren, dann weiterarbeiten.") if outdated else None}
 
 
+def cockpit_report(workspace: Path, run_id: str | None = None) -> dict:
+    """Die Eingabe für `report_migration`: `brand`, `shop`, `run_id` und `migration`. Liest nur.
+
+    `brand` ist `portal.brand` der Config, sonst `account_slug`; `shop` ist `portal.shop`, ohne ihn findet das
+    Cockpit den Store nicht. `migration` ist `migration.json` des Laufs, unverändert; `run_state show` schreibt
+    sie, das gehört vor den Aufruf.
+    """
+    try:
+        config = load_config(workspace)
+    except ConfigError as error:
+        raise StateError(str(error)) from error
+    portal = config.get("portal") if isinstance(config.get("portal"), dict) else {}
+    brand = str(portal.get("brand") or config.get("account_slug") or "").strip()
+    shop = str(portal.get("shop") or "").strip()
+    if not brand or not shop:
+        raise StateError("portal.brand und portal.shop fehlen in reporting/config.json; list_shops des Cockpits "
+                         "nennt die Slugs. Ohne sie findet das Cockpit den Store nicht.")
+    run_id = run_id or latest_run_id(workspace)
+    if not run_id:
+        raise StateError("Kein Migrations-Lauf gefunden, zuerst init.")
+    path = Path(workspace) / "reporting" / "runs" / run_id / "migration.json"
+    try:
+        migration = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise StateError(f"{path} fehlt; zuerst run_state show.") from error
+    except ValueError as error:
+        raise StateError(f"{path} ist kein gültiges JSON ({error}); zuerst run_state show.") from error
+    return {"brand": brand, "shop": shop, "run_id": run_id, "migration": migration}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="theme.run_state")
     parser.add_argument("command", choices=("show", "init", "phase", "gate", "set", "log", "upgrade", "claim",
-                                            "version"))
+                                            "version", "cockpit"))
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--run-id")
@@ -542,6 +579,14 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(status, ensure_ascii=False))
         # 1 heißt Befund: das Plugin ist älter als der Lauf.
         return 1 if status["plugin_outdated"] else 0
+    if args.command == "cockpit":
+        try:
+            report = cockpit_report(workspace, args.run_id)
+        except StateError as error:
+            print(json.dumps({"error": str(error)}, ensure_ascii=False))
+            return 2
+        print(json.dumps(report, ensure_ascii=False))
+        return 0
     try:
         if args.command == "init":
             run_id = args.run_id or default_run_id()

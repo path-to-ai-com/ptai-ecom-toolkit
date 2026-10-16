@@ -1,6 +1,6 @@
 ---
 name: theme-migration
-description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "Bereit für die Abnahme", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Abnahme, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als entschieden mit Herkunft fest, übernimmt beim Start die Vorgaben der Marke mit ihren Bausteinen aus dem Cockpit (get_policies, policies sync) und wendet sie an, ohne nachzufragen, baut Bausteine mit Präfix und Werten des eigenen Stores ein und holt nie Code aus einem anderen Store-Repo, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
+description: Führt das Team einer Marke durch die Vorbereitung einer Shopify-Theme-Migration bis "Bereit für die Abnahme", von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Abnahme, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), gibt den Stand nach jedem Push selbst ins Cockpit (report_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als entschieden mit Herkunft fest, übernimmt beim Start die Vorgaben der Marke mit ihren Bausteinen aus dem Cockpit (get_policies, policies sync) und wendet sie an, ohne nachzufragen, baut Bausteine mit Präfix und Werten des eigenen Stores ein und holt nie Code aus einem anderen Store-Repo, und fragt nie nach Termin, Änderungsstopp oder Portal; Launch und Nachsorge macht der Betreiber mit ptai-ecom:theme-launch. Veröffentlicht nie. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit) und nicht für Launch oder Nachsorge (ptai-ecom:theme-launch). Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # theme-migration: die Migration führen
@@ -72,6 +72,9 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
   Phase 4, im Ziel-Repo, wenn ein Remote eingerichtet ist. Vorher die Transkripte ablegen (Abschnitt
   "Journal und Transkripte"). Die Person muss das nicht anstoßen. Commit-Botschaft englisch, etwa
   `migration: phase 1 snapshot done`.
+- **Nach jedem Push den Stand ins Cockpit geben** (`report_migration`, Abschnitt "Stand im Cockpit"),
+  auch nach einer neuen Frage und am Ende der Sitzung. Erst dann sieht das Team im Cockpit, was die Sitzung
+  geändert hat; ohne Meldung zeigt das Cockpit den letzten Stand, den Path to AI hochgeladen hat.
 - **Eine Liste offener Punkte je Migration:** `migration/open-items.json` (Abschnitt "Die Liste offener
   Punkte"). Was vor einem Gate erledigt sein muss, steht dort und nur dort, mit `open`, `done` und Beleg
   oder `deferred` mit Person und Datum. Prüfberichte, Prüfliste und Abnahme schreiben hinein, sie
@@ -152,15 +155,17 @@ Die Skripte lesen die Konfiguration. Der Migrationsstand speichert zusätzlich, 
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state upgrade
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state claim --force
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state version
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state cockpit
 ```
 
 - Datei: `reporting/runs/<date>-migration/state.json`. `init` legt sie an (Lauf-ID standardmäßig
   `<heute>-migration`, sonst `--run-id`). Alle anderen Befehle nehmen ohne `--run-id` den jüngsten
   Migrationslauf.
-- Nach jedem Befehl außer `version` schreibt `run_state` `migration.json` neben `state.json`: die neun
+- Nach jedem Befehl außer `version` und `cockpit` schreibt `run_state` `migration.json` neben `state.json`: die neun
   Schritte, die zwei Meilensteine, die offenen und die beantworteten Fragen, die Punkte ohne Frage
   (`ruled`), die Übergabe der letzten Sitzung (`now`, `after`, `operator_tasks`), den Namen des
-  Workspace-Repos und die Vorgaben. Das Cockpit liest nur diese Datei. Format:
+  Workspace-Repos und die Vorgaben. Das Cockpit liest nur diese Datei; dorthin kommt sie mit
+  `report_migration` (Abschnitt "Stand im Cockpit"). Format:
   `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/questions-format.md`.
 - `version` liest nur und vergleicht die Version des Plugins im Lauf mit der installierten (Abschnitt
   "Start der Migration").
@@ -222,6 +227,32 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   (Betreiber), `policies_version` und `policies_applied_at` (schreibt `policies apply`).
 - `show` nennt unter `open_items` die Zahl offener Punkte je Gate.
 
+### Stand im Cockpit
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state cockpit
+```
+
+- `cockpit` liest nur und gibt die Eingabe für das Werkzeug `report_migration` des Cockpits aus: `brand`
+  (`portal.brand`, sonst `account_slug`), `shop` (`portal.shop`), `run_id` und `migration`, den Inhalt von
+  `migration.json` des Laufs. Die Ausgabe unverändert an `report_migration` geben; nichts davon von Hand
+  zusammensetzen.
+- Gemeldet wird nach jedem Push des Workspace: nach jeder Phase und jedem Gate, nach jeder neuen Frage, bevor
+  die Skill das Team ins Cockpit schickt, beim Start nach dem Übernehmen von Antworten und Vorgaben und am
+  Ende der Sitzung. Vorher `run_state show`, damit `migration.json` den Stand trägt.
+- Antwort: `reported`, `new_run` (ein neuer Lauf steht jetzt im Cockpit), `open_questions` (Fragen, die weder
+  im Repo noch im Cockpit beantwortet sind) und `sheet`, der Link auf das Blatt der Migration. Den Link nennen,
+  wenn die Skill auf das Cockpit verweist.
+- Ohne Verbindung zum Cockpit oder ohne das Werkzeug `report_migration` (älteres Cockpit): einmal je Sitzung
+  sagen "Das Cockpit zeigt den Stand dieser Sitzung erst, wenn Claude mit dem Cockpit verbunden ist und die
+  Migration neu startet." und weiterarbeiten. Der Start der nächsten Sitzung mit Verbindung meldet ihn.
+- Lehnt das Cockpit ab:
+  - "newer state": Ein anderer Stand dieses Laufs ist jünger, meist aus einer anderen Sitzung. `git pull
+    --ff-only` im Workspace, `run_state show`, noch einmal melden. Hilft das nicht, den Grund nennen.
+  - "changed while reporting": noch einmal melden.
+  - jeder andere Grund (Format, Store, älterer Lauf): nicht wiederholen, den Grund nennen und als `error` ins
+    Journal.
+
 ### Fragen an das Team
 
 ```bash
@@ -265,9 +296,9 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
 - Ist eine gestellte Frage doch durch eine Regel entschieden, `questions withdraw` mit Herkunft und Text:
   die Frage verschwindet aus "Ausstehend", ihr Ergebnis steht unter "Entschieden" mit Herkunft und hält
   kein Gate an.
-- **Beantwortet wird im Cockpit.** Neue Fragen in der Sitzung nennen und auf das Blatt der Migration im
-  Cockpit verweisen (Reiter "Entscheidungen", Gruppe "Ausstehend"), nicht auf eine Antwort warten;
-  danach committen und pushen. Antwortet die Person trotzdem in der Sitzung, `questions answer` wie
+- **Beantwortet wird im Cockpit.** Neue Fragen in der Sitzung nennen, committen, pushen und melden
+  (`report_migration`), dann auf das Blatt der Migration im Cockpit verweisen (Reiter "Entscheidungen",
+  Gruppe "Ausstehend"), mit dem Link aus `sheet`; nicht auf eine Antwort warten. Antwortet die Person trotzdem in der Sitzung, `questions answer` wie
   bisher, mit ihrem Namen.
 - Antworten aus dem Cockpit übernimmt der Start der Migration (`questions import`). Eine im Repo
   eingetragene Antwort gilt; eine spätere im Cockpit ändert sie nicht.
@@ -442,7 +473,10 @@ Phase 0.
    antworten. Eine angefragte Änderung prüfen: Bleibt die Regel richtig, sagen warum. Zeigt sie, dass es
    doch ein echter Zielkonflikt ist, `ruled revoke --id <R-…> --reason "Änderung angefragt von <Name>:
    …"` und die Frage stellen.
-7. **Weiterarbeiten:** Einstieg wie unten.
+7. **Stand melden:** Haben Schritt 4 oder 5 etwas geändert, committen und pushen. Dann den Stand ins Cockpit
+   geben (`run_state cockpit`, `report_migration`, Abschnitt "Stand im Cockpit"), auch wenn sich nichts
+   geändert hat: So steht der Stand einer früheren Sitzung ohne Verbindung spätestens jetzt im Cockpit.
+8. **Weiterarbeiten:** Einstieg wie unten.
 
 ### Einstieg und Wiederaufnahme
 
@@ -479,6 +513,8 @@ Bevor eine Sitzung endet, auch wenn sie an einer offenen Frage anhält:
   prüft ihn. Findet die Prüfung nichts, was den Launch verhindert, ist er bereit für die Abnahme."
 - `run_state show` danach schreibt `migration.json` mit der Übergabe neu.
 - Dann Transkripte ablegen, committen und pushen (Abschnitt "Journal und Transkripte").
+- Zuletzt den Stand ins Cockpit geben (`run_state cockpit`, `report_migration`, Abschnitt "Stand im
+  Cockpit"), damit Kopf, Fragen und "Migration fortsetzen" im Blatt die Übergabe dieser Sitzung zeigen.
 
 ## Phase 0: Setup
 
@@ -735,6 +771,8 @@ der Betreiber." G4 entscheidet der Betreiber mit der Person der Marke in `theme-
 - **`policies sync` meldet einen Fehler** (andere Marke, Fassung ungültig, Baustein ohne Inhalt oder mit
   Pfad außerhalb seiner Regel): es ist nichts geschrieben, die Fassung im Repo gilt weiter. Den Fehler als
   `--operator-task` in der Übergabe festhalten ("Vorgaben im Cockpit prüfen: …") und weiterarbeiten.
+- **Kein Werkzeug `report_migration` oder das Cockpit lehnt die Meldung ab:** Abschnitt "Stand im
+  Cockpit". Ohne Meldung zeigt das Cockpit den Stand der letzten Meldung oder des letzten `publish`.
 - **Kein Werkzeug `get_policies`:** das Cockpit ist älter als dieses Plugin. Die Fassung im Repo gilt
   weiter; als `--operator-task` festhalten und weiterarbeiten.
 - **Ein Wert für einen Baustein fehlt** (etwa die Container-ID): nicht raten und nicht aus einem anderen

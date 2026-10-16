@@ -11,7 +11,9 @@ steht sichtbar daneben. Drei Dateien im Workspace des Stores, alle unter `migrat
 | `next.json` | `handover write`, am Ende jeder Sitzung | `theme.handover` |
 
 `run_state` liest alle drei nach jedem Befehl in `migration.json`, die einzige Datei, die das Cockpit
-liest. Von Hand ändert man keine davon; eine beschädigte Datei hält den Export an, statt still neu
+liest. Ins Cockpit gibt sie das Claude des Teams selbst: `run_state cockpit` liefert die Eingabe für das
+Werkzeug `report_migration`, nach jedem Push und am Ende jeder Sitzung (seit 0.3.17; vorher nur über
+`publish` des Betreibers). Von Hand ändert man keine davon; eine beschädigte Datei hält den Export an, statt still neu
 angelegt zu werden.
 
 ## Die Regel für Fragen

@@ -63,7 +63,8 @@ Dazu kommen drei Ablagen, die eigene Bausteine des Toolkits pflegen:
 | 10 Nachsorge | Prüfplan, Rückrichtung ins Repo | `theme-launch` | |
 
 Für die Marke und das Cockpit sind das neun Schritte (`theme-migration`, Abschnitt "Stand der
-Migration"); `run_state` schreibt sie nach jedem Befehl als `migration.json`. Vorgaben der Marke:
+Migration"); `run_state` schreibt sie nach jedem Befehl als `migration.json`, und das Claude des Teams gibt
+sie mit `report_migration` ins Cockpit (`run_state cockpit`). Vorgaben der Marke:
 `policies-format.md`. Fragen, Punkte ohne Frage und Übergabe: `questions-format.md`. Windows: `windows.md`.
 
 ## Die Liste offener Punkte

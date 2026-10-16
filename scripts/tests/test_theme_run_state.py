@@ -135,6 +135,57 @@ class VersionTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIsNone(json.loads(out.getvalue())["run_id"])
 
+
+class CockpitReportTest(unittest.TestCase):
+    """`run_state cockpit`: die Eingabe für `report_migration` des Cockpits (seit 0.3.17)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.ws = Path(tmp.name)
+        (self.ws / "reporting").mkdir()
+        self.run = self.ws / "reporting" / "runs" / "2026-01-01-migration"
+        self.run.mkdir(parents=True)
+        (self.run / "state.json").write_text(json.dumps({"run_id": "2026-01-01-migration", "kind": "migration"}),
+                                             encoding="utf-8")
+        self.migration = {"schema": 1, "run_id": "2026-01-01-migration", "generated_at": "2026-01-02T09:00:00+00:00",
+                          "questions": [{"id": "Q-001", "text": "Neu aus der Sitzung"}]}
+        (self.run / "migration.json").write_text(json.dumps(self.migration), encoding="utf-8")
+
+    def config(self, config: dict) -> None:
+        (self.ws / "reporting" / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    def test_gibt_marke_store_lauf_und_migration_json_unveraendert_aus(self):
+        self.config({"account_slug": "beispiel-alt", "portal": {"brand": "beispiel", "shop": "de"}})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = run_state.main(["cockpit", "--workspace", str(self.ws)])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue()), {
+            "brand": "beispiel", "shop": "de", "run_id": "2026-01-01-migration", "migration": self.migration})
+        # Liest nur: keine Sperre der Sitzung, kein neues migration.json.
+        self.assertFalse((self.run / "session.lock").exists())
+        self.assertEqual(json.loads((self.run / "migration.json").read_text(encoding="utf-8")), self.migration)
+
+    def test_ohne_portal_brand_gilt_account_slug(self):
+        self.config({"account_slug": "beispiel", "portal": {"shop": "de"}})
+        self.assertEqual(run_state.cockpit_report(self.ws)["brand"], "beispiel")
+
+    def test_ohne_store_im_cockpit_bricht_es_mit_hinweis_ab(self):
+        self.config({"account_slug": "beispiel"})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = run_state.main(["cockpit", "--workspace", str(self.ws)])
+        self.assertEqual(code, 2)
+        self.assertIn("portal.shop", json.loads(out.getvalue())["error"])
+
+    def test_ohne_migration_json_verweist_es_auf_show(self):
+        self.config({"portal": {"brand": "beispiel", "shop": "de"}})
+        (self.run / "migration.json").unlink()
+        with self.assertRaisesRegex(run_state.StateError, "run_state show"):
+            run_state.cockpit_report(self.ws)
+
+
 if __name__ == "__main__":
     unittest.main()
 
