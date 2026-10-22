@@ -147,7 +147,7 @@ class TestWebFassung(unittest.TestCase):
         self.assertIn("@font-face", page)
         self.assertIn("Archivo Black", page)
         self.assertIn("data:font/woff2;base64,", page)
-        self.assertIn("--p2a-accent:#E2381B", page)
+        self.assertIn("--p2a-blue:#006EDB", page)
 
     def test_zahlen_kommen_aus_demselben_builder(self):
         """Zwei Builder wären zwei Wahrheiten."""

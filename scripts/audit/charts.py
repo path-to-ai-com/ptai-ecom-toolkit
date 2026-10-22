@@ -37,9 +37,11 @@ import html
 # kann keine CSS-Variable des Elterndokuments aufloesen, wenn es als Bild
 # gerendert wird, und der Druck soll nicht von der Kaskade abhaengen.
 INK = "#14150F"
-BLUE = "#1B2A6B"
-ACCENT = "#E2381B"
-LIGHT = "#C9CEE3"
+BLUE = "#006EDB"
+# Rot ist seit 22.10.2026 keine Markenfarbe mehr, hier bleibt es Statusfarbe für
+# negative Abweichungen.
+ACCENT = "#C62F14"
+LIGHT = "#B3D4F4"
 RULE = "rgba(20,21,15,0.13)"
 GREY = "#6B6D63"
 

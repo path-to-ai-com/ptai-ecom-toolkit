@@ -81,9 +81,10 @@ def _logo(assets: Path, filename: str = "logo.svg", css_class: str = "logo") -> 
 #: nach Path to AI aus. Yves dazu: *"Warum ist das nicht CI?"*
 STYLE = """
 :root{
- --p2a-paper:#FFFFFF;--p2a-surface:#F5F5F2;--p2a-ink:#14150F;
- --p2a-ink-soft:#5A5E57;--p2a-accent:#E2381B;--p2a-accent-deep:#C62F14;
- --p2a-blue:#1F3F8F;--p2a-blue-wash:#E6ECFA;--p2a-rule:rgba(20,21,15,.13);
+ --p2a-paper:#FFFFFF;--p2a-surface:#F5F7FA;--p2a-ink:#14150F;
+ --p2a-ink-soft:#5A5E57;--p2a-blue:#006EDB;--p2a-blue-wash:#F0F7FF;
+ --p2a-accent:var(--p2a-blue);--p2a-accent-deep:var(--p2a-blue);--p2a-alert:#C62F14;
+ --p2a-rule:rgba(20,21,15,.13);
  --p2a-font-display:'Archivo Black','Archivo',system-ui,sans-serif;
  --p2a-font-body:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
  --p2a-font-mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',monospace;
@@ -220,7 +221,7 @@ th{text-align:left;font-family:var(--p2a-font-mono);font-size:10px;
 td{padding:7px 10px 7px 0;border-bottom:1px solid var(--p2a-rule);
  vertical-align:top}
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
-td.neg{color:var(--p2a-accent-deep);background:rgba(226,56,27,.07)}
+td.neg{color:var(--p2a-alert);background:rgba(198,47,20,.07)}
 .evidence{font-family:var(--p2a-font-mono);font-size:11px;line-height:1.5;
  color:var(--p2a-ink-soft);word-break:break-word;margin:8px 0 0}
 .finding-block,.measure{background:var(--p2a-surface);

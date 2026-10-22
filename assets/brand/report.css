@@ -50,13 +50,17 @@
 
 :root {
   --p2a-paper: #FFFFFF;        /* Grundfläche, immer weiß */
-  --p2a-surface: #F5F5F2;      /* ruhige Zweitfläche: Karten, Chrome */
+  --p2a-surface: #F5F7FA;      /* ruhige Zweitfläche: Karten, Chrome */
   --p2a-ink: #14150F;          /* Überschriften, Text, dunkle Panels */
   --p2a-ink-soft: #5A5E57;     /* Fließtext sekundär, Captions */
-  --p2a-accent: #E2381B;       /* laut: große Typo, Flächen ohne Kleintext */
-  --p2a-accent-deep: #C62F14;  /* Buttons, Links, Kleintext, rote Flächen mit Text */
-  --p2a-blue: #1F3F8F;         /* ruhig: Labels, Links, Callout-Kante */
-  --p2a-blue-wash: #E6ECFA;    /* Callout-Fläche, Hinweis-Sektionen */
+  --p2a-blue: #006EDB;         /* Hauptfarbe: Logopunkt, Aktionen, Links, Hervorhebung */
+  --p2a-blue-wash: #F0F7FF;    /* helles Blau: Callout-Fläche, Hinweis-Sektionen */
+  /* Seit 22.10.2026 ist Blau die einzige Markenfarbe. Die alten Akzent-Namen zeigen
+     auf Blau, damit jede Regel ohne Anfassen blau erscheint, wie in brand-tokens.css
+     im Drive. Rot ist nur noch Statusfarbe für fachlichen Handlungsbedarf mit Text. */
+  --p2a-accent: var(--p2a-blue);
+  --p2a-accent-deep: var(--p2a-blue);
+  --p2a-alert: #C62F14;
 
   --p2a-bg: var(--p2a-paper);
   --p2a-text: var(--p2a-ink);
@@ -758,7 +762,7 @@ td.neg {
   margin: 0 0 6pt;
 }
 
-.impact--high { border-color: var(--p2a-accent-deep); color: var(--p2a-accent-deep); }
+.impact--high { border-color: var(--p2a-alert); color: var(--p2a-alert); }
 .impact--medium { border-color: var(--p2a-blue); color: var(--p2a-blue); }
 
 /* Befund: große Zahl links, Text rechts. Die Zahl steht in der
@@ -795,7 +799,7 @@ td.neg {
   margin-top: 4pt;
 }
 
-.finding-figure--high { color: var(--p2a-accent-deep); }
+.finding-figure--high { color: var(--p2a-alert); }
 
 /* Einspaltiger Befund: Kennung, ein Satz als Überschrift, die Zahlen als
    Tabelle, dann was folgt. Für alles, was keine einzelne Leitzahl hat, also

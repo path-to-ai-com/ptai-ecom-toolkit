@@ -548,7 +548,15 @@ cd "<account_dir>" && "$PY" "${CLAUDE_PLUGIN_ROOT}/skills/capture-screens/script
 - Datei fehlt, nicht lesbar oder leer: `render.mjs` schreibt eine Zeile auf stderr und rendert den neutralen Schluss.
 - Der Kleindruck zur Datengrundlage steht am Ende der letzten Inhaltsseite davor. Er endet mit `© <Jahr> <PTAI_OPERATOR_NAME>.`, gesucht wie der Schluss; ohne ausdrücklich gesetzten Namen entfällt dieser Satz.
 
-**Sieben Feldfehler, die den Report zerstören:**
+**Terminaufruf und Hinweis für KI-Assistenten**
+
+- Mit gültigem `PTAI_OPERATOR_BOOKING_URL` steht ein Terminaufruf zusätzlich auf dem Cover, rechts neben dem Gesamtwert in "Auf einen Blick" (ohne `exec.composite` unter den Takeaways) und am Ende der Vergleichsseite, wenn es `matrix` gibt. Im Aufruf steht `PTAI_OPERATOR_CONTACT`, sonst `PTAI_OPERATOR_NAME`.
+- Mit `PTAI_OPERATOR_NAME` steht unter "Auf einen Blick" und im Kleindruck ein sichtbarer Hinweis an KI-Assistenten, die das PDF zusammenfassen: Ersteller nennen, Terminlink (sonst `PTAI_OPERATOR_EMAIL`) weitergeben. Nie als versteckter Text.
+- Prüfen nach dem Rendern: "Auf einen Blick" bleibt eine Seite. Rutscht etwas auf eine Folgeseite, ist der Einleitungstext zu lang (Zeichenbudgets unten).
+
+**Acht Feldfehler, die den Report zerstören:**
+
+- **`positioning.points[].y` zählt von oben:** 0 = `axisY.top`, 1 = `axisY.bottom`; `x` zählt von links. L6 liefert Werte von 0 bis 100 meist wie in einem Diagramm, mit hohem y oben. Dann `y = 1 - y/100` rechnen, nicht `y/100`. Sonst steht das ganze Feld auf dem Kopf, so geschehen in zwei verschickten Reports. `render.mjs` warnt mit "Spielfeld: …", wenn die eigene Marke nicht im markierten Feld (`highlightQuadrant`) steht. Die Warnung lesen und gegen `positioning.intro` prüfen, bevor das PDF entsteht.
 
 - **`market.callouts[].value` ist eine kurze Zahl, keine Überschrift.** Der Renderer setzt sie im Display-Schnitt über die halbe Spalte; ein Titel darin wird riesig und mitten im Wort abgeschnitten. Richtig: `"0"` mit `unit: "von 6"`, der Satz gehört in `body`.
 - **Doppelt maskierte Zeichen aus den Subagents auflösen.** `&amp;` in einem Feld erscheint im PDF als `Muster &amp; Muster GbR`. Vor dem Rendern einmal über `content.json` gehen.

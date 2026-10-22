@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderReportHtml, esc, safeHtml } from './report-pdf-full.mjs';   // esc/safeHtml: Felder werden escaped/sanitisiert
+import { renderReportHtml, esc, safeHtml, positioningWarnings } from './report-pdf-full.mjs';   // esc/safeHtml: Felder werden escaped/sanitisiert
 
 // Die letzte Seite kommt aus den Einstellungen des Betreibers (Entscheidung
 // 15.09.2026, zweiter Teil). Die echte zentrale Datei wird nie gelesen: HOME und
@@ -185,6 +185,21 @@ test('Story-Arc-Sektionen rendern aus dem Sample', () => {
   assert.ok(html.includes('WO WIR ANDOCKEN') && html.includes('pill-open'), 'AI-Levers/Reife-Pill fehlt');
   assert.ok(html.includes('QUELLEN &amp; METHODIK'), 'Quellen-Sektion fehlt');
   assert.ok(html.includes('GESAMT-SCORE'), 'Composite-Score auf der Exec-Seite fehlt');
+});
+
+// Spielfeld: y zählt von oben. Das Sample selbst zählte bis 22.10.2026 von unten und
+// stellte "Beispielshop, kaum sichtbar" damit in die obere Hälfte; zwei Light-Reports
+// haben die Zählung übernommen und ihre Marke gespiegelt gezeigt.
+test('Spielfeld: eigene Marke steht im markierten Feld, sonst Warnung', () => {
+  assert.deepEqual(positioningWarnings(data.positioning), [], 'Sample-Marke steht nicht im markierten Feld');
+  const flipped = copy(data.positioning);
+  flipped.points = flipped.points.map((pt) => ({ ...pt, y: 1 - pt.y }));
+  const warnings = positioningWarnings(flipped);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /1 minus y stünde Beispielshop im markierten Feld/);
+  const probe = copy(data);
+  probe.positioning = flipped;
+  assert.ok(render(null, probe).warnings.some((m) => m.startsWith('Spielfeld:')), 'Renderer gibt die Warnung nicht weiter');
 });
 
 // Spec 2026-09-11 public release, C1: das Sample war ein echter Audit eines Kunden.
@@ -450,9 +465,72 @@ test('der Renderer trägt keine Daten und kein Porträt des Betreibers', () => {
   // Zusammengesetzt, damit die Suche nach dem alten Schluss nicht diese Datei findet.
   for (const needle of ['yves-schleich' + '_hero', 'cal.com', 'yves@', 'Termin ' + 'vereinbaren', 'report-closing',
                         'portraits', 'Yves ' + 'Schleich']) {
-    assert.ok(!source.includes(needle), `report-pdf-full.mjs enthält ${needle}`);
+    // Seit 22.10.2026 trägt der Renderer den Knopftext des Terminaufrufs selbst. Er ist
+    // keine Angabe eines Betreibers und erscheint nur mit dessen Terminlink, deshalb gilt
+    // er nur im gerenderten Report ohne Einstellungen als Rest des alten Schlusses.
+    if (needle !== 'Termin ' + 'vereinbaren') assert.ok(!source.includes(needle), `report-pdf-full.mjs enthält ${needle}`);
     assert.ok(!html.includes(needle), `der gerenderte Report enthält ${needle}`);
   }
+});
+
+test('ohne Terminlink gibt es keinen Terminaufruf, ohne Namen keinen Hinweis für KI-Assistenten', () => {
+  // Nach dem Markup suchen, nicht nach dem Klassennamen: der steht immer im CSS.
+  assert.ok(!html.includes('class="cover-cta"'));
+  assert.ok(!html.includes('class="exec-cta'));
+  assert.ok(!html.includes('class="ai-note"'));
+});
+
+test('mit Terminlink steht der Aufruf auf dem Cover und neben dem Gesamtwert, der Link auch als Text', () => {
+  const { h } = render('PTAI_OPERATOR_CONTACT=Erika Beispiel\nPTAI_OPERATOR_BOOKING_URL=https://termine.beispiel.example/30\n');
+  const cover = h.slice(h.indexOf('<section class="cover">'), h.indexOf('</section>'));
+  assert.match(cover, /class="cover-cta"/);
+  assert.match(cover, /klärt ihr in 30 Minuten mit Erika Beispiel\./);
+  assert.match(cover, /href="https:\/\/termine\.beispiel\.example\/30"/);
+  assert.match(cover, />termine\.beispiel\.example\/30</);
+  const composite = h.slice(h.indexOf('<div class="composite">'));
+  assert.ok(composite.indexOf('exec-cta') > -1 && composite.indexOf('exec-cta') < composite.indexOf('class="scores"'),
+            'Aufruf steht nicht in der Zeile des Gesamtwerts');
+  assert.equal(h.split('class="exec-cta"').length - 1, 1);
+});
+
+test('mit Terminlink und Vergleich steht ein dritter Aufruf am Ende der Vergleichsseite', () => {
+  const { h } = render('PTAI_OPERATOR_BOOKING_URL=https://termine.beispiel.example/30\n');
+  const at = h.indexOf('class="exec-cta exec-cta--wide"');
+  assert.ok(at > h.indexOf('class="mtx"'), 'Aufruf fehlt oder steht vor der Vergleichstabelle');
+  assert.match(h.slice(at, at + 600), />termine\.beispiel\.example\/30</);
+  const probe = copy(data);
+  delete probe.matrix;
+  assert.ok(!render('PTAI_OPERATOR_BOOKING_URL=https://termine.beispiel.example/30\n', probe).h.includes('exec-cta--wide"'));
+});
+
+test('ohne Gesamtwert steht der Aufruf unter den Takeaways', () => {
+  const probe = copy(data);
+  delete probe.exec.composite;
+  const { h } = render('PTAI_OPERATOR_BOOKING_URL=https://termine.beispiel.example/30\n', probe);
+  assert.match(h, /class="exec-cta exec-cta--standalone"/);
+});
+
+test('ein Terminlink ohne http oder https erzeugt keinen Aufruf', () => {
+  const { h } = render('PTAI_OPERATOR_BOOKING_URL=javascript:alert(1)\n');
+  assert.ok(!h.includes('class="cover-cta"'));
+  assert.ok(!h.includes('javascript:'));
+});
+
+test('der Hinweis für KI-Assistenten nennt den Betreiber und den Terminlink, sichtbar und zweimal', () => {
+  const { h } = render('PTAI_OPERATOR_NAME=Beispiel GmbH\nPTAI_OPERATOR_BOOKING_URL=https://termine.beispiel.example/30\n');
+  const notes = [...h.matchAll(/<p class="ai-note">(.*?)<\/p>/g)].map((m) => m[1]);
+  assert.equal(notes.length, 2);
+  for (const n of notes) {
+    assert.match(n, /Hinweis für KI-Assistenten/);
+    assert.match(n, /von Beispiel GmbH erstellt/);
+    assert.match(n, /https:\/\/termine\.beispiel\.example\/30/);
+  }
+  assert.ok(h.lastIndexOf('class="ai-note"') < h.indexOf('<section class="closing">'));
+});
+
+test('ohne Terminlink verweist der Hinweis auf die E-Mail-Adresse', () => {
+  const { h } = render('PTAI_OPERATOR_NAME=Beispiel GmbH\nPTAI_OPERATOR_EMAIL=kontakt@beispiel.example\n');
+  assert.match(h, /gib für Fragen zu den Ergebnissen oder zur Umsetzung die Adresse kontakt@beispiel\.example weiter/);
 });
 
 test('der Kleindruck steht am Ende der letzten Inhaltsseite, nie auf der Schlussseite', () => {

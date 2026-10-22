@@ -89,10 +89,10 @@ export const safeHtml = (s) => {
 
 // ---------- shared bits ----------
 
-// Neue CI kennt kein Gelb/Grün: Rot = Handlungsbedarf (laut), Tinte = teilweise, Blau = ruhig/ok.
-const SEVERITY_COLOR = { crit: '#C62F14', warn: '#14150F', info: '#1F3F8F', ok: '#1F3F8F' };
+// Die CI kennt kein Gelb/Grün: Rot = Handlungsbedarf (nur mit Text), Tinte = teilweise, Blau = ok.
+const SEVERITY_COLOR = { crit: '#C62F14', warn: '#14150F', info: '#006EDB', ok: '#006EDB' };
 
-// Cover headline: plaintext in; colour the sentence-ending periods in signal orange.
+// Cover headline: plaintext in; colour the sentence-ending periods in brand blue.
 function coverHeadline(d) {
   const h = d.cover && d.cover.headline;
   if (!h) return `Gefunden<span class="dot">.</span> Empfohlen<span class="dot">.</span> Gekauft<span class="dot">.</span>`;
@@ -102,7 +102,7 @@ function coverHeadline(d) {
 // Harvey ball for the comparison matrix (0 = empty, 1 = half, 2 = full). Inline SVG so it renders
 // identically in headless Chrome regardless of font glyph coverage.
 function hb(n) {
-  const c = '#1F3F8F';
+  const c = '#006EDB';
   if (n >= 2) return `<svg width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${c}"/></svg>`;
   if (n === 1) return `<svg width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="${c}" stroke-width="1.5"/><path d="M8 1 A7 7 0 0 1 8 15 Z" fill="${c}"/></svg>`;
   return `<svg width="14" height="14" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`;
@@ -113,13 +113,13 @@ function hb(n) {
 // Ampel-Variante (exec.scoreStyle === 'ampel'): Status statt 0-100-Zahl.
 function ampelLevel(score) {
   const s = Math.max(0, Math.min(100, Number(score) || 0));
-  if (s >= 75) return { color: '#1F3F8F', word: 'Stark', idx: 2 };
+  if (s >= 75) return { color: '#006EDB', word: 'Stark', idx: 2 };
   if (s >= 50) return { color: '#14150F', word: 'Ausbaufähig', idx: 1 };
   return { color: '#C62F14', word: 'Handlungsbedarf', idx: 0 };
 }
 
 function ampelDots(level, size) {
-  const cols = ['#C62F14', '#14150F', '#1F3F8F'];
+  const cols = ['#C62F14', '#14150F', '#006EDB'];
   return `<div class="ampel">${cols.map((c, i) => `<span class="ad${i === level.idx ? ' on' : ''}" style="${i === level.idx ? `background:${c}` : `border:1.5px solid ${c};opacity:.35`};width:${size}px;height:${size}px"></span>`).join('')}</div>`;
 }
 
@@ -295,7 +295,7 @@ function proofBlock(b, ctx) {
     }
     case 'dist': {
       const total = Number(b.total) || (b.parts || []).reduce((s, p) => s + (Number(p.value) || 0), 0) || 1;
-      const tone = (t) => (t === 'bad' ? 'var(--accent-deep)' : t === 'good' ? 'var(--blue)' : 'rgba(31,63,143,.45)');
+      const tone = (t) => (t === 'bad' ? 'var(--alert)' : t === 'good' ? 'var(--blue)' : 'rgba(0,110,219,.45)');
       const bars = (b.parts || []).map((p) => `<span style="width:${((Number(p.value) || 0) / total * 100).toFixed(1)}%;background:${tone(p.tone)}"></span>`).join('');
       const legend = (b.parts || []).map((p) => `<span><i style="background:${tone(p.tone)}"></i>${esc(p.label)}</span>`).join('');
       return `<div class="fx-dist">${bars}</div><div class="fx-dlegend">${legend}</div>`;
@@ -677,19 +677,45 @@ function marketProfileSection(d, head) {
 </div>`;
 }
 
-function quadrantSection(d, head) {
+// Quadrant eines Punkts im Spielfeld. x zählt von links (0 = axisX.left), y zählt
+// von OBEN (0 = axisY.top, 1 = axisY.bottom), wie in SVG. Wer y wie in einem
+// Diagramm von unten einsetzt, spiegelt das ganze Feld: am 22.10.2026 stand die
+// eigene Marke eines Leads mit y 0,8 für "Problemlösung mit Belegen" unten statt oben,
+// und der Report war schon verschickt. Ein Lauf vom 20.09.2026 hatte denselben Fehler.
+export function quadrantOf(pt) {
+  return ((pt.y || 0) < 0.5 ? 't' : 'b') + ((pt.x || 0) < 0.5 ? 'l' : 'r');
+}
+
+// Warnung, wenn die eigene Marke außerhalb des markierten Felds steht. Das kann gewollt
+// sein (markiert ist ein freies Feld, in das die Marke soll), ist aber meist ein von
+// unten gezähltes y. Die Meldung nennt deshalb beide Lesarten.
+export function positioningWarnings(p) {
+  const self = (p?.points || []).find((pt) => pt.tier === 'self');
+  if (!self || !p.highlightQuadrant) return [];
+  const current = quadrantOf(self);
+  if (current === p.highlightQuadrant) return [];
+  const mirrored = quadrantOf({ ...self, y: 1 - (self.y || 0) });
+  const lines = [`Spielfeld: ${self.label} steht im Quadranten ${current}, markiert ist ${p.highlightQuadrant}.`,
+    'y zählt von oben (0 = axisY.top). Ist die Marke laut Text im markierten Feld, ist y von unten gezählt: alle y durch 1 minus y ersetzen.'];
+  if (mirrored === p.highlightQuadrant) lines.push(`Mit 1 minus y stünde ${self.label} im markierten Feld.`);
+  else lines.push('Ist ein freies Feld markiert, in das die Marke soll, ist die Meldung gegenstandslos.');
+  return [lines.join(' ')];
+}
+
+function quadrantSection(d, head, ctx = {}) {
   const p = d.positioning;
+  for (const m of positioningWarnings(p)) ctx.warn?.(m);
   const PL = 72, PR = 612, PT = 40, PB = 380;
   const W = PR - PL, H = PB - PT, CX = (PL + PR) / 2, CY = (PT + PB) / 2;
   const hqMap = { tl: [PL, PT], tr: [CX, PT], bl: [PL, CY], br: [CX, CY] };
   const hq = hqMap[p.highlightQuadrant] || null;
-  const hl = hq ? `<rect x="${hq[0]}" y="${hq[1]}" width="${W / 2}" height="${H / 2}" fill="#E6ECFA" opacity="0.6"></rect>` : '';
-  const tierFill = { self: '#E2381B', direct: '#1F3F8F', heritage: '#888780', indirect: 'none' };
+  const hl = hq ? `<rect x="${hq[0]}" y="${hq[1]}" width="${W / 2}" height="${H / 2}" fill="#F0F7FF" opacity="0.6"></rect>` : '';
+  const tierFill = { self: '#006EDB', direct: '#14150F', heritage: '#888780', indirect: 'none' };
   const pts = (p.points || []).map((pt) => {
     const px = PL + (pt.x || 0) * W, py = PT + (pt.y || 0) * H;
     const isSelf = pt.tier === 'self';
     const r = isSelf ? 8 : 5;
-    const fill = tierFill[pt.tier] || '#1F3F8F';
+    const fill = tierFill[pt.tier] || '#006EDB';
     const circle = fill === 'none'
       ? `<circle cx="${px}" cy="${py}" r="${r}" fill="none" stroke="#5A5E57" stroke-width="1.4"></circle>`
       : `<circle cx="${px}" cy="${py}" r="${r}" fill="${fill}"></circle>`;
@@ -704,8 +730,8 @@ function quadrantSection(d, head) {
   }).join('');
   const ax = p.axisX || {}, ay = p.axisY || {};
   const legend = [
-    [d.shop || 'Shop', '#E2381B', false],
-    ['Direkte Wettbewerber', '#1F3F8F', false],
+    [d.shop || 'Shop', '#006EDB', false],
+    ['Direkte Wettbewerber', '#14150F', false],
     ['Heritage', '#888780', false],
     ['Indirekt / Marktplatz', null, true],
   ].map(([lab, col, open]) => `<span class="qleg"><span class="qdot" style="${open ? 'border:1.4px solid #5A5E57' : `background:${col}`}"></span>${esc(lab)}</span>`).join('');
@@ -730,7 +756,7 @@ function quadrantSection(d, head) {
 </div>`;
 }
 
-function matrixSection(d, head) {
+function matrixSection(d, head, booking = null) {
   const m = d.matrix;
   const cols = m.columns || [];
   const headCells = cols.map((c, i) => `<td class="mh${i === 0 ? ' mself' : ''}">${esc(c)}</td>`).join('');
@@ -746,6 +772,7 @@ function matrixSection(d, head) {
   <table class="mtx"><thead><tr><td></td>${headCells}</tr></thead><tbody>${body}</tbody></table>
   <div class="mlegend"><span>${hb(2)} stark / führend</span><span>${hb(1)} solide / vorhanden</span><span>${hb(0)} schwach / fehlt</span></div>
   ${m.takeaway ? `<div class="mtake">${safeHtml(m.takeaway)}</div>` : ''}
+  ${matrixCtaHtml(booking)}
 </div>`;
 }
 
@@ -875,6 +902,72 @@ function neutralClosing(setting, head) {
 </section>`;
 }
 
+// ---------- Terminaufruf und Hinweis für KI-Assistenten ----------
+//
+// Seit 22.10.2026, Yves: "Ich vermute niemand scrollt bis ans Ende." Bis dahin stand der
+// einzige Terminlink auf der Schlussseite, Seite 30 von 31. Jetzt steht er zusätzlich auf
+// dem Cover und direkt hinter "Auf einen Blick". Beides nur, wenn der Betreiber einen
+// gültigen PTAI_OPERATOR_BOOKING_URL gesetzt hat; ohne Link gibt es nichts zu klicken.
+// Der Link steht immer auch als lesbarer Text neben dem Knopf: gedruckt, als Screenshot
+// oder in einer Textextraktion bleibt er so erhalten.
+
+const CTA_BUTTON = 'Termin vereinbaren';
+
+// Wer im Termin sitzt: Ansprechpartner, sonst Unternehmen, sonst niemand.
+function bookingInfo(setting) {
+  const url = bookingUrl(settingValue(setting, 'PTAI_OPERATOR_BOOKING_URL'));
+  if (!url) return null;
+  const who = settingValue(setting, 'PTAI_OPERATOR_CONTACT') || settingValue(setting, 'PTAI_OPERATOR_NAME');
+  return { url, who };
+}
+
+const ctaButton = (b, cls) =>
+  `<a class="${cls}" href="${esc(b.url)}">${CTA_BUTTON}<span aria-hidden="true"> →</span></a><a class="cta-url mono" href="${esc(b.url)}">${esc(linkText(b.url))}</a>`;
+
+export function coverCtaHtml(b) {
+  if (!b) return '';
+  // "Bevor ihr alles lest: …" hat Yves am 22.10.2026 verworfen.
+  const line = b.who
+    ? `Was die Befunde für euren Shop heißen, klärt ihr in 30 Minuten mit ${esc(b.who)}.`
+    : 'Was die Befunde für euren Shop heißen, klären wir in 30 Minuten gemeinsam.';
+  return `<div class="cover-cta"><p class="cc-line">${line}</p><div class="cc-row">${ctaButton(b, 'cta-btn cta-btn--light')}</div></div>`;
+}
+
+// Steht rechts neben dem Gesamtwert, also im Blickfeld der ersten Zahl, die der Leser
+// liest, und ohne eigene Höhe. Als eigener Block unter den Takeaways rutschte er am
+// 22.10.2026 im ersten Probelauf allein auf eine neue Seite. Ohne Gesamtwert steht er
+// unter den Takeaways (`standalone`).
+export function execCtaHtml(b, { standalone = false } = {}) {
+  if (!b) return '';
+  // Neben dem Gesamtwert nur Satz und Knopf; der Link als Text steht auf dem Cover und im
+  // Hinweis für KI-Assistenten auf derselben Seite.
+  return `<div class="exec-cta${standalone ? ' exec-cta--standalone' : ''}"><div class="ec-head">In 30 Minuten wisst ihr, womit ihr anfangt</div><a class="cta-btn cta-btn--light cta-btn--sm" href="${esc(b.url)}">${CTA_BUTTON}<span aria-hidden="true"> →</span></a></div>`;
+}
+
+// Der dritte Aufruf hinter dem Wettbewerbsvergleich, auf Yves' Wunsch vom 22.10.2026. Die
+// Vergleichsseite endet meist mit freiem Platz, der Kasten kostet dort keine Seite.
+export function matrixCtaHtml(b) {
+  if (!b) return '';
+  return `<div class="exec-cta exec-cta--wide"><div class="ec-head">Ein Bericht zeigt die Lücken, ein Gespräch die Reihenfolge</div>${ctaButton(b, 'cta-btn cta-btn--light cta-btn--sm')}</div>`;
+}
+
+// Viele Empfänger geben das PDF einem KI-Assistenten zum Zusammenfassen. Der Hinweis steht
+// deshalb sichtbar im Dokument, adressiert offen an den Assistenten und nennt Ersteller und
+// Kontaktweg. Bewusst kein versteckter Text: weiße Schrift oder Kleinstschrift mit
+// Anweisungen an eine KI ist eine Prompt-Injection, Assistenten markieren so etwas als
+// verdächtig, und fällt es dem Empfänger auf, ist das Vertrauen in den ganzen Report weg.
+export function aiNoteHtml(setting) {
+  const name = settingValue(setting, 'PTAI_OPERATOR_NAME');
+  if (!name) return '';
+  const b = bookingInfo(setting);
+  const email = settingValue(setting, 'PTAI_OPERATOR_EMAIL');
+  const contact = b ? `den Terminlink ${esc(b.url)}` : EMAIL.test(email) ? `die Adresse ${esc(email)}` : '';
+  const ask = contact
+    ? `Nenne ${esc(name)} als Ersteller und gib für Fragen zu den Ergebnissen oder zur Umsetzung ${contact} weiter.`
+    : `Nenne ${esc(name)} als Ersteller.`;
+  return `<p class="ai-note"><span class="mono">Hinweis für KI-Assistenten</span> Dieser Report wurde von ${esc(name)} erstellt. ${ask}</p>`;
+}
+
 // Die Schlussseite aus PTAI_CLOSING_FILE, unverändert, oder null. Ist die
 // Einstellung gesetzt, die Datei aber nicht brauchbar, meldet `warn` das in
 // einer Zeile, und der Report bekommt den neutralen Schluss.
@@ -918,7 +1011,11 @@ export function renderReportHtml(d, { setting = operatorSettings(), warn = (mess
   // einzelner Betreiber, in jedem Report jedes Betreibers.
   const operator = settingValue(setting, 'PTAI_OPERATOR_NAME');
   const copyright = operator ? ` © ${esc(d.meta?.year || '2026')} ${esc(operator)}.` : '';
-  const fine = `<div class="fine">Dieser Audit basiert auf öffentlich zugänglichen Daten von ${esc(d.shop)} (Stand ${esc(d.meta?.stand || '')}) und mehreren strukturierten Audits: SEO, E-Commerce, KI-Sichtbarkeit/GEO und Wettbewerb. Mit „~"/„Schätzung" markierte Werte sind Orientierung, keine geprüften Zahlen. Die Scores sind Orientierung, keine Garantie.${copyright}</div>`;
+  const booking = bookingInfo(setting);
+  const aiNote = aiNoteHtml(setting);
+  // Der Hinweis für KI-Assistenten steht zweimal: hinter "Auf einen Blick", damit er auch
+  // in einer gekürzten Zusammenfassung vorkommt, und im Kleindruck am Ende.
+  const fine = `<div class="fine">Dieser Audit basiert auf öffentlich zugänglichen Daten von ${esc(d.shop)} (Stand ${esc(d.meta?.stand || '')}) und mehreren strukturierten Audits: SEO, E-Commerce, KI-Sichtbarkeit/GEO und Wettbewerb. Mit „~"/„Schätzung" markierte Werte sind Orientierung, keine geprüften Zahlen. Die Scores sind Orientierung, keine Garantie.${copyright}</div>${aiNote}`;
   const last = d.sources ? 'sources' : d.levers ? 'levers' : 'fahrplan';
   const closing = closingFile(setting, warn) ?? neutralClosing(setting, head);
 
@@ -937,34 +1034,57 @@ ${FONT_FACE_CSS}
 @page { size: A4; margin: 0; }
 * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; }
 
-/* ---- DESIGN TOKENS (Styleguide von Path to AI: weisser Grund, ein lautes Rot, ein ruhiges Blau) ---- */
+/* ---- DESIGN TOKENS (Styleguide von Path to AI, Stand 22.10.2026: Tinte, Weiß und Blau) ---- */
 :root {
   --paper: #FFFFFF;
   --ink:   #14150F;
   --ink-80: rgba(20,21,15,.80);
   --ink-soft: #5A5E57;
-  --accent: #E2381B;        /* laut: grosse Typo, Marker, Flächen ohne Kleintext */
-  --accent-deep: #C62F14;   /* Buttons, Links, Kleintext */
-  --blue: #1F3F8F;          /* ruhig: Labels, Links, positive Signale */
-  --blue-wash: #E6ECFA;     /* Callout-Flächen */
+  --surface: #F5F7FA;      /* ruhige Zweitfläche */
+  --blue: #006EDB;          /* Hauptfarbe: Logopunkt, Aktionen, Links, Hervorhebung */
+  --blue-hover: #005BB8;
+  --blue-light: #F0F7FF;    /* Callout-Flächen */
+  /* Rot ist seit 22.10.2026 keine Markenfarbe mehr. Es steht nur noch dort, wo ein Befund
+     fachlich einen Fehler oder Handlungsbedarf zeigt, und immer zusammen mit Text oder Icon. */
+  --alert: #C62F14;
   --line: rgba(20,21,15,.13);
 }
 html, body { font-family: 'Inter', system-ui, sans-serif; color: var(--ink); background: var(--paper); }
 .disp  { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.02em; }
 .mono  { font-family: 'JetBrains Mono', monospace; }
-code   { font-family: 'JetBrains Mono', monospace; font-size: .9em; background: rgba(31,63,143,.08); color: var(--blue); padding: .05em .35em; border-radius: 3px; }
-.dot   { color: var(--accent); }
+code   { font-family: 'JetBrains Mono', monospace; font-size: .9em; background: rgba(0,110,219,.08); color: var(--blue); padding: .05em .35em; border-radius: 3px; }
+.dot   { color: var(--blue); }
 .wm    { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: -0.015em; }
 
 /* ---- COVER — full-bleed dark page ---- */
-.cover { width: 210mm; height: 297mm; padding: 20mm 18mm; position: relative; overflow: hidden; page-break-after: always; background: var(--ink); color: var(--paper); }
+.cover { width: 210mm; height: 297mm; padding: 20mm 18mm; position: relative; overflow: hidden; page-break-after: always; background: var(--ink); color: var(--paper); display: flex; flex-direction: column; }
+/* Der Textblock steht unten über der Meta-Zeile, egal wie lang Headline, Intro und
+   Terminaufruf sind. Bis 22.10.2026 stand die Eyebrow fest bei 120 mm; mit dem
+   Terminaufruf darunter wäre ein langer Hook in die Meta-Zeile gelaufen. */
+.cover .cv-push { flex: 1; min-height: 40mm; }
 .cover .wm { font-size: 21px; color: var(--paper); }
-.cover .eyebrow { display: flex; align-items: center; gap: 14px; margin-top: 120mm; font-size: 11px; letter-spacing: .22em; color: rgba(255,255,255,.7); }
-.cover .eyebrow .ln { width: 34px; height: 2px; background: var(--accent); }
+.cover .eyebrow { display: flex; align-items: center; gap: 14px; font-size: 11px; letter-spacing: .22em; color: rgba(255,255,255,.7); }
+.cover .eyebrow .ln { width: 34px; height: 2px; background: var(--blue); }
 .cover h1 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style: italic; letter-spacing: -0.02em; font-size: 44px; line-height: 1.02; margin-top: 14px; color: var(--paper); }
 .cover .intro { font-size: 16px; line-height: 1.55; color: rgba(255,255,255,.82); max-width: 128mm; margin-top: 20px; }
 .cover .ghost { position: absolute; right: -16mm; bottom: -42mm; font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style: italic; font-size: 400px; line-height: 1; color: rgba(255,255,255,.09); }
-.cover .meta { position: absolute; left: 18mm; right: 18mm; bottom: 18mm; display: flex; gap: 24px; border-top: 1px solid rgba(255,255,255,.18); padding-top: 14px; }
+.cover .meta { display: flex; gap: 24px; border-top: 1px solid rgba(255,255,255,.18); padding-top: 14px; margin-top: 14mm; position: relative; }
+.cover-cta { margin-top: 12mm; position: relative; z-index: 1; }
+.cc-line { font-size: 13px; line-height: 1.5; color: var(--paper); font-weight: 600; max-width: 160mm; }
+.cc-row { display: flex; align-items: center; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+.cta-btn { display: inline-block; background: var(--blue); color: var(--paper); font-family: 'Inter', system-ui, sans-serif; font-weight: 600; font-size: 14px; line-height: 1; padding: 15px 22px; border-radius: 4px; text-decoration: none; }
+.cta-btn--light { background: var(--paper); color: var(--blue); }
+.cta-url { font-size: 11px; letter-spacing: .02em; color: rgba(255,255,255,.75); text-decoration: none; }
+.cover .cta-btn--light { background: var(--blue); color: var(--paper); }
+/* Terminaufruf hinter "Auf einen Blick": blaue Fläche, damit er sich vom Lesetext absetzt. */
+.exec-cta { display: flex; align-items: center; gap: 14px; background: var(--blue); color: var(--paper); padding: 12px 14px 12px 16px; margin-left: auto; align-self: center; width: 88mm; flex-shrink: 0; break-inside: avoid; }
+.exec-cta--standalone, .exec-cta--wide { margin: 10mm 0 0; width: auto; }
+.exec-cta--wide .ec-head { font-size: 16px; }
+.exec-cta .cta-url { color: rgba(255,255,255,.85); }
+.ec-head { flex: 1; font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.01em; font-size: 13.5px; line-height: 1.2; }
+.cta-btn--sm { font-size: 12px; padding: 10px 13px; white-space: nowrap; }
+.ai-note { font-size: 9px; line-height: 1.5; color: var(--ink-soft); margin-top: 6mm; break-inside: avoid; }
+.ai-note .mono { letter-spacing: .12em; text-transform: uppercase; color: var(--ink); margin-right: 6px; }
 .cover .meta .mb { flex: 1; }
 .cover .meta .mk { font-size: 9.5px; letter-spacing: .18em; color: rgba(255,255,255,.55); }
 .cover .meta .mv { font-size: 13px; color: var(--paper); margin-top: 6px; }
@@ -999,15 +1119,15 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .ch-meta-item { font-size: 11px; line-height: 1.5; color: var(--ink-soft); margin-bottom: 3px; }
 
 /* ---- EXECUTIVE SCORES ---- */
-.scores { display: flex; gap: 10mm; margin-top: 16mm; }
+.scores { display: flex; gap: 10mm; margin-top: 12mm; }
 .scol { flex: 1; }
 .scol .lbl { font-size: 10px; letter-spacing: .12em; color: var(--ink-soft); border-top: 2px solid var(--ink); padding-top: 10px; }
 .scol .num { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.02em; font-size: 44px; color: var(--ink); line-height: 1; margin-top: 8px; }
 .scol .den { font-size: 18px; color: var(--ink-soft); }
 .bar { position: relative; height: 6px; background: rgba(20,21,15,.10); margin-top: 18px; }
 .bar .fill { height: 100%; background: var(--blue); }
-.bar .mark { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--accent-deep); transform: translateX(-1px); }
-.bar .goal { position: absolute; top: -18px; font-size: 9px; color: var(--accent-deep); transform: translateX(-50%); white-space: nowrap; }
+.bar .mark { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--ink); transform: translateX(-1px); }
+.bar .goal { position: absolute; top: -18px; font-size: 9px; color: var(--ink); transform: translateX(-50%); white-space: nowrap; }
 .scol .cap { font-size: 12.5px; line-height: 1.5; color: var(--ink-soft); margin-top: 14px; }
 
 /* ---- POTENZIAL-VARIANTE (exec.scoreStyle === 'potenzial') + STÄRKEN ---- */
@@ -1026,7 +1146,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .composite .ampel { margin-top: 0; }
 
 /* ---- COMPOSITE SCORE ---- */
-.composite { display: flex; align-items: baseline; gap: 16px; margin-top: 16mm; border-top: 2px solid var(--ink); padding-top: 14px; }
+.composite { display: flex; align-items: baseline; gap: 16px; margin-top: 12mm; border-top: 2px solid var(--ink); padding-top: 14px; }
 .composite .cnum { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.02em; font-size: 50px; color: var(--ink); line-height: .9; }
 .composite .cden { font-size: 22px; color: var(--ink-soft); }
 .composite .clbl { font-size: 10px; letter-spacing: .14em; color: var(--ink-soft); line-height: 1.5; text-transform: uppercase; }
@@ -1034,11 +1154,11 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 /* ---- TAKEAWAYS ---- */
 .takeaways { list-style: none; padding: 0; margin-top: 12mm; }
 .takeaways li { font-size: 13px; line-height: 1.55; color: var(--ink-80); padding-left: 18px; position: relative; margin-bottom: 10px; }
-.takeaways li:before { content: ''; position: absolute; left: 0; top: 7px; width: 6px; height: 6px; background: var(--accent-deep); border-radius: 50%; }
+.takeaways li:before { content: ''; position: absolute; left: 0; top: 7px; width: 6px; height: 6px; background: var(--blue); border-radius: 50%; }
 
 /* ---- MARKET CALLOUTS (Hauptpotenziale) ---- */
 .callouts { display: flex; gap: 8mm; margin-top: 14mm; }
-.callout { flex: 1; border-top: 2px solid var(--accent-deep); padding-top: 12px; }
+.callout { flex: 1; border-top: 2px solid var(--blue); padding-top: 12px; }
 .callout .cval { font-size: 30px; line-height: 1; color: var(--ink); }
 .callout .cunit { font-size: 15px; color: var(--ink-soft); }
 .callout .cbody { font-size: 12px; line-height: 1.5; color: var(--ink-80); margin-top: 8px; }
@@ -1050,7 +1170,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .prow { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border-bottom: .5px solid rgba(20,21,15,.14); padding: 9px 0; }
 .prow .pk { letter-spacing: .10em; font-size: 9.5px; color: var(--ink-soft); white-space: nowrap; }
 .prow .pv { font-size: 12.5px; color: var(--ink); text-align: right; }
-.posline { background: var(--blue-wash); padding: 12px 16px; margin-top: 14px; font-size: 13px; line-height: 1.5; color: var(--ink); }
+.posline { background: var(--blue-light); padding: 12px 16px; margin-top: 14px; font-size: 13px; line-height: 1.5; color: var(--ink); }
 .posline b { font-weight: 600; }
 .pnote { font-size: 9px; color: var(--ink-soft); margin-top: 12px; }
 
@@ -1064,13 +1184,13 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .mtx { width: 100%; border-collapse: collapse; margin-top: 10mm; table-layout: fixed; }
 .mtx td { padding: 11px 0; }
 .mtx thead .mh { font-size: 9.5px; letter-spacing: .08em; color: var(--ink-soft); text-align: center; }
-.mtx .mself { background: rgba(226,56,27,.06); }
+.mtx .mself { background: var(--blue-light); }
 .mtx .mcap { font-size: 12.5px; color: var(--ink); padding-right: 8px; width: 32%; }
 .mtx tbody tr { border-top: .5px solid rgba(20,21,15,.12); }
 .mtx .mcell { text-align: center; }
 .mlegend { display: flex; gap: 18px; margin-top: 12px; font-size: 10px; color: var(--ink-soft); align-items: center; }
 .mlegend span { display: flex; align-items: center; gap: 6px; }
-.mtake { background: var(--blue-wash); padding: 14px 18px; margin-top: 12mm; font-size: 13px; line-height: 1.55; color: var(--ink); }
+.mtake { background: var(--blue-light); padding: 14px 18px; margin-top: 12mm; font-size: 13px; line-height: 1.55; color: var(--ink); }
 .mtake b { color: var(--blue); }
 
 /* ---- STRATEGY TRIAGE ---- */
@@ -1080,7 +1200,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .tcol .tlbl { font-size: 10px; letter-spacing: .12em; color: var(--blue); }
 .tcol ul { list-style: none; margin-top: 14px; }
 .tcol li { font-size: 12px; line-height: 1.45; color: var(--ink-80); padding-left: 14px; position: relative; margin-bottom: 11px; }
-.tcol li:before { content: ''; position: absolute; left: 0; top: 7px; width: 5px; height: 5px; background: var(--accent-deep); }
+.tcol li:before { content: ''; position: absolute; left: 0; top: 7px; width: 5px; height: 5px; background: var(--blue); }
 
 /* ---- AI LEVERS ---- */
 .lev { width: 100%; border-collapse: collapse; margin-top: 10mm; }
@@ -1089,9 +1209,9 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .lev td:nth-child(2) { padding-left: 8px; padding-right: 8px; }
 .lev .lh { font-weight: 500; color: var(--ink); }
 .pill { display: inline-block; font-size: 9px; letter-spacing: .08em; padding: 4px 9px; border-radius: 3px; white-space: nowrap; }
-.pill-open { background: rgba(226,56,27,.10); color: var(--accent-deep); }
+.pill-open { background: var(--blue); color: var(--paper); }
 .pill-part { background: rgba(20,21,15,.06); color: var(--ink-soft); }
-.pill-lead { background: rgba(31,63,143,.10); color: var(--blue); }
+.pill-lead { background: var(--blue-light); color: var(--blue); }
 
 /* ---- SOURCES & METHODOLOGY ---- */
 .srcgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm 12mm; margin-top: 10mm; }
@@ -1116,7 +1236,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .fbadge { font-size: 8.5px; letter-spacing: .10em; color: var(--ink-soft); border: .5px solid rgba(20,21,15,.2); padding: 2px 8px; border-radius: 3px; }
 /* Das Schwere-Badge nimmt die Farbe des Strichs links auf, damit beide als dieselbe Angabe
    lesbar sind und die Legende im Kopf des Lesers entsteht statt in einer Fussnote. */
-.fbadge--crit { color: var(--accent-deep); border-color: rgba(198,47,20,.45); }
+.fbadge--crit { color: var(--alert); border-color: rgba(198,47,20,.45); }
 .fbadge--warn { color: var(--ink); border-color: rgba(20,21,15,.35); }
 .ftitle { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.015em; font-size: 15.5px; line-height: 1.2; color: var(--ink); }
 .ftext { font-size: 13px; line-height: 1.55; color: var(--ink-80); margin-top: 8px; }
@@ -1125,7 +1245,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .fimpact { font-size: 12px; line-height: 1.5; color: var(--blue); margin-top: 8px; }
 .fimpact .mono { font-size: 9.5px; letter-spacing: .12em; color: var(--ink-soft); display: block; margin-bottom: 2px; }
 .fskill { font-size: 9px; letter-spacing: .10em; color: var(--ink-soft); margin-top: 6px; }
-.floc { display: inline-block; font-size: 9.5px; letter-spacing: .04em; color: var(--accent-deep); text-decoration: none; margin-top: 8px; border-bottom: .5px solid rgba(198,47,20,.35); }
+.floc { display: inline-block; font-size: 9.5px; letter-spacing: .04em; color: var(--blue); text-decoration: none; margin-top: 8px; border-bottom: .5px solid rgba(0,110,219,.35); }
 
 /* ---- COMPACT FINDINGS (the long tail) ---- */
 .fcompact-lbl { font-size: 9.5px; letter-spacing: .14em; color: var(--ink-soft); margin-top: 10mm; break-after: avoid; page-break-after: avoid; }
@@ -1168,7 +1288,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .barlbl { font-size: 11px; line-height: 1.35; color: var(--ink-80); }
 .bartrack { height: 7px; background: rgba(20,21,15,.08); }
 .barfill { height: 7px; }
-.barfill--bad { background: var(--accent-deep); }
+.barfill--bad { background: var(--alert); }
 .barfill--good { background: var(--blue); }
 .barfill--neutral { background: #888780; }
 .barval { font-size: 10px; color: var(--ink-soft); text-align: right; }
@@ -1187,9 +1307,9 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
    das Beste. Dann wuerde ich das nicht rot machen." Rot bleibt dem Handlungsbedarf vorbehalten
    (Styleguide), die guten Zustaende laufen als Blau-Abstufung, je dunkler desto besser. */
 .gg-both { background: var(--blue); }
-.gg-brand { background: rgba(31,63,143,.55); }
-.gg-other { background: var(--accent-deep); }
-.gg-domain { background: rgba(31,63,143,.22); }
+.gg-brand { background: rgba(0,110,219,.55); }
+.gg-other { background: var(--alert); }
+.gg-domain { background: rgba(0,110,219,.22); }
 .gg-none { background: rgba(20,21,15,.07); }
 .gglegend { display: flex; flex-wrap: wrap; gap: 5mm 8mm; margin-top: 9mm;
             border-top: 1px solid var(--line); padding-top: 10px; }
@@ -1203,7 +1323,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 .stitle { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.015em; font-size: 16.5px; line-height: 1.15; color: var(--ink); margin-top: 8px; }
 .stage ul { list-style: none; margin-top: 14px; }
 .stage li { font-size: 12.5px; line-height: 1.45; color: var(--ink-80); padding-left: 14px; position: relative; margin-bottom: 11px; }
-.stage li:before { content: ''; position: absolute; left: 0; top: 7px; width: 5px; height: 5px; background: var(--accent-deep); }
+.stage li:before { content: ''; position: absolute; left: 0; top: 7px; width: 5px; height: 5px; background: var(--blue); }
 /* Der Fahrplan ist EINE Einheit: Überschrift, Lead, Etappen und Projektion gehören zusammen.
    Ohne diese Klammer zerlegt der Fragmentierer sie auf zwei Arten, beide gemessen über 22 Läufe:
    die Projektion landet allein auf einer sonst leeren Seite (12 Läufe), oder Überschrift und Lead
@@ -1211,9 +1331,9 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
    Passt die Einheit auf die laufende Seite, ändert die Klammer nichts; sonst wandert sie komplett
    auf die nächste. Ist sie höher als eine Seite, ignoriert Chrome das avoid und bricht wie bisher. */
 .roadmap { break-inside: avoid; }
-.proj { display: flex; gap: 24px; align-items: center; background: var(--blue-wash); padding: 20px 24px; margin-top: 14mm; break-inside: avoid; }
+.proj { display: flex; gap: 24px; align-items: center; background: var(--blue-light); padding: 20px 24px; margin-top: 14mm; break-inside: avoid; }
 .proj .big { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.02em; font-size: 30px; color: var(--ink); white-space: nowrap; }
-.proj .big .to { color: var(--accent-deep); }
+.proj .big .to { color: var(--blue); }
 .proj .plbl { font-size: 9.5px; letter-spacing: .14em; color: var(--ink-soft); margin-top: 4px; }
 .proj .ptext { font-size: 13px; line-height: 1.55; color: var(--ink); }
 .proj .ptext b { color: var(--blue); }
@@ -1230,7 +1350,7 @@ h2 { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-style
 /* Kleindruck: der Hinweis zur Datengrundlage am Ende der letzten Inhaltsseite und
    die Herkunftszeile im neutralen Schluss. */
 .fine { font-size: 9px; line-height: 1.5; color: var(--ink-soft); margin-top: 4mm; border-top: 1px solid var(--line); padding-top: 8px; break-inside: avoid; }
-.fine a { color: var(--accent-deep); text-decoration: none; }
+.fine a { color: var(--blue); text-decoration: none; }
 
 ul { padding: 0; }
 
@@ -1247,7 +1367,7 @@ ul { padding: 0; }
 .fx-proof--wide { grid-template-columns: 1fr; }
 .fx-card--compact .fx-proof { margin-top: 5mm; }
 .fx-note { font-size: 10.5px; line-height: 1.45; color: var(--ink-soft); margin-top: 11px; }
-.fx-note b { color: var(--accent-deep); font-weight: 600; }
+.fx-note b { color: var(--ink); font-weight: 600; }
 .fx-kv { border-top: 2px solid var(--ink); padding-top: 8px; margin-bottom: 18px; }
 .fx-kvn { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-size: 26px; line-height: 1; color: var(--ink); }
 .fx-kvn small { font-size: 13px; color: var(--ink-soft); font-family: 'Inter', sans-serif; font-weight: 400; }
@@ -1259,18 +1379,18 @@ ul { padding: 0; }
 .fx-grid td { font-size: 11.5px; color: var(--ink-80); padding: 7px 0; border-top: .5px solid rgba(20,21,15,.12); }
 .fx-grid td.fx-c { text-align: center; }
 .fx-x, .fx-check { display: inline-flex; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; align-items: center; justify-content: center; font-weight: 600; }
-.fx-x { background: rgba(198,47,20,.10); color: var(--accent-deep); }
-.fx-check { background: var(--blue-wash); color: var(--blue); }
+.fx-x { background: rgba(198,47,20,.10); color: var(--alert); }
+.fx-check { background: var(--blue-light); color: var(--blue); }
 .fx-gleg { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 9px; font-size: 9.5px; color: var(--ink-soft); }
 .fx-gleg .ggdot, .fx-gleg .fx-x, .fx-gleg .fx-check { width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; font-size: 7px; }
 .fx-srcg { margin-bottom: 13px; }
 .fx-gl { font-size: 11px; color: var(--ink); font-weight: 600; margin-bottom: 4px; }
 .fx-chip { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: var(--ink-80); background: rgba(20,21,15,.05); padding: 3px 7px; border-radius: 3px; margin: 0 4px 4px 0; }
-.fx-chip--own { background: var(--blue-wash); color: var(--blue); }
+.fx-chip--own { background: var(--blue-light); color: var(--blue); }
 .fx-quote { font-size: 12px; line-height: 1.55; color: var(--ink); border-left: 2px solid rgba(20,21,15,.2); padding: 2px 0 2px 11px; display: block; }
 .fx-qsrc { font-size: 9.5px; color: var(--ink-soft); margin-top: 6px; padding-left: 13px; }
-.fx-quote ins { text-decoration: none; background: var(--blue-wash); color: var(--blue); padding: 0 2px; border-radius: 2px; }
-.fx-quote mark { background: rgba(198,47,20,.12); color: var(--accent-deep); padding: 0 2px; border-radius: 2px; }
+.fx-quote ins { text-decoration: none; background: var(--blue-light); color: var(--blue); padding: 0 2px; border-radius: 2px; }
+.fx-quote mark { background: rgba(198,47,20,.12); color: var(--alert); padding: 0 2px; border-radius: 2px; }
 .fx-vrow { display: grid; grid-template-columns: 34mm 1fr; gap: 5mm; padding: 9px 0; border-top: .5px solid rgba(20,21,15,.12); }
 .fx-vk { font-size: 11px; line-height: 1.4; color: var(--ink); font-weight: 600; }
 .fx-vk small { display: block; font-weight: 400; color: var(--ink-soft); font-size: 10px; margin-top: 2px; }
@@ -1285,18 +1405,18 @@ ul { padding: 0; }
 .fx-dlegend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .fx-shot { position: relative; border: 1px solid rgba(20,21,15,.12); border-radius: 6px; overflow: hidden; background: #fff; }
 .fx-shot img { display: block; width: 100%; }
-.fx-ring { position: absolute; border: 2px solid var(--accent-deep); border-radius: 999px; }
-.fx-addl { margin: 0 4% 9px; font-size: 10.5px; line-height: 1.35; color: var(--blue); background: rgba(230,236,250,.9); outline: 1.5px solid rgba(31,63,143,.55); padding: 2px 6px; border-radius: 3px; }
+.fx-ring { position: absolute; border: 2px solid var(--blue); border-radius: 999px; }
+.fx-addl { margin: 0 4% 9px; font-size: 10.5px; line-height: 1.35; color: var(--blue); background: var(--blue-light); outline: 1.5px solid rgba(0,110,219,.55); padding: 2px 6px; border-radius: 3px; }
 .fx-proof--phone > div:first-child .fx-shot { width: 120px; }
 .fx-proof--phone .fx-facts { margin-top: 2mm; }
 .fx-missing { font-size: 10px; color: var(--ink-soft); padding: 18px 12px; background: rgba(20,21,15,.04); }
 .fx-stack { position: relative; }
 .fx-phone { position: relative; width: 112px; border: 1px solid rgba(20,21,15,.15); border-radius: 10px; overflow: hidden; }
 .fx-phone img { display: block; width: 112px; }
-.fx-fold { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--accent-deep); }
+.fx-fold { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--blue); }
 .fx-shade { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(20,21,15,.28); }
 .fx-pmk { position: absolute; left: 124px; font-size: 10.5px; line-height: 1.3; white-space: nowrap; transform: translateY(-50%); }
-.fx-pmk b { font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 9.5px; color: var(--accent-deep); display: block; letter-spacing: .04em; }
+.fx-pmk b { font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 9.5px; color: var(--blue); display: block; letter-spacing: .04em; }
 .fx-facts { margin-top: 8mm; border-top: 1px solid var(--line); }
 .fx-card--compact .fx-facts { margin-top: 5mm; }
 .fx-fact { display: grid; grid-template-columns: 35mm 1fr; gap: 6mm; padding: 11px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
@@ -1309,7 +1429,7 @@ ul { padding: 0; }
 .fx-dq { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; letter-spacing: -0.01em; font-size: 16.5px; color: var(--ink); margin-top: 6px; break-after: avoid; }
 .fx-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-top: 16px; }
 .fx-opt { border: 1px solid rgba(20,21,15,.18); border-radius: 4px; padding: 17px 19px 16px; }
-.fx-opt--rec { border: 1.5px solid var(--blue); background: rgba(230,236,250,.45); }
+.fx-opt--rec { border: 1.5px solid var(--blue); background: var(--blue-light); }
 .fx-ol { font-size: 9px; letter-spacing: .14em; color: var(--ink-soft); }
 .fx-opt--rec .fx-ol { color: var(--blue); }
 .fx-ot { font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-size: 16px; color: var(--ink); margin-top: 6px; }
@@ -1337,12 +1457,12 @@ ul { padding: 0; }
 .fx-choice { border: 1px solid rgba(20,21,15,.18); border-radius: 4px; padding: 8px 10px; font-size: 11.5px; line-height: 1.35; color: var(--ink); }
 .fx-cl { font-size: 8.5px; letter-spacing: .12em; color: var(--ink-soft); display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .fx-box { width: 11px; height: 11px; border: 1.2px solid rgba(20,21,15,.45); border-radius: 2px; display: inline-block; }
-.fx-choice--rec { border: 1.5px solid var(--blue); background: rgba(230,236,250,.45); }
+.fx-choice--rec { border: 1.5px solid var(--blue); background: var(--blue-light); }
 .fx-choice--rec .fx-cl { color: var(--blue); }
 .fx-choice--rec .fx-box { border-color: var(--blue); }
 .fx-csub { color: var(--ink-soft); }
 .fx-nogo { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-top: 4mm; }
-.fx-nogo div { font-size: 12px; line-height: 1.5; color: var(--ink-80); border-top: 2px solid var(--accent-deep); padding-top: 9px; }
+.fx-nogo div { font-size: 12px; line-height: 1.5; color: var(--ink-80); border-top: 2px solid var(--ink); padding-top: 9px; }
 .fx-nogo b { color: var(--ink); font-weight: 600; display: block; margin-bottom: 2px; }
 .fx-pointer { font-size: 11.5px; line-height: 1.5; color: var(--ink-soft); margin-top: 9mm; border-top: 1px solid var(--line); padding-top: 10px; }
 </style></head><body>
@@ -1350,9 +1470,11 @@ ul { padding: 0; }
 <!-- COVER -->
 <section class="cover">
   <span class="wm">Path to AI<span class="dot">.</span></span>
+  <div class="cv-push"></div>
   <div class="eyebrow"><span class="ln"></span><span class="mono">${d.cover?.eyebrow ? esc(d.cover.eyebrow) : 'E&#8209;COMMERCE&#8209;AUDIT · SEO · KI&#8209;SICHTBARKEIT · WETTBEWERB'}</span></div>
   <h1>${coverHeadline(d)}</h1>
   <p class="intro">${d.cover?.intro ? safeHtml(d.cover.intro) : `Ein ehrlicher Blick auf <b>${esc(d.shop)}</b>: klassisches SEO bei Google, Sichtbarkeit in der KI-Suche, eure Produktdaten und der direkte Vergleich mit dem Wettbewerb.`}</p>
+  ${coverCtaHtml(booking)}
   <div class="ghost">P</div>
   <div class="meta">
     <div class="mb"><div class="mk">ERSTELLT FÜR</div><div class="mv">${esc(d.meta?.erstelltFuer || d.shop)}</div></div>
@@ -1373,12 +1495,14 @@ ${(d.market || d.profile) ? marketProfileSection(d, head) : ''}
   ${d.exec.summary.map((p) => `<p class="lead">${safeHtml(p)}</p>`).join('')}
   ${d.exec.strengths?.length ? `<div class="eyebrow2 mono" style="margin-top:12mm">WAS SCHON STEHT</div><div class="sgrid">${d.exec.strengths.map((x) => `<div class="sitem"><span class="scheck">✓</span>${esc(x)}</div>`).join('')}</div>` : ''}
   ${d.exec.composite ? (d.exec.scoreStyle === 'potenzial'
-    ? `<div class="composite"><div class="cnum">${d.exec.composite}<span class="cden">/100</span></div><div>${d.fahrplan?.proj?.to ? `<div class="cto">→ ${esc(d.fahrplan.proj.to)} erreichbar</div>` : ''}<div class="clbl mono">PTAI E-Com Score · heute und nach Umsetzung der Maßnahmen</div></div></div>`
+    ? `<div class="composite"><div class="cnum">${d.exec.composite}<span class="cden">/100</span></div><div>${d.fahrplan?.proj?.to ? `<div class="cto">→ ${esc(d.fahrplan.proj.to)} erreichbar</div>` : ''}<div class="clbl mono">PTAI E-Com Score · heute und nach Umsetzung der Maßnahmen</div></div>${execCtaHtml(booking)}</div>`
     : d.exec.scoreStyle === 'ampel'
-    ? `<div class="composite"><div>${ampelDots(ampelLevel(d.exec.composite), 18)}<div class="aword" style="font-size:44px">${esc(ampelLevel(d.exec.composite).word)}</div></div><div class="clbl mono">GESAMT-STATUS<br>ÜBER ALLE DREI SÄULEN</div></div>`
-    : `<div class="composite"><div class="cnum">${d.exec.composite}<span class="cden">/100</span></div><div class="clbl mono">GESAMT-SCORE<br>ÜBER ALLE DREI SÄULEN</div></div>`) : ''}
+    ? `<div class="composite"><div>${ampelDots(ampelLevel(d.exec.composite), 18)}<div class="aword" style="font-size:44px">${esc(ampelLevel(d.exec.composite).word)}</div></div><div class="clbl mono">GESAMT-STATUS<br>ÜBER ALLE DREI SÄULEN</div>${execCtaHtml(booking)}</div>`
+    : `<div class="composite"><div class="cnum">${d.exec.composite}<span class="cden">/100</span></div><div class="clbl mono">GESAMT-SCORE<br>ÜBER ALLE DREI SÄULEN</div>${execCtaHtml(booking)}</div>`) : ''}
   <div class="scores">${d.exec.scores.map((s) => scoreCol(s, d.exec.scoreStyle)).join('')}</div>
   ${takeawaysList}
+  ${d.exec.composite ? '' : execCtaHtml(booking, { standalone: true })}
+  ${aiNote}
 </section>
 
 <!-- ENTSCHEIDUNGEN -->
@@ -1387,10 +1511,10 @@ ${decisions.length ? decisionsSection(d, head, decisions) : ''}
 <!-- EUER QUADRANT -->
 ${d.geoGrid ? geoGridSection(d.geoGrid, head) : ''}
 
-${d.positioning ? quadrantSection(d, head) : ''}
+${d.positioning ? quadrantSection(d, head, ctx) : ''}
 
 <!-- IM VERGLEICH -->
-${d.matrix ? matrixSection(d, head) : ''}
+${d.matrix ? matrixSection(d, head, booking) : ''}
 
 <!-- MASSNAHMEN — chapters, top-first + compact tail -->
 ${d.chapters.map((ch, i) => chapterSection(ch, i, head, ctx)).join('\n')}

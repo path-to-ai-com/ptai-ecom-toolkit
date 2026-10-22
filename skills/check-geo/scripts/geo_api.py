@@ -3,7 +3,7 @@
 
 Aufruf:
   geo_api.py --platform <chatgpt|perplexity|google-ai> --key <api-key> \
-             --query "<text>" [--timeout 60]
+             --query "<text>" [--timeout 120]
   geo_api.py --check <platform> <api-key>
 
 Schreibt ein normalisiertes JSON-Objekt nach stdout:
@@ -37,15 +37,28 @@ KEY_ENV = {"chatgpt": "PTAI_OPENAI_KEY",
            "google-ai": "PTAI_GEMINI_KEY"}
 
 OPENAI_URL = "https://api.openai.com/v1/responses"
-OPENAI_MODEL = "gpt-4o-mini"
+# Das Modell soll antworten wie ChatGPT, nicht wie irgendein Modell von
+# OpenAI. Bis 16.10.2026 stand hier gpt-4o-mini vom Juli 2024. Es nannte auf
+# "Wo kann man Produkte von Early Rider kaufen?" in 4 von 5 Antworten eine
+# fremde Domain "Offizielle Website von Early Rider"; daraus wurde ein Befund
+# mit dem Satz, ChatGPT schicke Käufer dorthin. Die ChatGPT-App verlinkte am
+# selben Tag den EU-Shop der Marke und Decathlon. gpt-5.5 über diese API
+# verlinkte in 3 von 3 Antworten den EU-Shop, zweimal auch Decathlon;
+# gpt-5.4-mini nannte zweimal nur den US-Shop, gpt-5 suchte nicht. Welches
+# Modell die App nutzt, sagt OpenAI nicht, und die Alias-Namen
+# "*-chat-latest" sind für diesen Key nicht abrufbar. Deshalb das Modell, das
+# im Vergleich wie die App antwortete; beim nächsten Modellwechsel von OpenAI
+# neu prüfen.
+# ChatGPT-Werte vor ptai-ecom 0.3.22 stammen aus gpt-4o-mini und sind mit
+# späteren nicht vergleichbar; jede Antwort trägt ihr Modell im Feld `model`.
+OPENAI_MODEL = "gpt-5.5"
 PERPLEXITY_URL = "https://api.perplexity.ai/chat/completions"
 PERPLEXITY_MODEL = "sonar"
 # Stand 06.09.2026, am ersten echten Lauf gegen die APIs geprüft:
 # "sonar" ist aktuell und antwortet. "gemini-2.0-flash" war abgekündigt und
 # liefert 404; die API empfiehlt selbst "gemini-3.6-flash", das hier jetzt
-# steht. Weiter ungeprüft: ob gpt-4o-mini den Tool-Typ "web_search" oder nur
-# "web_search_preview" akzeptiert (der Retry unten deckt beides ab), denn der
-# Check unten fährt bewusst ohne Websuche-Tool.
+# steht. gpt-5.5 nimmt den Tool-Typ "web_search" an (geprüft am 16.10.2026);
+# der Retry auf "web_search_preview" unten bleibt für ältere Modelle.
 GEMINI_MODEL = "gemini-3.6-flash"
 GEMINI_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
               f"{GEMINI_MODEL}:generateContent")
@@ -288,8 +301,10 @@ def main():
     parser.add_argument("--key", help="API-Key der Plattform. Besser leer lassen: der Key kommt aus PTAI_OPENAI_KEY, PTAI_PERPLEXITY_KEY oder PTAI_GEMINI_KEY, aus der Umgebung, der .env des Workspace oder zentral aus ~/.config/ptai-ecom/.env")
     parser.add_argument("--query",
                         help="Query wörtlich, wie sie in der Config steht")
-    parser.add_argument("--timeout", type=int, default=60,
-                        help="Timeout je API-Call in Sekunden (Default 60)")
+    # 120 statt 60 seit 16.10.2026: gpt-5.5 denkt vor der Antwort und brauchte
+    # mit Websuche bis 27 Sekunden je Frage, gpt-4o-mini rund 5.
+    parser.add_argument("--timeout", type=int, default=120,
+                        help="Timeout je API-Call in Sekunden (Default 120)")
     parser.add_argument("--check", nargs=2, metavar=("PLATFORM", "KEY"),
                         help="Nur Auth per Mini-Call testen, Exit 0/1. Für KEY genügt '-', wenn der Key aus der Umgebung, der .env des Workspace oder zentral aus ~/.config/ptai-ecom/.env kommt")
     args = parser.parse_args()
