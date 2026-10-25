@@ -5,6 +5,11 @@ from datetime import date
 from pathlib import Path
 
 from audit import measures
+from tests import id_support
+
+
+def setUpModule():
+    id_support.offline_ids()
 
 
 class TestMeasures(unittest.TestCase):
@@ -654,3 +659,145 @@ class TestBrandListOnDisk(unittest.TestCase):
         measures.peek(self.uk)
         self.assertEqual((self.brand_ws / "reporting" / "measures.json").read_bytes(), before)
         self.assertTrue(brand_mod.has_brand_files(self.eu))
+
+
+# -- Nummern aus dem Cockpit (Spec ptai-portal 2026-10-08, Nachtrag vom 25.10.2026) --
+
+import json  # noqa: E402
+import os  # noqa: E402
+from unittest import mock  # noqa: E402
+
+from audit import env, portal  # noqa: E402
+
+
+class CockpitCounter:
+    """Der Zähler je Marke wie `reserve_measure_ids` im Cockpit: steigt auf
+    mindestens `floor - 1`, zählt eins weiter und geht nie zurück."""
+
+    def __init__(self, value: int):
+        self.value = value
+        self.floors = []
+
+    def __call__(self, backlog, workspace="."):
+        floor = backlog["next_id"]
+        self.floors.append(floor)
+        self.value = max(self.value, floor - 1) + 1
+        return self.value, self.value + 1
+
+
+def answer(status, payload):
+    return status, json.dumps(payload).encode()
+
+
+class TestIdsFromTheCockpit(unittest.TestCase):
+    """create() nimmt die Nummer vom Zähler der Marke im Cockpit, nie aus eigener Zählung."""
+
+    def test_the_reserved_number_is_used_and_next_id_follows_the_answer(self):
+        with mock.patch.object(measures, "reserve_id", return_value=(42, 43)) as reserve:
+            backlog = measures.create(measures.empty(), workspace="/ws", **NEW)
+        self.assertEqual(backlog["measures"][0]["id"], "M-042")
+        self.assertEqual(backlog["next_id"], 43)
+        self.assertEqual(reserve.call_args.args, (measures.empty(), "/ws"))
+
+    def test_next_id_never_falls_below_the_file(self):
+        # Ein next_id aus der Antwort unter dem der Datei wird nicht übernommen.
+        doc = {**measures.empty(), "next_id": 50}
+        with mock.patch.object(measures, "reserve_id", return_value=(50, 40)):
+            backlog = measures.create(doc, **NEW)
+        self.assertEqual(backlog["next_id"], 50)
+        self.assertEqual(backlog["measures"][0]["id"], "M-050")
+
+    def test_a_counter_ahead_of_the_file_skips_the_numbers_of_the_cockpit(self):
+        # Die Marke hat im Cockpit M-006 bis M-009 hinzugefügt; die Datei weiß davon nichts.
+        counter = CockpitCounter(9)
+        with mock.patch.object(measures, "reserve_id", counter):
+            doc = measures.create(bs.fixture(), shop="eu", run_id="2026-11-12-audit", **NEW)
+            doc = measures.create(doc, shop="uk", run_id="2026-11-12-audit", **NEW)
+        self.assertEqual([m["id"] for m in doc["measures"][-2:]], ["M-010", "M-011"])
+        self.assertEqual(counter.floors, [6, 11])
+        self.assertEqual(doc["next_id"], 12)
+        self.assertEqual(measures.consistency_problems(doc), [])
+
+    def test_a_counter_behind_the_file_starts_at_the_file(self):
+        counter = CockpitCounter(0)
+        with mock.patch.object(measures, "reserve_id", counter):
+            doc = measures.create(bs.fixture(), shop="eu", **NEW)
+        self.assertEqual(doc["measures"][-1]["id"], "M-006")
+        self.assertEqual(doc["next_id"], 7)
+
+    def test_a_rejected_creation_reserves_nothing(self):
+        with mock.patch.object(measures, "reserve_id") as reserve:
+            for broken in ({"evidence": ""}, {"confidence": "geraten"}, {"approval": "egal"}):
+                with self.subTest(broken=broken), self.assertRaises(ValueError):
+                    measures.create(measures.empty(), **{**NEW, **broken})
+            with self.assertRaises(ValueError):
+                measures.create(bs.fixture(), **NEW)  # v2 ohne Store
+        reserve.assert_not_called()
+
+    def test_a_number_already_in_the_list_is_refused(self):
+        with mock.patch.object(measures, "reserve_id", return_value=(3, 4)), \
+                self.assertRaisesRegex(ValueError, "M-003"):
+            measures.create({"next_id": 3, "measures": [{"id": "M-003"}]}, **NEW)
+
+
+class TestReserveThroughThePortal(unittest.TestCase):
+    """Die echte Reservierung: Marke und Store aus der Config, Fehler steigen auf."""
+
+    def setUp(self):
+        self.brand_ws = bs.make_brand(self)
+        self.eu = self.brand_ws / "eu"
+        self.file = self.brand_ws / "reporting" / "measures.json"
+        patcher = mock.patch.object(measures, "reserve_id", id_support.REAL_RESERVE_ID)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_floor_brand_and_store_go_to_the_route(self):
+        with mock.patch.object(portal, "_request",
+                               return_value=answer(200, {"first": 12, "next_id": 13})) as request:
+            doc = measures.create(measures.load(self.eu), shop="eu", workspace=self.eu, **NEW)
+        self.assertEqual(request.call_args.args,
+                         ("POST", bs.BRAND, "eu", "/measure-ids", {"floor": 6, "count": 1}, self.eu))
+        self.assertEqual(doc["measures"][-1]["id"], "M-012")
+        self.assertEqual(doc["next_id"], 13)
+
+    def test_portal_errors_reach_the_caller_and_nothing_is_written(self):
+        before = self.file.read_bytes()
+        failures = {
+            "abgelehnt": mock.patch.object(portal, "_request",
+                                           return_value=answer(500, {"error": "not_reserved"})),
+            "unbekannter Store": mock.patch.object(portal, "_request",
+                                                   return_value=answer(404, {"error": "shop_not_found"})),
+            "nicht erreichbar": mock.patch.object(
+                portal, "_request", side_effect=portal.PortalError("Cockpit nicht erreichbar: refused")),
+            "falsche Antwort": mock.patch.object(portal, "_request",
+                                                 return_value=answer(200, {"first": 5, "next_id": 6})),
+        }
+        for name, failure in failures.items():
+            with self.subTest(name), failure, self.assertRaisesRegex(portal.PortalError, "Keine Nummer"):
+                measures.update(self.eu, lambda b: measures.create(
+                    b, shop="eu", run_id="2026-11-12-audit", workspace=self.eu, **NEW))
+            self.assertEqual(self.file.read_bytes(), before)
+
+    def test_without_address_and_token_no_number_is_guessed(self):
+        old_central = env.CENTRAL
+        env.CENTRAL = self.brand_ws / "keine-zentrale.env"
+        self.addCleanup(setattr, env, "CENTRAL", old_central)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for name in portal.ENV_NAMES:
+                os.environ.pop(name, None)
+            with self.assertRaisesRegex(portal.PortalError, "PTAI_PORTAL_URL"):
+                measures.create(measures.load(self.eu), shop="eu", workspace=self.eu, **NEW)
+
+    def test_a_list_of_another_brand_reserves_nothing(self):
+        doc = {**measures.load(self.eu), "brand": "andere-marke"}
+        with mock.patch.object(portal, "_request") as request, \
+                self.assertRaisesRegex(portal.PortalError, "andere-marke"):
+            measures.create(doc, shop="eu", workspace=self.eu, **NEW)
+        request.assert_not_called()
+
+    def test_a_workspace_without_brand_reserves_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(portal, "_request") as request, \
+                self.assertRaisesRegex(portal.PortalError, "nicht bestimmbar"):
+            measures.create(measures.empty(), workspace=tmp, **NEW)
+        request.assert_not_called()

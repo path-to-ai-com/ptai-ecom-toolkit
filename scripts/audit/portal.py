@@ -18,6 +18,10 @@ Einrichtung durch den Kunden, Abschnitt 10, Nachtrag vom 03.10.2026):
   den Server nie. `shopify-execute` verhält sich dabei wie
   `shopify store execute --json`: Daten ohne `data`-Hülle auf stdout, bei
   Drosselung oder Fehler Exit 1 und die Meldung auf stderr.
+* **M-Nummern:** jede neue Maßnahme bekommt ihre Nummer vom Zähler der Marke
+  im Cockpit (`reserve_measure_ids`, seit 25.10.2026), weil Marken und Path to
+  AI dort auch selbst Maßnahmen hinzufügen. Ist das Cockpit nicht erreichbar,
+  entsteht keine Maßnahme, statt eine Nummer zu raten.
 
 Angemeldet wird mit zwei Werten aus `audit.env`, aus derselben Ebene gelesen:
 `PTAI_PORTAL_URL` (die Adresse des Cockpits) und `PTAI_PORTAL_TOKEN` (das
@@ -80,6 +84,12 @@ REPORTED_STATUSES = ("open", "in_progress", "implemented", "rejected", "obsolete
 EXCLUDING_STATUSES = ("rejected", "obsolete")
 
 _MEASURE_ID = re.compile(r"^M-\d{3,4}$")
+
+#: Route, über die das Plugin M-Nummern beim Cockpit reserviert (seit 25.10.2026).
+MEASURE_IDS_PATH = "/measure-ids"
+
+#: Wie viele Nummern die Route je Aufruf höchstens vergibt.
+MAX_RESERVED_IDS = 500
 
 
 class PortalError(RuntimeError):
@@ -245,6 +255,51 @@ def reported_statuses(brand: str, shop: str, workspace: str | os.PathLike = ".")
         out.append({"shop": row_shop, "measure_id": measure_id, "status": status,
                     "note": row.get("note") or "", "set_at": row.get("set_at")})
     return out
+
+
+def _whole_number(value) -> bool:
+    """Eine ganze Zahl im JSON-Sinn; `True` ist in Python auch ein `int`, hier nicht."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def reserve_measure_ids(brand: str, shop: str, floor: int, count: int = 1,
+                        workspace: str | os.PathLike = ".") -> tuple[int, int]:
+    """Reserviert `count` M-Nummern der Marke im Cockpit, gibt `(first, next_id)` zurück.
+
+    Seit Marken und Path to AI Maßnahmen auch im Cockpit hinzufügen, vergibt
+    eine Stelle die Nummern: der Zähler je Marke im Cockpit (Spec `ptai-portal`
+    2026-10-08, Nachtrag vom 25.10.2026, Abschnitt Nummern). Zählten Plugin und
+    Cockpit je für sich, entstünde dieselbe Nummer zweimal.
+
+    `floor` ist `next_id` aus `measures.json`. Der Zähler steigt auf mindestens
+    `floor - 1`, zählt `count` weiter und geht nie zurück, also gilt
+    `first >= floor`. Die Nummern `first` bis `first + count - 1` gehören danach
+    dem Aufrufer; `next_id` ist der Wert, der danach in die Datei gehört.
+    `shop` ist der Store des Workspace; der Zähler gilt für die ganze Marke.
+
+    **Jede Abweichung ist ein Abbruch.** Eine Antwort ohne ganze Zahlen, mit
+    `first` unter `floor` oder einem `next_id`, das nicht direkt hinter den
+    reservierten Nummern liegt, hieße eine geratene Nummer, und die könnte das
+    Cockpit schon an eine Maßnahme der Marke vergeben haben.
+    """
+    if not _whole_number(floor) or floor < 1:
+        raise PortalError(f"Nummern reservieren: floor muss eine ganze Zahl ab 1 sein, nicht {floor!r}")
+    if not _whole_number(count) or not 1 <= count <= MAX_RESERVED_IDS:
+        raise PortalError(f"Nummern reservieren: count muss zwischen 1 und {MAX_RESERVED_IDS} "
+                          f"liegen, nicht {count!r}")
+    payload = _json_or_error(*_request("POST", brand, shop, MEASURE_IDS_PATH,
+                                       {"floor": floor, "count": count}, workspace),
+                             "Nummern reservieren")
+    first, next_id = payload.get("first"), payload.get("next_id")
+    if not (_whole_number(first) and _whole_number(next_id)):
+        raise PortalError(f"Nummern reservieren: Antwort ohne ganze Zahlen first und next_id: {payload!r}")
+    if first < floor:
+        raise PortalError(f"Nummern reservieren: das Cockpit vergibt M-{first:03d}, die Liste "
+                          f"zählt schon ab M-{floor:03d}. Keine Nummer übernommen.")
+    if next_id != first + count:
+        raise PortalError(f"Nummern reservieren: next_id {next_id} passt nicht zu first {first} "
+                          f"und count {count}. Keine Nummer übernommen.")
+    return first, next_id
 
 
 def exclusions(reports: list[dict]) -> dict[str, set[str]]:

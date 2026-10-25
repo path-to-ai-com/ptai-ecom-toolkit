@@ -187,5 +187,42 @@ class TestReportedStatuses(unittest.TestCase):
             self.assertEqual(portal.cockpit_target(tmp), ("beispielmarke", "nordshop"))
 
 
+class TestReserveMeasureIds(unittest.TestCase):
+    """M-Nummern vom Zähler der Marke (Nachtrag vom 25.10.2026): jede Abweichung ist ein Abbruch."""
+
+    def test_posts_floor_and_count_and_returns_first_and_next_id(self):
+        with mock.patch.object(portal, "_request",
+                               return_value=answer(200, {"first": 9, "next_id": 12})) as request:
+            self.assertEqual(portal.reserve_measure_ids("beispielmarke", "eu", 6, 3), (9, 12))
+        self.assertEqual(request.call_args.args[:5],
+                         ("POST", "beispielmarke", "eu", "/measure-ids", {"floor": 6, "count": 3}))
+
+    def test_a_refusal_or_a_broken_answer_aborts(self):
+        for status, payload in ((400, {"error": "bad_request"}), (401, {"error": "unauthorized"}),
+                                (404, {"error": "shop_not_found"}), (500, {"error": "not_reserved"}),
+                                (200, {}), (200, {"first": "6", "next_id": 7}),
+                                (200, {"first": True, "next_id": 2}),
+                                (200, {"first": 5, "next_id": 6}),
+                                (200, {"first": 6, "next_id": 8})):
+            with self.subTest(status=status, payload=payload), \
+                    mock.patch.object(portal, "_request", return_value=answer(status, payload)), \
+                    self.assertRaises(portal.PortalError):
+                portal.reserve_measure_ids("beispielmarke", "eu", 6)
+
+    def test_an_invalid_request_is_not_sent(self):
+        for floor, count in ((0, 1), (6, 0), (6, 501), ("6", 1), (6, True)):
+            with self.subTest(floor=floor, count=count), \
+                    mock.patch.object(portal, "_request") as request, \
+                    self.assertRaises(portal.PortalError):
+                portal.reserve_measure_ids("beispielmarke", "eu", floor, count)
+            request.assert_not_called()
+
+    def test_cockpit_unreachable_aborts(self):
+        with mock.patch.dict(os.environ, {"PTAI_PORTAL_URL": "http://127.0.0.1:9", "PTAI_PORTAL_TOKEN": "x"}), \
+                mock.patch("urllib.request.urlopen", side_effect=portal.urllib.error.URLError("refused")):
+            with self.assertRaisesRegex(portal.PortalError, "nicht erreichbar"):
+                portal.reserve_measure_ids("beispielmarke", "eu", 6)
+
+
 if __name__ == "__main__":
     unittest.main()

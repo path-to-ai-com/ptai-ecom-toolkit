@@ -8,6 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from audit import feedback, measures  # noqa: E402
+from tests import id_support  # noqa: E402
+
+
+def setUpModule():
+    id_support.offline_ids()
 
 
 def entry(**kw):

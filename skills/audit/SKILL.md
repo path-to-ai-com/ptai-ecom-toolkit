@@ -35,6 +35,7 @@ description: Fährt den einmaligen Ecommerce-Audit eines Shops, als Nullpunkt vo
   - Shopify CLI für `pull-shopify`
   - `PTAI_GOOGLE_CREDENTIALS` in der `.env` des Workspace
   - Betreiber-Schlüssel (PageSpeed, DataForSEO, GEO, Ads-Token) dort oder zentral in `~/.config/ptai-ecom/.env`
+  - `PTAI_PORTAL_URL` und `PTAI_PORTAL_TOKEN` für die M-Nummern in Phase 3 (seit 25.10.2026); ohne sie entsteht keine Maßnahme
 - Fehlerbilder einzelner Quellen stehen in der jeweiligen Pull-Skill.
 
 ## Wo die Maßnahmen liegen: Store oder Marke
@@ -58,6 +59,7 @@ Seit dem 09.10.2026 kann eine Marke mehrere Stores führen, mit einer gemeinsame
 - Liegt über dem Workspace (auch über einem Git-Worktree) eine Liste derselben Marke und fehlt `brand_workspace` auf allen drei Wegen, bricht jeder Zugriff ab und nennt den Befehl für diesen Rechner. Verglichen wird die Marke im Cockpit (`portal.brand`, sonst `account_slug`), nicht ein alter `account_slug`.
 - **Von der Marke verworfen heißt: nicht prüfen, nicht wieder öffnen** (D10). Meldet die Marke im Cockpit eine Maßnahme für einen Store als verworfen oder überholt, prüft kein Lauf sie dort. `measures.check()` bekommt dafür `exclusions=portal.exclusions(portal.reported_statuses(brand, shop))`; Marke und Store liefert `portal.cockpit_target()`. Ist das Cockpit nicht erreichbar, bricht der Lauf ab, statt ohne die Meldungen zu prüfen.
 - Lesen, Ändern und Schreiben laufen unter der Sperre der Marke: `with measures.locked(workspace): ...`. Ein zweiter Lauf eines anderen Stores wartet bis zu 30 Sekunden und bricht dann ab. `save()` verweigert außerdem einen sinkenden `next_id` und eine Datei, die seit dem `load()` ein anderer geschrieben hat; dann neu laden und die Änderung wiederholen.
+- **M-Nummern vergibt das Cockpit** (seit 25.10.2026, Spec `ptai-portal` 2026-10-08, Nachtrag vom 25.10.2026). `create()` reserviert jede neue Nummer beim Zähler der Marke, `next_id` der Datei ist nur die Untergrenze. Ohne `PTAI_PORTAL_URL` und `PTAI_PORTAL_TOKEN` oder ohne Antwort des Cockpits entsteht keine Maßnahme.
 - Umzug eines Stores in den Ordner der Marke: `python3 -m audit.brand_migrate --brand-workspace <ordner-der-marke> --shop <store> --dry-run`, danach ohne `--dry-run`. Nur auf Anweisung von Yves.
 
 ## Ein Audit läuft genau einmal je Shop
@@ -1137,10 +1139,11 @@ with measures.locked(workspace):
             data_source=..., check_rule=..., finding_ref=finding["id"],
             intent=..., effect=..., needs=..., evidence_text=...,
             items=finding.get("items"), items_waiver=...,
-            shop=shop, run_id=run_id, today=today)
+            shop=shop, run_id=run_id, today=today, workspace=workspace)
     measures.save(workspace, backlog)
 ```
 
+- **Die Nummer kommt aus dem Cockpit** (seit 25.10.2026). Marken und Path to AI fügen dort auch selbst Maßnahmen hinzu, deshalb vergibt nur der Zähler der Marke im Cockpit M-Nummern. `create()` reserviert jede Nummer über `audit.portal` (`PTAI_PORTAL_URL`, `PTAI_PORTAL_TOKEN`), mit Marke und Store aus `reporting/config.json` von `workspace`. Ohne Verbindung bricht `create()` mit `PortalError` ab und legt nichts an: Verbindung herstellen und den Schritt wiederholen, nie eine Nummer selbst setzen. Bricht der Block danach ab, bleiben reservierte Nummern verbraucht; eine Lücke in der Reihe ist kein Fehler.
 - `shop` und `run_id` immer mitgeben. In der Liste einer Marke sind sie Pflicht: die Maßnahme bekommt `created_run_id`, `shops: [shop]` und ihren Befund als `finding_run` (dieser Lauf) und `finding_id`. In der Liste eines Stores schaden sie nicht und tragen die Lauf-ID in den Verlauf.
 - Schritt 4 (`save()`) gehört in denselben `with`-Block. Wer zwischen Laden und Speichern die Sperre loslässt, riskiert, dass ein Lauf eines anderen Stores dazwischen schreibt; `save()` bricht dann ab.
 

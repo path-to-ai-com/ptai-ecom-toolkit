@@ -15,9 +15,14 @@ from unittest import mock
 
 from audit import env, measures
 from audit import report_build as rb
+from tests import id_support
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = "PTAI_OPERATOR_NAME=Beispiel Consulting\n"
+
+
+def setUpModule():
+    id_support.offline_ids()
 
 
 class Base(unittest.TestCase):

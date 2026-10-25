@@ -6,7 +6,12 @@ from datetime import date
 from pathlib import Path
 
 from audit import measures, publish
+from tests import id_support
 from tests.test_publish import make_workspace
+
+
+def setUpModule():
+    id_support.offline_ids()
 
 
 class PulseKind(unittest.TestCase):

@@ -11,10 +11,13 @@ gerenderte lesbare Fassung. Von Hand geändert wird nur die JSON, oder besser:
 Drei Regeln tragen dieses Modul:
 
 1. **Eine ID wird nie wiederverwendet.** `M-001` bezeichnet eine Maßnahme für
-   die Lebensdauer des Accounts. Die nächste ID kommt aus `next_id`, einem
-   Zähler im Dokument selbst, nie aus der Länge der Liste: eine gelöschte
-   Maßnahme darf ihre ID nie an eine neue vergeben, sonst bezeichnet `M-007`
-   in einem späteren Report etwas anderes als sechs Monate zuvor.
+   die Lebensdauer des Accounts. Die nächste ID kommt nie aus der Länge der
+   Liste: eine gelöschte Maßnahme darf ihre ID nie an eine neue vergeben,
+   sonst bezeichnet `M-007` in einem späteren Report etwas anderes als sechs
+   Monate zuvor. Seit 25.10.2026 vergibt sie der Zähler der Marke im Cockpit
+   (`reserve_id()`), weil Marken und Path to AI dort auch selbst Maßnahmen
+   hinzufügen; `next_id` im Dokument ist die Untergrenze, die das Cockpit
+   dabei nie unterschreitet.
 2. **Keine Maßnahme ohne Beleg.** Der Audit kennt keinen Befund ohne Quellfeld
    oder URL, das gilt für die daraus entstehende Maßnahme genauso. Ein leerer
    `evidence` fliegt mit `ValueError`.
@@ -52,7 +55,7 @@ from datetime import date
 from pathlib import Path
 
 from audit import brand as brand_mod
-from audit import env
+from audit import env, portal
 
 #: Das Format der Liste einer Marke. Eine Datei ohne `version` ist v1.
 VERSION = 2
@@ -148,6 +151,45 @@ def _require_shop(shop: str | None, what: str) -> str:
     return shop
 
 
+def reserve_id(backlog: dict, workspace: str | os.PathLike = ".") -> tuple[int, int]:
+    """Die nächste M-Nummer vom Zähler der Marke im Cockpit, als `(nummer, next_id)`.
+
+    Seit 25.10.2026 fügen Marken und Path to AI Maßnahmen auch im Cockpit
+    hinzu. Zählten Plugin und Cockpit je für sich, entstünde dieselbe Nummer
+    zweimal; deshalb vergibt nur noch der Zähler je Marke im Cockpit (Spec
+    `ptai-portal` 2026-10-08, Nachtrag vom 25.10.2026, Abschnitt Nummern).
+    `next_id` der Liste ist die Untergrenze: das Cockpit vergibt nie darunter.
+
+    Marke und Store kommen aus der Config des Workspace, wie `publish` sie
+    bildet (`portal.cockpit_target()`). Nennt die Liste einer Marke (v2) eine
+    andere Marke, reserviert das nichts: die Nummer käme aus dem falschen
+    Zähler.
+
+    **Kein Rückfall.** Fehlen `PTAI_PORTAL_URL` und `PTAI_PORTAL_TOKEN`, ist das
+    Cockpit nicht erreichbar oder antwortet es unerwartet, steigt
+    `portal.PortalError` auf, und `create()` legt nichts an. Eine selbst
+    gezählte Nummer könnte das Cockpit schon vergeben haben.
+
+    Tests ersetzen diese Funktion (`tests/id_support.py`), damit sie ohne Netz
+    laufen; `create()` ruft sie deshalb über den Modulnamen auf.
+    """
+    try:
+        brand, shop = portal.cockpit_target(workspace)
+        listed = backlog.get("brand") if is_v2(backlog) else None
+        if listed and listed != brand:
+            raise portal.PortalError(
+                f"die Liste gehört zur Marke {listed!r}, der Workspace im Cockpit "
+                f"zu {brand!r}")
+        return portal.reserve_measure_ids(brand, shop, backlog["next_id"], 1, workspace)
+    except portal.PortalError as error:
+        raise portal.PortalError(
+            f"Keine Nummer für die neue Maßnahme ({error}). M-Nummern vergibt seit "
+            "25.10.2026 nur das Cockpit; ohne seine Antwort wird keine Maßnahme "
+            "angelegt. Verbindung herstellen (PTAI_PORTAL_URL und PTAI_PORTAL_TOKEN, "
+            "Marke und Store in reporting/config.json) und den Schritt wiederholen."
+        ) from error
+
+
 def create(backlog: dict, *, title: str, discipline: str, evidence: str,
            confidence: str, leverage: str, effort: str,
            responsible: str | None = None, data_source: str | None = None,
@@ -160,13 +202,22 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
            finding_run: str | None = None,
            target_metric: str | None = None,
            items: str | None = None,
-           items_waiver: str | None = None) -> dict:
+           items_waiver: str | None = None,
+           workspace: str | os.PathLike = ".") -> dict:
     """Legt eine neue Maßnahme an und gibt ein neues Dokument zurück.
 
     Validiert vollständig, bevor eine ID vergeben wird: eine abgelehnte
-    Erstellung (leerer Beleg, unbekannte Sicherheit, ...) darf `next_id`
-    nicht weiterzählen, sonst entstünde eine Lücke in der ID-Reihe, die beim
+    Erstellung (leerer Beleg, unbekannte Sicherheit, ...) darf keine Nummer
+    verbrauchen, sonst entstünde eine Lücke in der ID-Reihe, die beim
     nächsten Blick auf den Backlog wie eine verlorene Maßnahme aussieht.
+
+    **Die Nummer kommt aus dem Cockpit** (seit 25.10.2026, `reserve_id()`):
+    erst nach der Prüfung, mit `next_id` als Untergrenze. Danach steht `next_id`
+    auf dem höheren Wert aus Datei und Antwort. `workspace` ist der Workspace
+    des Stores, aus dessen Config Marke und Store für den Aufruf kommen. Ohne
+    Antwort des Cockpits bricht `create()` mit `portal.PortalError` ab und
+    rät keine Nummer. Scheitert danach das Speichern, bleibt die reservierte
+    Nummer verbraucht: eine Lücke, nie eine doppelte Nummer.
 
     `confidence` entscheidet allein über `type`: "hypothesis" wird nie zur
     Maßnahme, sondern zum Test, siehe Spec Abschnitt 9 ("Eine Hypothese wird
@@ -251,13 +302,27 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
     def clean(value: str | None) -> str | None:
         return value.strip() if value and value.strip() else None
 
+    # Erst nach jeder Prüfung reservieren: eine abgelehnte Erstellung
+    # verbraucht keine Nummer im Cockpit. Über den Modulnamen, damit Tests
+    # `reserve_id` ersetzen können.
+    number, reserved_next = reserve_id(backlog, workspace)
+    new_id = f"M-{number:03d}"
+    if any(m.get("id") == new_id for m in backlog.get("measures") or []):
+        # Nur möglich, wenn `next_id` der Datei unter einer vergebenen Kennung
+        # liegt. Die Nummer bleibt im Cockpit verbraucht, eine Lücke ist
+        # besser als zwei Maßnahmen unter derselben Kennung.
+        raise ValueError(
+            f"Das Cockpit hat {new_id} vergeben, die Liste führt diese Kennung "
+            f"schon (next_id {backlog.get('next_id')!r}). Nichts angelegt.")
+    next_id = max(backlog["next_id"], reserved_next)
+
     today_str = (today or date.today()).isoformat()
     first = {"status": "open", "date": today_str}
     if run_id:
         first["run_id"] = run_id
     if v2:
         finding = finding_id or finding_ref
-        entry = {"id": f"M-{backlog['next_id']:03d}"}
+        entry = {"id": new_id}
         if run_id:
             entry["created_run_id"] = run_id
         entry.update({
@@ -287,11 +352,11 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
             }},
             **({"items_waiver": clean(items_waiver)} if clean(items_waiver) else {}),
         })
-        return {**backlog, "next_id": backlog["next_id"] + 1,
+        return {**backlog, "next_id": next_id,
                 "measures": [*backlog["measures"], entry]}
 
     entry = {
-        "id": f"M-{backlog['next_id']:03d}",
+        "id": new_id,
         "title": title,
         "discipline": discipline,
         "evidence": evidence,
@@ -319,7 +384,7 @@ def create(backlog: dict, *, title: str, discipline: str, evidence: str,
         entry["created_run_id"] = run_id
     return {
         **backlog,
-        "next_id": backlog["next_id"] + 1,
+        "next_id": next_id,
         "measures": [*backlog["measures"], entry],
     }
 
@@ -611,7 +676,8 @@ def locked(workspace: Path, timeout: float | None = None):
     ```python
     with measures.locked(workspace):
         backlog = measures.load_or_empty(workspace)
-        backlog = measures.create(backlog, ..., shop=shop, run_id=run_id)
+        backlog = measures.create(backlog, ..., shop=shop, run_id=run_id,
+                                  workspace=workspace)
         measures.save(workspace, backlog)
     ```
     """

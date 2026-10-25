@@ -12,8 +12,13 @@ from unittest import mock
 from audit import feedback, measures, portal, publish, readiness
 
 from tests import brand_support as bs
+from tests import id_support
 
 RUN = "2026-10-07-audit"
+
+
+def setUpModule():
+    id_support.offline_ids()
 TODAY = date(2026, 10, 15)
 
 

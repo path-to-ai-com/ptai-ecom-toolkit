@@ -34,7 +34,7 @@ Für jeden Punkt den Maßnahmen-Bestand durchsuchen und einen der fünf Fälle w
 |---|---|
 | Deckt sich mit einer bestehenden Maßnahme | Punkt anlegen, Verknüpfung mit `certainty="confirmed"` |
 | Überschneidet sich, aber nicht deckungsgleich | Punkt anlegen, Verknüpfung mit `certainty="proposed"` und der offenen Frage |
-| Kommt in keiner Maßnahme vor | Maßnahme anlegen (`measures.py`), dann Punkt anlegen und `confirmed` mit `created=True` verknüpfen |
+| Kommt in keiner Maßnahme vor | Maßnahme anlegen (`measures.create(..., workspace=ws)` unter `measures.locked(ws)`), dann Punkt anlegen und `confirmed` mit `created=True` verknüpfen. Die M-Nummer vergibt das Cockpit (seit 25.10.2026); ohne Verbindung (`PTAI_PORTAL_URL`, `PTAI_PORTAL_TOKEN`) bricht `create()` ab, dann keine Nummer selbst setzen |
 | Unklar, was der Punkt überhaupt meint | Punkt anlegen und `set_clarification()` mit unserer Frage an den Kunden |
 | Gehört nicht in dieses Projekt | Punkt anlegen und `mark_out_of_scope()` mit dem Grund |
 
