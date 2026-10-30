@@ -118,17 +118,28 @@ def translations_status(workspace) -> dict:
     return {"met": True, "note": f"registriert: {', '.join(needed)}"}
 
 
+def _git_command(workspace, *args) -> list[str]:
+    """Git-Aufruf, der auch einen Ordner mit fremdem Eigentümer liest.
+
+    Auf einem Netzlaufwerk gehört der Ordner für git oft einem anderen Konto, und git verweigert ihn
+    ("dubious ownership"). Die Ausnahme gilt nur für diesen Aufruf und ändert keine Einstellung beim Team.
+    """
+    return ["git", "-c", "safe.directory=*", "-C", str(workspace), *args]
+
+
 def pushed(workspace) -> dict:
     """Ob im Workspace nichts uncommittet und nichts ungepusht ist."""
     def git(*args):
-        return subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True, timeout=20)
+        return subprocess.run(_git_command(workspace, *args), capture_output=True, text=True, timeout=20)
     try:
         dirty = git("status", "--porcelain")
         ahead = git("rev-list", "--count", "@{u}..HEAD")
     except (OSError, subprocess.SubprocessError):
         return {"met": False, "note": "Git nicht lesbar"}
     if dirty.returncode != 0:
-        return {"met": False, "note": "kein Git-Repo"}
+        # Nicht jeder Fehler heißt "kein Repo": Bis 0.3.24 stand das auch bei einem Ordner, den git ablehnte.
+        is_repo = (Path(workspace) / ".git").exists()
+        return {"met": False, "note": "Git nicht lesbar" if is_repo else "kein Git-Repo"}
     if dirty.stdout.strip():
         return {"met": False, "note": "uncommittete Änderungen"}
     if ahead.returncode != 0:
@@ -337,7 +348,7 @@ def _answer(q: dict) -> dict:
 def repo_name(workspace) -> str:
     """Name des Workspace-Repos ohne Besitzer: Basis des Remote `origin` ohne `.git`, sonst der Ordnername."""
     try:
-        result = subprocess.run(["git", "-C", str(workspace), "remote", "get-url", "origin"],
+        result = subprocess.run(_git_command(workspace, "remote", "get-url", "origin"),
                                 capture_output=True, text=True, timeout=20)
         url = result.stdout.strip() if result.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):

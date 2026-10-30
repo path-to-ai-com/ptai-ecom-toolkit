@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from datetime import date, datetime, timezone
@@ -350,6 +351,49 @@ class RunStateSince0311Test(Workspace):
             run_state.claim(self.ws, RUN)
         lines = (self.ws / ".gitignore").read_text().splitlines()
         self.assertEqual(lines.count("reporting/runs/*/session.lock"), 1)
+
+
+class PushedTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.ws = self.root / "ws"
+        self.ws.mkdir()
+
+    def git(self, *args, cwd=None):
+        subprocess.run(["git", "-C", str(cwd or self.ws), "-c", "user.name=Test", "-c", "user.email=t@example.com",
+                        *args], check=True, capture_output=True)
+
+    def pushed_repo(self):
+        """Repo mit Commit, der auf dem Remote liegt."""
+        remote = self.root / "remote.git"
+        self.git("init", "-q", "--bare", str(remote), cwd=self.root)
+        self.git("init", "-q")
+        (self.ws / "a.txt").write_text("a")
+        self.git("add", "a.txt")
+        self.git("commit", "-q", "-m", "a")
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "-q", "-u", "origin", "HEAD")
+
+    def test_gepusht(self):
+        self.pushed_repo()
+        self.assertEqual(steps.pushed(self.ws), {"met": True, "note": "alles gepusht"})
+
+    def test_ordner_mit_fremdem_eigentuemer_wird_gelesen(self):
+        self.pushed_repo()
+        # So simuliert git selbst einen fremden Eigentümer; ein schlichtes git status scheitert damit.
+        with mock.patch.dict(os.environ, {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"}):
+            plain = subprocess.run(["git", "-C", str(self.ws), "status"], capture_output=True, text=True)
+            self.assertIn("dubious ownership", plain.stderr)
+            self.assertEqual(steps.pushed(self.ws), {"met": True, "note": "alles gepusht"})
+
+    def test_ohne_repo(self):
+        self.assertEqual(steps.pushed(self.ws)["note"], "kein Git-Repo")
+
+    def test_kaputtes_repo_heisst_nicht_kein_repo(self):
+        (self.ws / ".git").mkdir()
+        self.assertEqual(steps.pushed(self.ws)["note"], "Git nicht lesbar")
 
 
 if __name__ == "__main__":

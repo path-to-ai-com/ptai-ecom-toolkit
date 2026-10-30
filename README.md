@@ -98,6 +98,8 @@ Diese Skills brauchen keine Zugänge.
 | `ptai-ecom:crawl-site` | Crawlt den Shop: Fehlerseiten, Weiterleitungen, nicht indexierbare Seiten, Klicktiefe, strukturierte Daten. |
 | `ptai-ecom:capture-screens` | Screenshots aller Seitentypen auf Desktop und Mobil sowie des Kaufprozesses bis zur Zahlungsauswahl. |
 | `ptai-ecom:lens-purchase-path` | Prüft den Kaufprozess von der Produktseite bis zur Zahlungsauswahl, ohne eine Bestellung auszulösen. |
+| `ptai-ecom:check-fakeshops` | Findet Fake-Shops der Marke über neue Domains in den Zertifikatslogs, prüft jede live und legt Liste, Bericht und Screenshots ab. |
+| `ptai-ecom:takedown-fakeshops` | Meldet die bestätigten Fake-Shops an Registrar und Hoster per Mail und füllt die Formulare von Google und Cloudflare im Browser aus. |
 | `ptai-ecom:lens-trust` | Prüft Impressum, Widerruf, AGB, Datenschutz, Preis- und Versandangaben, Bewertungen und Siegel auf Vorhandensein und Auffindbarkeit. Keine juristische Prüfung. |
 | `ptai-ecom:lens-assortment` | Prüft Filter, Varianten, Produkttexte, Bilder, Empfehlungen und den Umgang mit ausverkauften Artikeln. |
 
