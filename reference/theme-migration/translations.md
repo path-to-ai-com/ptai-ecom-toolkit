@@ -96,6 +96,7 @@ Theme übersetzen: https://help.shopify.com/en/manual/online-store/themes/custom
 
 - Höchstens 3.400 Übersetzungen je Locale-Datei, 1.000 Zeichen je Wert, Locale-Dateien höchstens
   1,5 MB. https://shopify.dev/docs/storefronts/themes/architecture/locales
-- Scopes für den Schreibweg: `read_translations`, `write_translations`, dazu lesend `read_themes`,
+- Registrieren läuft immer über den Admin-Weg mit dem Grant, unabhängig von `access.write` (seit 0.3.27).
+- Scopes dafür: `read_translations`, `write_translations`, dazu lesend `read_themes`,
   `read_locales`, `read_markets` (`access-write.md`).
 - Registrieren und Digests: https://shopify.dev/docs/apps/build/markets/manage-translated-content

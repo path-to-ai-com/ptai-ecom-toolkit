@@ -130,7 +130,8 @@ class StepsTest(Workspace):
         result = steps.compute(self.ws, state.data, git_status=CLEAN_GIT)
         self.assertEqual(result["steps"][2]["status"], "rework")
         self.assertEqual(result["steps"][2]["note"], "Vorgaben der Marke nicht eingetragen")
-        self.assertEqual(result["owner"], "operator")
+        # Seit 0.3.27 übernimmt die Sitzung des Teams die Vorgaben beim Start selbst; Path to AI ist nicht dran.
+        self.assertEqual(result["owner"], "plugin")
 
     def test_vorgaben_ohne_belegten_neubau_danach_heisst_nacharbeiten(self):
         state = self.state_until_verify()

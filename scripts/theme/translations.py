@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None, *, transport=None) -> int:
         config = load_config(args.workspace)
         source = json.loads(Path(args.source).read_text(encoding="utf-8"))
         if transport is None:
-            transport = transport_from_config(config, write=True, workspace=args.workspace)
+            transport = transport_from_config(config, write=True, translations=True, workspace=args.workspace)
         report, code = run(config, args.theme, source, transport=transport, theme_dir=args.dir,
                            dry_run=args.dry_run)
     except (ConfigError, ShopifyError, GuardError, TranslationError, OSError, ValueError) as exc:

@@ -1,0 +1,393 @@
+[
+  {
+    "name": "missing-primary_metric",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-visualization",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "visualization"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-reasoning",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-cause",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "cause"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "blank-cause",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "cause"
+        ],
+        "value": "  "
+      }
+    ]
+  },
+  {
+    "name": "missing-effect",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "effect"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "blank-effect",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "effect"
+        ],
+        "value": "  "
+      }
+    ]
+  },
+  {
+    "name": "missing-recommendation",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "recommendation"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "blank-recommendation",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "recommendation"
+        ],
+        "value": "  "
+      }
+    ]
+  },
+  {
+    "name": "missing-metric-value",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric",
+          "value"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-metric-unit",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric",
+          "unit"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-metric-label",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric",
+          "label"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-metric-basis",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric",
+          "basis"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-metric-period",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric",
+          "period"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "numeric-string",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric",
+          "value"
+        ],
+        "value": "41"
+      }
+    ]
+  },
+  {
+    "name": "boolean-value",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "primary_metric",
+          "value"
+        ],
+        "value": true
+      }
+    ]
+  },
+  {
+    "name": "missing-threshold",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "threshold"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "missing-criterion",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "threshold",
+          "criterion"
+        ],
+        "remove": true
+      }
+    ]
+  },
+  {
+    "name": "negative-comparison",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "values",
+          0,
+          "value"
+        ],
+        "value": -1
+      }
+    ]
+  },
+  {
+    "name": "unknown-graphic",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "type"
+        ],
+        "value": "pie"
+      }
+    ]
+  },
+  {
+    "name": "zero-share",
+    "version": 2,
+    "source": "HDL-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "total"
+        ],
+        "value": 0
+      }
+    ]
+  },
+  {
+    "name": "share-sum",
+    "version": 2,
+    "source": "HDL-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "parts",
+          0,
+          "value"
+        ],
+        "value": 50
+      }
+    ]
+  },
+  {
+    "name": "bad-image-reference",
+    "version": 2,
+    "source": "CRO-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "proof_ref",
+          "block"
+        ],
+        "value": 8
+      }
+    ]
+  },
+  {
+    "name": "bad-trend-date",
+    "version": 2,
+    "source": "TREND-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "points",
+          1,
+          "date"
+        ],
+        "value": "2026-02-30"
+      }
+    ]
+  },
+  {
+    "name": "unsorted-trend",
+    "version": 2,
+    "source": "TREND-01",
+    "changes": [
+      {
+        "path": [
+          "visualization",
+          "points",
+          1,
+          "date"
+        ],
+        "value": "2026-06-01"
+      }
+    ]
+  },
+  {
+    "name": "extra-reasoning",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "why"
+        ],
+        "value": "Noch ein Satz."
+      }
+    ]
+  },
+  {
+    "name": "future-version",
+    "version": 3,
+    "source": "MES-01",
+    "changes": []
+  },
+  {
+    "name": "two-sentences",
+    "version": 2,
+    "source": "MES-01",
+    "changes": [
+      {
+        "path": [
+          "reasoning",
+          "cause"
+        ],
+        "value": "Eine Ursache. Noch eine Ursache."
+      }
+    ]
+  }
+]

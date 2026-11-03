@@ -193,7 +193,8 @@ def proof_problems(run_dir: Path, files: dict) -> list[str]:
             continue
         findings = data.get("findings") if isinstance(data, dict) else None
         for finding in findings or []:
-            columns = ((finding.get("proof") or {}).get("columns") or []) if isinstance(finding, dict) else []
+            proof = finding.get("proof") if isinstance(finding, dict) else None
+            columns = proof.get("columns", []) if isinstance(proof, dict) else proof or []
             for column in columns:
                 for block in (column or {}).get("blocks") or []:
                     if not isinstance(block, dict) or block.get("type") not in ("image", "phone"):
@@ -515,6 +516,10 @@ def prepare(workspace, run_id: str, target, today: date | None = None,
         files = manifest.collect_files(run_dir)
     if not files:
         raise SystemExit(f"Lauf {run_id} hat keine Dateien zum Hochladen")
+    from audit.finding_format import run_problems
+    problems = run_problems(run_dir)
+    if problems:
+        raise SystemExit("Befundformat unvollständig, nichts kopiert:\n  " + "\n  ".join(problems))
     problems = proof_problems(run_dir, files)
     if problems:
         raise SystemExit("Belegbilder unvollständig, nichts kopiert:\n  " + "\n  ".join(problems))

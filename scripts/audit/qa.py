@@ -128,6 +128,10 @@ def _text_felder(f: dict) -> str:
         for option in decision.get("options") or []:
             if isinstance(option, dict):
                 parts += [str(option.get(k) or "") for k in ("title", "text", "result")]
+    for obj, keys in ((f.get("primary_metric"), ("label", "basis", "period")),
+                      (f.get("reasoning"), ("cause", "effect", "recommendation"))):
+        if isinstance(obj, dict):
+            parts += [str(obj.get(k) or "") for k in keys]
     return " ".join(parts)
 
 
@@ -137,7 +141,10 @@ def check_findings(run: rb.Run) -> list[Finding]:
     if not run.findings:
         return [Finding("fehler", "Befunde", "Keine einzige Befund-Datei "
                                             "gefunden. Phase 2 lief nicht.")]
+    from audit.finding_format import document_problems
     for filename, doc in sorted(run.findings.items()):
+        for problem in document_problems(doc, (run.state or {}).get("finding_format")):
+            out.append(Finding("fehler", filename, problem))
         findings = doc.get("findings") or []
         if not findings:
             out.append(Finding("warnung", filename, "keine Befunde in dieser Datei"))
@@ -221,7 +228,7 @@ def check_measures(run: rb.Run) -> list[Finding]:
     earlier = _revision_finding_ids(run)
     for m in massnahmen:
         wo = f"Maßnahme {m.get('id')}"
-        ref = rb.measures_mod.finding_of(m)
+        ref = rb.finding_of_this_run(m, run)
         # Eine abgeschlossene Maßnahme darf auf einen Befund einer früheren
         # Fassung zeigen: der Nachlauf einer Disziplin (audit.rerun) hat ihn
         # geschlossen, und sein Wortlaut liegt in revisions/. Eine offene

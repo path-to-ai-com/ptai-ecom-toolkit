@@ -42,9 +42,7 @@ Seit 0.3.11:
 
 - Nach jedem Befehl schreibt das Modul `migration.json` in den Lauf: die neun Schritte, zwei Meilensteine, die
   offenen Fragen an das Team und die Vorgaben der Marke (Modul `steps`). Das Cockpit liest nur diese Datei.
-- Das Team bereitet vor bis "Bereit für die Abnahme". Launch und Nachsorge (Phasen 9 und 10), die Gates G4 und
-  G5 und `published_at` setzt nur der Betreiber (`PTAI_OPERATOR=1`). Einen Änderungsstopp gibt es nicht mehr;
-  vor dem Launch wird der Stand des Live-Themes neu gezogen.
+- Einen Änderungsstopp gibt es nicht mehr; vor dem Launch wird der Stand des Live-Themes neu gezogen.
 - Die Abnahme (Phase `8-test-round`) beginnt erst, wenn der Meilenstein "Bereit für die Abnahme" erfüllt ist.
 - G1 und G2 verweigern, solange eine Frage ihres Gates offen ist (Modul `questions`), und ein Gate trägt den
   Namen einer Person, keinen Sammelnamen.
@@ -98,10 +96,6 @@ KEYS = ("live_theme_id", "draft_theme_id", "snapshot", "last_sync", "published_a
 #: Werte vor 0.3.11, die `upgrade` entfernt: es gibt keinen Änderungsstopp mehr.
 DROPPED_KEYS = ("freeze_from", "freeze_until")
 
-#: Was nur der Betreiber setzt. Das Team bereitet vor bis "Bereit für die Abnahme".
-OPERATOR_PHASES = ("9-launch", "10-aftercare")
-OPERATOR_GATES = ("G4-acceptance", "G5-go-live")
-OPERATOR_KEYS = ("published_at",)
 #: Gates, die offene Fragen an das Team anhalten.
 QUESTION_GATES = ("G1-decisions", "G2-mapping")
 LOCK_MAX_AGE_SECONDS = 2 * 60 * 60
@@ -115,7 +109,10 @@ class StateError(Exception):
 
 
 def is_operator() -> bool:
-    """Betreiber-Modus: nur für Launch, Nachsorge und die Gates G4 und G5."""
+    """Betreiber-Modus. Seit 0.3.27 sperrt er nichts mehr: Das Team führt die Migration bis zum Launch und
+    zur Nachsorge selbst, Path to AI begleitet. Bis 0.3.26 setzten nur Betreiber G4, G5, die Phasen 9 und 10
+    und `published_at`; ohne Shop-Zugang konnte der Betreiber sie aber nie ausführen, jeder Lauf blieb dort
+    stehen (Oktober 2026). `show` meldet den Modus weiter."""
     return os.environ.get("PTAI_OPERATOR") == "1"
 
 
@@ -126,11 +123,6 @@ def plugin_version() -> str:
         return json.loads(manifest.read_text(encoding="utf-8")).get("version") or "unbekannt"
     except (OSError, json.JSONDecodeError):
         return "unbekannt"
-
-
-def _operator_only(what: str) -> StateError:
-    return StateError(f"{what} macht der Betreiber, nicht das Team. Die Vorbereitung endet bei "
-                      "\"Bereit für die Abnahme\"; Termin, Launch und Nachsorge übernimmt der Betreiber.")
 
 
 class MigrationState:
@@ -158,8 +150,6 @@ class MigrationState:
             raise StateError(f"unbekannte Phase: {phase!r}")
         if status not in PHASE_STATUS:
             raise StateError(f"unbekannter Status: {status!r}")
-        if phase in OPERATOR_PHASES and status in ("running", "done") and not is_operator():
-            raise _operator_only(f"Phase {phase}")
         if phase == "8-test-round" and status in ("running", "done"):
             ready = steps.compute(self.workspace, self._data)["ready_for_test_round"]
             if not ready["met"]:
@@ -192,8 +182,6 @@ class MigrationState:
             raise StateError(f"unbekanntes Gate: {gate!r}")
         if not decided_by.strip():
             raise StateError("Ein Gate braucht den Namen der Person, die entschieden hat.")
-        if gate in OPERATOR_GATES and not is_operator():
-            raise _operator_only(f"Gate {gate}")
         try:
             decided_by = questions.check_person(self.workspace, decided_by)
         except questions.QuestionError as error:
@@ -215,8 +203,6 @@ class MigrationState:
                              "der Stand des Live-Themes neu gezogen.")
         if key not in KEYS:
             raise StateError(f"unbekannter Schlüssel: {key!r}, erlaubt sind {KEYS}")
-        if key in OPERATOR_KEYS and not is_operator():
-            raise _operator_only(f"Der Wert {key}")
         self._data["values"][key] = value
 
     def upgrade(self) -> list:

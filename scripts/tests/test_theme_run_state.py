@@ -34,7 +34,6 @@ class RunStateTest(unittest.TestCase):
         with self.assertRaises(run_state.StateError):
             state.decide_gate("G1-decisions", "  ")
 
-    @mock.patch.dict(os.environ, {"PTAI_OPERATOR": "1"})
     def test_die_entscheidung_haelt_person_und_zeitpunkt_fest(self):
         # G5 liest die Liste offener Punkte und die Prüfliste; beide ohne offenen Punkt halten nicht an.
         (self.ws / "reporting").mkdir()
@@ -48,6 +47,24 @@ class RunStateTest(unittest.TestCase):
         entry = state.data["gates"]["G5-go-live"]
         self.assertEqual(entry["decided_by"], "Beispielperson")
         self.assertEqual(entry["decided_at"], "2026-01-02T09:00:00+00:00")
+
+    @mock.patch.dict(os.environ, {}, clear=False)
+    def test_das_team_fuehrt_bis_zum_launch_ohne_betreiber(self):
+        # Seit 0.3.27 sperrt PTAI_OPERATOR nichts mehr: G4, G5, Launch, Nachsorge und published_at setzt das Team.
+        os.environ.pop("PTAI_OPERATOR", None)
+        (self.ws / "reporting").mkdir()
+        (self.ws / "checklist.md").write_text("- [x] **P01** erledigt\n", encoding="utf-8")
+        config = {"theme_migration": {"acceptance_checklist": "checklist.md"}}
+        (self.ws / "reporting" / "config.json").write_text(json.dumps(config), encoding="utf-8")
+        open_items.init(self.ws)
+        state = run_state.new(self.ws, "2026-01-01-migration")
+        for gate in ("G1-decisions", "G2-mapping", "G3-first-upload", "G4-acceptance", "G5-go-live"):
+            state.decide_gate(gate, "Beispielperson")
+        state.set_phase("9-launch", "running")
+        state.set_value("published_at", "2026-01-03T09:00:00+00:00")
+        state.set_phase("10-aftercare", "running")
+        self.assertEqual(state.data["gates"]["G5-go-live"]["decided_by"], "Beispielperson")
+        self.assertEqual(state.data["phases"]["10-aftercare"], "running")
 
     def test_launch_ist_ohne_abnahme_gesperrt(self):
         state = run_state.new(self.ws, "2026-01-01-migration")

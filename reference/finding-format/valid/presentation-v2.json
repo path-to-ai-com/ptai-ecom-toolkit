@@ -1,0 +1,166 @@
+{
+  "finding_format": 2,
+  "findings": [
+    {
+      "id": "MES-01",
+      "statement": "Die Analyse zählt 41 Prozent mehr Käufe als der Shop.",
+      "evidence": "demo.json > example",
+      "severity": "hoch",
+      "confidence": "confirmed",
+      "effort": "small",
+      "primary_metric": {
+        "value": 41,
+        "unit": "%",
+        "label": "mehr Käufe in der Analyse",
+        "basis": "als Bestellungen im Shop",
+        "period": "August 2026"
+      },
+      "visualization": {
+        "type": "comparison",
+        "unit": "Käufe / Bestellungen",
+        "period": "August 2026",
+        "values": [
+          {
+            "label": "Käufe in der Analyse",
+            "value": 2955,
+            "role": "focus"
+          },
+          {
+            "label": "Bestellungen im Shop",
+            "value": 2096,
+            "role": "reference"
+          }
+        ],
+        "threshold": {
+          "value": 2200.8,
+          "label": "übliche Abweichung bis 5 %",
+          "criterion": "Käufe in der Analyse weichen höchstens 5 % von den Bestellungen im Shop ab."
+        }
+      },
+      "reasoning": {
+        "cause": "Zwei Mess-Kennungen im Theme senden dasselbe Kaufereignis.",
+        "effect": "Jede Auswertung auf dieser Grundlage überschätzt Conversion und Umsatz je Kanal.",
+        "recommendation": "Die zweite Kennung aus dem Theme entfernen und eine führende Property festlegen."
+      }
+    },
+    {
+      "id": "CRO-01",
+      "statement": "Auf dem Handy liegt der Kaufbutton unter der Erstansicht.",
+      "evidence": "demo.json > example",
+      "severity": "hoch",
+      "confidence": "confirmed",
+      "effort": "small",
+      "primary_metric": {
+        "value": 1.9,
+        "unit": "%",
+        "label": "Conversion Rate am Handy",
+        "basis": "gegen 3,6 % am Desktop",
+        "period": "17. Juni bis 14. September 2026"
+      },
+      "visualization": {
+        "type": "image",
+        "proof_ref": {
+          "column": 0,
+          "block": 0
+        },
+        "comparison": {
+          "unit": "%",
+          "period": "17. Juni bis 14. September 2026",
+          "values": [
+            {
+              "label": "Handy",
+              "value": 1.9,
+              "role": "focus"
+            },
+            {
+              "label": "Desktop",
+              "value": 3.6,
+              "role": "reference"
+            }
+          ]
+        }
+      },
+      "reasoning": {
+        "cause": "Die Produktvorlage stellt die Bildstrecke und zwei Detailbilder vor den Kaufbereich.",
+        "effect": "Wer auf dem Handy landet, sieht ohne Wischen weder Preis noch Kaufbutton.",
+        "recommendation": "Preis und Kaufbutton in die Erstansicht holen, die Bildstrecke darunter."
+      },
+      "proof": {
+        "columns": [
+          {
+            "blocks": [
+              {
+                "type": "phone",
+                "src": "proof/cro-01-mobil.png",
+                "alt": "Produktseite mit Kaufbutton unter der Erstansicht.",
+                "title": "Kaufbutton am Handy",
+                "width": 390,
+                "height": 1700,
+                "fold": 664,
+                "markers": [
+                  {
+                    "y": 724,
+                    "label": "In den Warenkorb",
+                    "text": "Kaufbutton unter der Erstansicht."
+                  }
+                ],
+                "device": "mobil",
+                "captured_at": "2026-09-15"
+              }
+            ]
+          }
+        ]
+      },
+      "metrics": [
+        {
+          "label": "Anteil der Sitzungen vom Handy",
+          "value": "68 %"
+        }
+      ]
+    },
+    {
+      "id": "HDL-01",
+      "statement": "Zehn Artikel bringen 48 Prozent des Umsatzes.",
+      "evidence": "demo.json > example",
+      "severity": "hoch",
+      "confidence": "confirmed",
+      "effort": "small",
+      "primary_metric": {
+        "value": 48,
+        "unit": "%",
+        "label": "des Umsatzes mit den zehn umsatzstärksten Artikeln",
+        "basis": "vom gesamten Umsatz mit 214 Artikeln",
+        "period": "September 2025 bis August 2026"
+      },
+      "visualization": {
+        "type": "share",
+        "unit": "%",
+        "period": "September 2025 bis August 2026",
+        "total": 100,
+        "parts": [
+          {
+            "label": "10 Artikel",
+            "value": 48,
+            "role": "focus"
+          },
+          {
+            "label": "204 weitere Artikel",
+            "value": 52,
+            "role": "reference"
+          }
+        ]
+      },
+      "reasoning": {
+        "cause": "Der Umsatz hängt an wenigen Messern und Pfannen, während Zubehör oft später einzeln gekauft wird.",
+        "effect": "Fällt einer der zehn Artikel aus, fehlt sofort spürbar Umsatz.",
+        "recommendation": "Sets aus Bestseller und häufigem Folgekauf testen."
+      },
+      "metrics": [
+        {
+          "label": "Schleifstein innerhalb von 60 Tagen nach Messerkauf",
+          "value": "11 %"
+        }
+      ]
+    }
+  ]
+}

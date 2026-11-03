@@ -105,12 +105,12 @@ Diese Skills brauchen keine Zugänge.
 
 ### Theme-Migration
 
-Überführt ein bestehendes Shopify-Theme (Vintage oder Online Store 2.0) in ein aktuelles 2.0-Theme, zum Beispiel Horizon. `theme-migration` führt das Team in neun Schritten bis "Bereit für die Abnahme", `theme-launch` übernimmt für den Betreiber die Entscheidung über die Abnahme, Launch und Nachsorge; die übrigen Skills sind auch einzeln nutzbar. Geschrieben wird nur in ein unveröffentlichtes Theme. Veröffentlicht wird von Hand, nie durch eine Skill.
+Überführt ein bestehendes Shopify-Theme (Vintage oder Online Store 2.0) in ein aktuelles 2.0-Theme, zum Beispiel Horizon. `theme-migration` führt das Team in neun Schritten bis zum Launch und zur Kontrolle danach, `theme-launch` ist der Teil des Betreibers, der begleitet: Stand aller Stores, Vorgaben, Abnahme ins Cockpit, Gespräch über Abnahme und Go-Live; die übrigen Skills sind auch einzeln nutzbar. Geschrieben wird nur in ein unveröffentlichtes Theme. Veröffentlicht wird von Hand, nie durch eine Skill.
 
 | Skill | Funktion |
 |---|---|
 | `ptai-ecom:theme-migration` | Führt das Team durch die Schritte Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs und Abnahme. Prüft beim Start die Version des Plugins, holt den neuesten Stand beider Repos und übernimmt die Antworten des Teams aus dem Cockpit. Entscheidet nach der Regel "wie heute", "wie im Referenz-Store" oder nach den Vorgaben der Marke und fragt nur bei echtem Zielkonflikt, mit Erklärung, Vergleich und Empfehlung. Hält Stand, Fragen, Punkte ohne Frage und die Übergabe jeder Sitzung fest und schreibt `migration.json` für das Cockpit. Fragt nie nach Termin oder Änderungsstopp. |
-| `ptai-ecom:theme-launch` | Für den Betreiber: Vorgaben der Marke hochladen und anwenden, Abnahme ins Cockpit stellen und entscheiden, Abgleich vor dem Launch, Go/No-Go, Launch und Kontrolle nach dem Launch. |
+| `ptai-ecom:theme-launch` | Für den Betreiber, der begleitet: Stand aller Stores aus GitHub, Vorgaben der Marke hochladen, Abnahme aus dem Repo ins Cockpit stellen, Fragen des Teams beantworten, Abnahme und Go-Live mit der Marke besprechen. Arbeitet nie im Shop. |
 | `ptai-ecom:snapshot-theme` | Sichert ein Theme vollständig mit einem Manifest aller Dateien. |
 | `ptai-ecom:inventory-theme` | Erfasst Theme-Typ, genutzte Templates, Anpassungen gegenüber dem Original, Funktionen je Seitentyp, Metafelder, Übersetzungen und SEO-Ausgabe. |
 | `ptai-ecom:inventory-apps` | Erfasst alle Apps und Fremddienste mit Einbindungsweg, Tracking je Messziel und Consent-Verhalten. Kennzeichnet, was einen Theme-Wechsel nicht übersteht. |
@@ -124,7 +124,7 @@ Diese Skills brauchen keine Zugänge.
 
 ### So läuft ein Launch
 
-Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änderung. Die Einzelheiten stehen in `reference/theme-migration/launch-checklist.md`, der Rückfall in `rollback.md`, die Zeit danach in `post-launch.md`. `theme-launch` führt den Ablauf als Phase 9, `launch-check` prüft ihn als Lauf, der beliebig oft wiederholt werden kann.
+Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änderung. Die Einzelheiten stehen in `reference/theme-migration/launch-checklist.md`, der Rückfall in `rollback.md`, die Zeit danach in `post-launch.md`. `theme-migration` führt den Ablauf als Phase 9, `launch-check` prüft ihn als Lauf, der beliebig oft wiederholt werden kann.
 
 **Tage vorher**
 

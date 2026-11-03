@@ -197,8 +197,8 @@ class PortalTransport(Transport):
         raise ShopifyError(f"Cockpit: nach {len(self.waits) + 1} Versuchen weiter gedrosselt ({last})")
 
 
-def transport_from_config(config: dict, *, write: bool = False, workspace: str | os.PathLike = ".",
-                          **kwargs) -> Transport:
+def transport_from_config(config: dict, *, write: bool = False, translations: bool = False,
+                          workspace: str | os.PathLike = ".", **kwargs) -> Transport:
     """Der Zugang laut `theme_migration.access`.
 
     Lesen: `cli-grant` (Standard) oder `portal` (Standard, wenn die Config einen
@@ -208,9 +208,17 @@ def transport_from_config(config: dict, *, write: bool = False, workspace: str |
     Schreiben geht hier nur über `admin-api` (`store execute` mit
     `--allow-mutations`). Steht `access.write` auf `cli-theme`, dem Standard
     laut Spec, lädt die Skill mit `shopify theme push --unpublished` hoch.
+
+    `translations=True` (seit 0.3.27): Theme-Übersetzungen registrieren geht nur über den Admin-Weg, es gibt
+    keinen CLI-Befehl dafür. Deshalb gilt hier immer der Grant, egal was `access.write` sagt; der Schalter
+    regelt nur den Upload der Theme-Dateien. Bis 0.3.26 hielt jede Sitzung mit `cli-theme` an dieser Stelle
+    an und fragte das Team, ob es den Schreibweg umstellen soll, was es nicht beurteilen konnte (Oktober
+    2026). Fehlt `write_translations` im Grant, lehnt Shopify ab und die Meldung nennt den Scope.
     """
     access = migration_config(config).get("access") or {}
     store = config.get("shopify_store")
+    if write and translations:
+        return CliTransport(store, **kwargs)
     if write:
         mode = access.get("write") or "cli-theme"
         if mode != "admin-api":

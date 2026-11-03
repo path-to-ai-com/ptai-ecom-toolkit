@@ -475,11 +475,22 @@ def open_measures(backlog: dict) -> list[dict]:
             if m.get("status", "open") in SHOWN_STATUS]
 
 
+def finding_of_this_run(m: dict, run: Run):
+    """Der Befund einer Maßnahme, wenn er zu diesem Lauf gehört.
+
+    Kennungen zählen je Lauf neu. Im Folge-Audit eines Stores (01.11.2026) stand
+    M-089, ein Befund vom September, sonst unter dem neuen SEA-07 mit anderem
+    Inhalt.
+    """
+    origin = m.get("finding_run")
+    return measures_mod.finding_of(m) if origin in (None, run.run_id) else None
+
+
 def measures_by_finding(run: Run) -> dict:
     """Welche anstehenden Massnahmen auf welchen Befund zeigen, in Prioritaetsreihenfolge."""
     idx = {}
     for m in open_measures(run.backlog):
-        ref = measures_mod.finding_of(m)
+        ref = finding_of_this_run(m, run)
         if ref:
             idx.setdefault(ref, []).append(m)
     return idx
@@ -663,9 +674,11 @@ def measures_overview(run: Run, brand: str) -> str:
     ohne_befund = []
     rows = []
     for nr, m in enumerate(prio, 1):
-        ref = measures_mod.finding_of(m)
+        ref = finding_of_this_run(m, run)
         b = idx.get(ref) if ref else None
-        if not b:
+        if not b and measures_mod.finding_of(m) and not ref:
+            wo = "früherer Audit, im Cockpit"
+        elif not b:
             ohne_befund.append(m)
             wo = "unten in diesem Abschnitt"
         else:
@@ -1090,9 +1103,12 @@ def score_leiste(run: Run) -> str:
             "geprüft wird, was prüfbar ist. Das Ziel ist der Stand, wenn alles "
             "umgesetzt ist, wofür in diesem Report eine Maßnahme steht; was "
             "darüber hinaus fehlt, sind offene Fragen und Lücken in der "
-            "Datenlage. <strong>Der eigentliche Vergleichswert entsteht beim "
-            "nächsten Lauf:</strong> die heutigen Zahlen sind eingefroren, und "
-            "der nächste Report misst gegen sie.</p>")
+            "Datenlage."
+            + ("" if (run.run / "followup.json").exists() else
+               " <strong>Der eigentliche Vergleichswert entsteht beim "
+               "nächsten Lauf:</strong> die heutigen Zahlen sind eingefroren, "
+               "und der nächste Report misst gegen sie.")
+            + "</p>")
 
 
 def sec_method(run: Run) -> str:
@@ -2367,6 +2383,7 @@ SECTIONS = {"shop": sec_shop, "measurement": sec_measurement,
 #: SECTION_TITLES, weil sie keine Befunde tragen; ohne diese Tabelle fiel die
 #: Web-Navigation auf "99 method" zurueck, also auf den Schluessel im Code.
 SECTION_APPENDIX = {
+    "followup": (0, "Vergleich zum Vorzeitraum"),
     "measures": (13, "Maßnahmen"),
     "gaps": (14, "Lücken in der Datenlage"),
     "method": (15, "Wie der PTAI E-Com Score gerechnet wird"),
@@ -2519,9 +2536,26 @@ def problem_tiles(run: Run, text: dict) -> str:
 
 # ---------------------------------------------------------------- Bauen
 
+def followup_block(run: Run) -> str:
+    """Vergleich eines Folge-Audits mit dem Vorzeitraum, aus `followup.json` im Lauf.
+
+    Ein erster Audit hat keinen Vorzeitraum, die Datei fehlt und der Abschnitt
+    entfällt. Die Zahlen rechnet die Sitzung für den jeweiligen Anlass; der
+    Abschnitt gibt sie wieder und behauptet nichts, was nicht dort steht.
+    Schema: {"intro": str, "header": [str], "rows": [[str]], "notes": [str]}.
+    """
+    doc = run._j(run.run / "followup.json")
+    if not doc:
+        return ""
+    notes = "".join(f"<p>{esc(n)}</p>" for n in doc.get("notes") or [])
+    return (f'<p class="section-intro">{esc(doc["intro"])}</p>'
+            + table(doc["header"], [tuple(r) for r in doc["rows"]])
+            + notes)
+
+
 def section_blocks(run: Run, brand: str) -> dict:
     """Je Marker der fertige HTML-Block: Zahlen, dann die Befunde daraus."""
-    out = {}
+    out = {"followup": followup_block(run)}
     for key, fn in SECTIONS.items():
         try:
             block = fn(run)
@@ -2614,6 +2648,14 @@ def build(run: Run, text: dict, template: Path, assets: Path,
     for marker, value in ersetzungen.items():
         html_text = html_text.replace(marker, str(value))
     for key, block in inh["sektionen"].items():
+        if key == "followup" and block:
+            # Ohne Datei entfällt das ganze Kapitel, deshalb kommt sein Rahmen
+            # von hier und nicht aus dem Template.
+            title = esc(SECTION_APPENDIX["followup"][1])
+            block = ('<section class="page-break"><div class="chapter-header">'
+                     f'<h2>{title}</h2><img class="logo" '
+                     f'src="{assets / "logo.svg"}" alt="Path to AI"></div>'
+                     f"{block}</section>")
         html_text = html_text.replace(f"<!-- SECTION:{key} -->", block)
 
     # Den Schluss füllt nicht diese Schleife: `closing.apply` setzt ihn zuletzt

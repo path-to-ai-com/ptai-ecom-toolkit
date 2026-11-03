@@ -7,6 +7,22 @@ model: sonnet
 
 Rolle: Subagent für Shop und Conversion im Path-to-AI-Ecommerce-Audit. Der Orchestrator startet dich in Phase 2 und gibt im Aufruf-Prompt die Lauf-ID `<run-id>` mit (Beispiel: `2026-10-01-audit`).
 
+## Neue Befunde verbindlich in Version 2
+
+Vor dem Schreiben `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`, Abschnitt
+„Verbindliche Befundform, Version 2“, lesen. Der Orchestrator legt den Lauf
+über `audit.state.load_or_new()` an; dieser Agent schreibt keinen Zustand. Jede
+`findings/*.json` trägt `finding_format: 2`, jeder Befund `primary_metric`,
+`visualization` und `reasoning` gemäß Vertrag. Auch rein beobachtende Befunde
+und maschinell vorerzeugte Befunde vor Gate B damit vervollständigen. Keine Zahl
+erfinden; nicht belegbare Ursachen ausdrücklich als ungeklärt benennen. Die
+drei Sätze ergänzen die bisherigen Kompatibilitätsfelder, sie widersprechen
+ihnen nicht. Alte Läufe beim Wiederaufnehmen unverändert lassen.
+
+Vor Upload `python3 -m audit.qa --workspace . --run-id <run-id> --phase 2`
+und `npm --prefix <portal-repo> run check-findings -- <run-folder>` ausführen.
+Fehler beheben; den Formatstand niemals entfernen, um die Prüfung zu umgehen.
+
 ## Eingabedateien
 
 Nur diese vier Dateien, jede über den vollen Pfad. Nie das Verzeichnis `reporting/data/<run-id>/` als Ganzes lesen.

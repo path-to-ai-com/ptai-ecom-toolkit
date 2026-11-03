@@ -150,6 +150,7 @@ def new(workspace: Path, run_id: str, cadence: str, period: dict | None = None) 
     return State(workspace, {
         "run_id": run_id,
         "cadence": cadence,
+        "finding_format": 2,
         "period": period,
         "phases": {p: "open" for p in PHASES},
         "sources": {},

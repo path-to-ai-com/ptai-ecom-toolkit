@@ -152,6 +152,10 @@ print(json.dumps({
   --theme <draft-theme-id> --source migration/build/translations.json
 ```
 
+- Läuft immer über den Admin-Weg mit dem Grant (Scopes `read_translations`, `write_translations`), auch
+  wenn `access.write` auf `cli-theme` steht: einen CLI-Befehl dafür gibt es nicht, und der Schalter regelt
+  nur den Upload der Dateien. Nie `access.write` umstellen, um zu registrieren. Fehlt der Scope, sagt die
+  Sitzung der Person mit Admin-Rechten, welches Recht sie dem Grant geben muss.
 - Übersetzbare Inhalte frisch **vom Entwurf** lesen, mit aktuellen Digests, dann über
   `translationsRegister` registrieren und zurücklesen.
 - Nach jeder Änderung eines Ausgangswerts erneut registrieren, sonst liefert Shopify weiter die alte

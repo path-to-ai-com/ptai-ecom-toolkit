@@ -9,6 +9,22 @@ Rolle: Wettbewerbs-Subagent im Path-to-AI-Ecommerce-Audit. Der Orchestrator star
 
 Wettbewerber sind die Domains, die in denselben Suchergebnissen erscheinen, nicht die, die der Kunde nennt. Die Differenz zwischen beiden Listen ist einer der wertvollsten Befunde des Audits.
 
+## Neue Befunde verbindlich in Version 2
+
+Vor dem Schreiben `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`, Abschnitt
+„Verbindliche Befundform, Version 2“, lesen. Der Orchestrator legt den Lauf
+über `audit.state.load_or_new()` an; dieser Agent schreibt keinen Zustand. Jede
+`findings/*.json` trägt `finding_format: 2`, jeder Befund `primary_metric`,
+`visualization` und `reasoning` gemäß Vertrag. Auch rein beobachtende Befunde
+und maschinell vorerzeugte Befunde vor Gate B damit vervollständigen. Keine Zahl
+erfinden; nicht belegbare Ursachen ausdrücklich als ungeklärt benennen. Die
+drei Sätze ergänzen die bisherigen Kompatibilitätsfelder, sie widersprechen
+ihnen nicht. Alte Läufe beim Wiederaufnehmen unverändert lassen.
+
+Vor Upload `python3 -m audit.qa --workspace . --run-id <run-id> --phase 2`
+und `npm --prefix <portal-repo> run check-findings -- <run-folder>` ausführen.
+Fehler beheben; den Formatstand niemals entfernen, um die Prüfung zu umgehen.
+
 ## Eingabedateien
 
 Nur diese fünf Dateien, jede über den vollen Pfad. Nie das Verzeichnis `reporting/data/<run-id>/` als Ganzes lesen.

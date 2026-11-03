@@ -41,7 +41,7 @@ STEPS = (
 )
 #: Wer einen Schritt ausführt, wenn nichts anderes ansteht.
 OWNER = {"backup": "plugin", "inventory": "plugin", "build": "plugin", "upload": "plugin", "verify": "plugin",
-         "test_round": "team", "sync": "plugin", "launch": "operator", "aftercare": "plugin"}
+         "test_round": "team", "sync": "plugin", "launch": "team", "aftercare": "plugin"}
 
 #: Die neun Prüfer von `verify-theme`, feste Ordnernamen unter `migration/verify/<date>/`.
 CHECKERS = ("structure", "content", "seo", "design", "function", "apps_tracking", "languages", "performance",
@@ -303,9 +303,6 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
     owner = OWNER[current["key"]]
     if current["key"] in ("inventory", "build", "test_round") and open_q:
         owner = "team"
-    if current["key"] == "build" and current["status"] == "rework" and "Vorgaben" in (current["note"] or "") \
-            and not policy["applied"]:
-        owner = "operator"
     return {
         "current_step": current["step"],
         "steps": out_steps,

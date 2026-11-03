@@ -8,6 +8,22 @@ description: Erzeugt den Monats-Report für den Kunden-Workspace. Orchestriert a
 - Ein Lauf zieht alle angeschlossenen Quellen, schreibt den Markdown-Report mit sechs Kapiteln und rendert daraus das Kunden-PDF im Path-to-AI-CI.
 - Nicht angeschlossene oder gescheiterte Quellen blockieren nie. Sie stehen im Report als "nicht verfügbar (Grund)", der Rest läuft weiter.
 
+## Neue Befunde verbindlich in Version 2
+
+Vor dem Schreiben `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`, Abschnitt
+„Verbindliche Befundform, Version 2“, lesen. Neue volle Audit- und Report-Läufe
+über `audit.state.load_or_new()` anlegen; der neue Laufzustand verlangt v2. Jede
+`findings/*.json` trägt `finding_format: 2`, jeder Befund `primary_metric`,
+`visualization` und `reasoning` gemäß Vertrag. Auch rein beobachtende Befunde
+und maschinell vorerzeugte Befunde vor Gate B damit vervollständigen. Keine Zahl
+erfinden; nicht belegbare Ursachen ausdrücklich als ungeklärt benennen. Die
+drei Sätze ergänzen die bisherigen Kompatibilitätsfelder, sie widersprechen
+ihnen nicht. Alte Läufe beim Wiederaufnehmen unverändert lassen.
+
+Vor Upload `python3 -m audit.qa --workspace . --run-id <run-id> --phase 2`
+und `npm --prefix <portal-repo> run check-findings -- <run-folder>` ausführen.
+Fehler beheben; den Formatstand niemals entfernen, um die Prüfung zu umgehen.
+
 ## Voraussetzungen
 
 Arbeitsverzeichnis ist der Kunden-Workspace (enthält `reporting/`).

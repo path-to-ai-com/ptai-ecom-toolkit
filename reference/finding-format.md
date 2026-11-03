@@ -15,8 +15,9 @@ gegen diese Dateien.
 
 ## Was neu ist
 
-Alle Felder sind optional. Ein Befund ohne sie bleibt gültig und wird wie bisher
-gezeigt.
+Für Altformate und Audit Light sind die folgenden Felder optional. Ein alter
+Befund ohne sie bleibt gültig und wird wie bisher gezeigt. Neue volle Audits
+und Reports folgen zusätzlich dem Abschnitt „Verbindliche Befundform, Version 2“.
 
 | Feld | Inhalt |
 |---|---|
@@ -189,3 +190,87 @@ Eine Kennzahl im Beleg wiederholt keine Zahl der Aussage in anderer Rundung.
 jedem Hochladen. `qa.py` prüft nur, was aus der Pipeline kommt, dazu die
 Sprache der neuen Texte. `publish` verweigert einen Lauf mit offenem Auftrag
 oder fehlender Datei unter `proof/`.
+
+## Verbindliche Befundform, Version 2
+
+Neue volle Audits und Reports schreiben `finding_format: 2` an die Wurzel jeder
+Datei `findings/*.json`. `audit.state.new()` setzt denselben Wert automatisch
+in `state.json`. Er gilt für alle Befunde des Laufs, auch wenn eine Befunddatei
+ihren eigenen Formatstand vergisst. Dateien ohne eigenen Formatstand erben den
+des Laufs. Widersprechende oder unbekannte Versionen werden abgewiesen.
+
+Ein alter Lauf ohne Formatstand und ohne die neuen Felder bleibt gültig. Laden
+und Wiederaufnehmen stempeln ihn nicht nachträglich um. Schon eines der neuen
+Felder aktiviert die vollständige v2-Prüfung auch ohne Formatstand. Der
+Formatstand ist eine Vertragsangabe, keine Sicherheitsgrenze gegen einen
+Schreiber, der Laufdateien absichtlich manipuliert. Neue Läufe immer über
+`audit.state.new` beziehungsweise `load_or_new` anlegen, nie durch Kopieren
+einer alten `state.json` oder freies Erstellen eines Laufordners.
+
+Die bisherigen Felder bleiben für PDF und heutige Cockpit-Ansicht erhalten.
+Die folgenden Felder sind die eindeutige Quelle für den späteren einheitlichen
+Befund; keine Ansicht muss die Grafik aus `proof.columns` erraten.
+Audit Light behält seinen bisherigen Vertrag; sein PDF wird hier nicht umgebaut.
+
+| Pflichtfeld je Befund | Inhalt |
+|---|---|
+| `primary_metric` | `{value, unit, label, basis, period}`; `value` ist eine endliche JSON-Zahl, auch 0 oder negativ, alles andere nichtleerer Klartext. `label` benennt die Zahl, `basis` den Bezug, `period` den belegten Zeitraum oder Aufnahmetag. Prozent und Prozentpunkte ausdrücklich unterscheiden. |
+| `visualization` | genau eine der vier Arten unten; Werte immer numerisch, nie lokalisierte Zahlenstrings |
+| `reasoning` | genau `{cause, effect, recommendation}` mit je einem abgeschlossenen Satz: Ursache, Auswirkung, Empfehlung, in dieser Reihenfolge |
+
+Keine erfundene Ursache: Ist sie nicht belegt, sagt `cause` ausdrücklich
+„Die Ursache ist mit den vorhandenen Daten nicht geklärt.“ und behauptet keinen
+Mechanismus. Eine Korrelation bleibt eine Korrelation. `effect` formuliert nur
+belegte Auswirkungen oder kennzeichnet eine mögliche Folge. Die Satzprüfung
+prüft Satzzeichen und gängige Abkürzungen, keine inhaltliche Wahrheit.
+
+### Grafikarten
+
+Alle numerischen Vergleichs- und Anteilwerte sind endlich und mindestens 0.
+`unit` gilt für **alle** Werte derselben Grafik, einschließlich ihrer Grenze.
+`period` steht an jeder Zahlengrafik ausdrücklich; die verglichenen Werte
+müssen sachlich und zeitlich vergleichbar sein. `role: focus` bezeichnet die
+untersuchte Reihe, `reference` die Basis, unabhängig von Rang und Betrag.
+
+- `comparison`: `{type: "comparison", unit, period, values: [{label, value, role}, …], threshold: {value, label, criterion}}`.
+  Mindestens zwei Werte, darunter `focus` und `reference`. `criterion` nennt
+  das belegte Prüfkriterium als Satz. Die Grenze wird in die gemeinsame Einheit
+  umgerechnet: Bei 2.096 Bestellungen und höchstens 5 % Abweichung ist
+  `threshold.value` **2200.8 Käufe**, nicht 5. Die Hauptzahl darf dagegen 41 %
+  sein. Alle Balken starten bei null und nutzen dieselbe Skala.
+- `share`: `{type: "share", unit, period, total, parts: [{label, value, role}, …]}`.
+  Mindestens zwei Teile, positive Gesamtsumme; Summe der Teile entspricht
+  `total`. Für 48 % und 52 % ist die Einheit `%` und `total: 100`; bei
+  Umsatzbeträgen stattdessen dieselbe Währung für Teile und Gesamtsumme.
+- `trend`: `{type: "trend", unit, period, points: [{date: "YYYY-MM-DD", value}, …], marker?: {date, label}}`.
+  Mindestens zwei echte Kalendertage, eindeutig und streng aufsteigend, Werte
+  dürfen negativ sein. Ein optionaler markierter Zeitpunkt nennt einen
+  vorhandenen Messpunkt. Fehlende Messungen werden ausgelassen, nie zu 0.
+- `image`: `{type: "image", proof_ref: {column, block}, comparison?: {unit, period, values, threshold?}}`.
+  Die nullbasierten Indizes zeigen auf genau ein `image` oder `phone` in
+  `proof.columns` (oder der bisherigen Spaltenliste). Dessen bestehende Regeln
+  für Pfad, Alternativtext, Aufnahme und Markierungen gelten weiterhin.
+  `comparison` erlaubt den zusätzlichen Handy/Desktop-Vergleich von CRO-01,
+  ohne dieselbe Bilddatei zweimal zu speichern. Seine Grenze ist optional,
+  eine übergebene Grenze muss aber vollständig sein.
+
+Zusätzliche Kennzahlen bleiben als kleine Zeile in `metrics`, Methode,
+Prüfkriterium, Quelle und geprüfte Alternative in den bisherigen Feldern.
+`reasoning` hat keine weiteren Felder und ersetzt als zukünftiger Lesetext die
+überlappenden Erläuterungen; bis zur Anzeige-Umstellung müssen alte und neue
+Texte inhaltlich übereinstimmen.
+
+### Beispiele und Prüfung
+
+`reference/finding-format/valid/presentation-v2.json` beschreibt die erfundene
+Demo-Marke Nordwerk: MES-01 für Screenshot 02 (Vergleich), CRO-01 für 03
+(Belegbild und Gerätevergleich), HDL-01 für 04 (Umsatzanteil). Es sind
+isolierte Vertragsbeispiele, keine umgeschriebenen Laufdateien. Eine echte
+Bildaufnahme wird erst im Lauf ergänzt. `presentation-trend-v2.json` belegt die
+vierte Art; `presentation-invalid.json` enthält gemeinsame Negativfälle für
+Python und TypeScript. Beide Repos halten bytegleiche Kopien dieser Beispiele.
+
+Vor Upload prüfen `audit.qa`, `audit.publish` und im Portal
+`npm run check-findings -- <run-folder>` die neuen Pflichtangaben. Fehler nennen
+Datei, Befundkennung und Feld. `publish` hält vor dem ersten Kopieren an, ohne
+Upload, Veröffentlichung oder automatische Ergänzung fehlender Zahlen.

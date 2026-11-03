@@ -1,0 +1,44 @@
+{
+  "finding_format": 2,
+  "findings": [
+    {
+      "id": "TREND-01",
+      "statement": "Die Analyse zählt 41 Prozent mehr Käufe als der Shop.",
+      "evidence": "demo.json > example",
+      "severity": "hoch",
+      "confidence": "confirmed",
+      "effort": "small",
+      "primary_metric": {
+        "value": 41,
+        "unit": "%",
+        "label": "mehr Käufe in der Analyse",
+        "basis": "als Bestellungen im Shop",
+        "period": "August 2026"
+      },
+      "visualization": {
+        "type": "trend",
+        "unit": "%",
+        "period": "Juli bis August 2026",
+        "points": [
+          {
+            "date": "2026-07-01",
+            "value": 38
+          },
+          {
+            "date": "2026-08-01",
+            "value": 41
+          }
+        ],
+        "marker": {
+          "date": "2026-08-01",
+          "label": "Prüfung"
+        }
+      },
+      "reasoning": {
+        "cause": "Zwei Mess-Kennungen im Theme senden dasselbe Kaufereignis.",
+        "effect": "Jede Auswertung auf dieser Grundlage überschätzt Conversion und Umsatz je Kanal.",
+        "recommendation": "Die zweite Kennung aus dem Theme entfernen und eine führende Property festlegen."
+      }
+    }
+  ]
+}

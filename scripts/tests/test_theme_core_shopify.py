@@ -185,6 +185,15 @@ class TestAuswahl(unittest.TestCase):
         config = dict(base, theme_migration={"access": {"read": "portal", "write": "admin-api"}})
         self.assertIsInstance(shopify.transport_from_config(config, write=True), shopify.CliTransport)
 
+    def test_uebersetzungen_registrieren_braucht_kein_admin_api_im_schreibweg(self):
+        # Seit 0.3.27: der Schalter access.write regelt nur den Upload, Übersetzungen laufen immer über den Grant.
+        config = {"shopify_store": "beispiel.myshopify.com",
+                  "theme_migration": {"access": {"write": "cli-theme"}}}
+        self.assertIsInstance(shopify.transport_from_config(config, write=True, translations=True),
+                              shopify.CliTransport)
+        with self.assertRaisesRegex(shopify.ShopifyError, "admin-api"):
+            shopify.transport_from_config(config, write=True)
+
     def test_theme_ids_werden_zur_gid(self):
         self.assertEqual(shopify.theme_gid("111111111111"), "gid://shopify/OnlineStoreTheme/111111111111")
         self.assertEqual(shopify.numeric_id("gid://shopify/OnlineStoreTheme/111111111111"), "111111111111")

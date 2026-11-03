@@ -29,7 +29,7 @@ den lesenden Abfragen dieses Abgleichs.
 | Lauf | Wann | Umfang |
 |---|---|---|
 | **Abgleich** | Phase 7 (`7-sync`), nach der Kontrolle und vor der Abnahme, beliebig oft | voll: Dateien und Shop-Ebene, Entscheidung je Änderung, Übernahme in den Entwurf |
-| **Abgleich vor dem Launch** | Phase 9, direkt vor dem Launch, durch den Betreiber (`theme-launch`) | voll, gegen die letzte Sicherung |
+| **Abgleich vor dem Launch** | Phase 9, direkt vor dem Launch, in der Sitzung des Teams (`theme-migration`) | voll, gegen die letzte Sicherung |
 | **Schlussprüfung** | unmittelbar vor dem Veröffentlichen | nur `updatedAt` des Live-Themes und die Template-Zuweisungen; jede Änderung seit dem Abgleich vor dem Launch hält den Launch an |
 | Wachposten | ohne Migration, auf Zuruf | voll, ohne Übernahme; Ergebnis ist nur `delta.md` |
 

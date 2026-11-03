@@ -1,0 +1,54 @@
+[
+  {
+    "text": "Die zweite Kennung wurde am 2. November eingebaut.",
+    "valid": true
+  },
+  {
+    "text": "Die zweite Kennung wurde am 2. November 2026 eingebaut.",
+    "valid": true
+  },
+  {
+    "text": "Die Kennung wurde am 2. 11. 2026 eingebaut.",
+    "valid": true
+  },
+  {
+    "text": "Die Kennung wurde am 02.11.2026 eingebaut.",
+    "valid": true
+  },
+  {
+    "text": "Im 2. Schritt wird die Kennung eingebaut.",
+    "valid": true
+  },
+  {
+    "text": "Der 3. Versuch enthält nur eine Kennung.",
+    "valid": true
+  },
+  {
+    "text": "Die Kennung wird zum 1. Mal ausgelöst.",
+    "valid": true
+  },
+  {
+    "text": "Die Kennung wurde am 2. November eingebaut. Sie wird doppelt ausgelöst.",
+    "valid": false
+  },
+  {
+    "text": "Der 3. Versuch enthält zwei Kennungen. Entfernt die zweite Kennung.",
+    "valid": false
+  },
+  {
+    "text": "Die Zahl liegt bei 2. Danach steigt sie.",
+    "valid": false
+  },
+  {
+    "text": "Die Kennung wurde am 2. November eingebaut",
+    "valid": false
+  },
+  {
+    "text": "Die Kennung wurde am 2. November eingebaut.\nSie wird doppelt ausgelöst.",
+    "valid": false
+  },
+  {
+    "text": "Die Zahl steigt bis 2. Danach fällt sie.",
+    "valid": false
+  }
+]

@@ -542,10 +542,13 @@ def _assemble(run: rb.Run, text: dict, inh: dict | None = None) -> dict:
     w = inh["werte"]
     nav, sections_html = [], []
     for key, block in inh["sektionen"].items():
+        if key == "followup" and not block:
+            continue
         number, title = rb.SECTION_TITLES.get(key, rb.SECTION_APPENDIX.get(key))
         nav.append((number, title, key))
-        sections_html.append((number, key, f'<section id="s-{key}"><h2>{number} · '
-                                     f"{rb.esc(title)}</h2>{block}</section>"))
+        heading = f"{number} · {rb.esc(title)}" if number else rb.esc(title)
+        sections_html.append((number, key, f'<section id="s-{key}"><h2>{heading}'
+                                     f"</h2>{block}</section>"))
     nav.sort()
     sections_html.sort()
 

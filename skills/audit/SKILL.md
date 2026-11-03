@@ -14,6 +14,22 @@ description: Fährt den einmaligen Ecommerce-Audit eines Shops, als Nullpunkt vo
 - Abgrenzung zu `report`: `report` läuft nach Kadenz und vergleicht dreifach (Vorlauf, Baseline, Vorjahr). `audit` läuft einmal ohne Vergleich und setzt den Nullpunkt für `report`.
 - Gemeinsam mit `report`: dieselben Pull-Skills, dasselbe `state`-Modul, dieselbe Lauf-ID-Mechanik (`scripts/audit/run.py`, `state.py`).
 
+## Neue Befunde verbindlich in Version 2
+
+Vor dem Schreiben `${CLAUDE_PLUGIN_ROOT}/reference/finding-format.md`, Abschnitt
+„Verbindliche Befundform, Version 2“, lesen. Neue volle Audit- und Report-Läufe
+über `audit.state.load_or_new()` anlegen; der neue Laufzustand verlangt v2. Jede
+`findings/*.json` trägt `finding_format: 2`, jeder Befund `primary_metric`,
+`visualization` und `reasoning` gemäß Vertrag. Auch rein beobachtende Befunde
+und maschinell vorerzeugte Befunde vor Gate B damit vervollständigen. Keine Zahl
+erfinden; nicht belegbare Ursachen ausdrücklich als ungeklärt benennen. Die
+drei Sätze ergänzen die bisherigen Kompatibilitätsfelder, sie widersprechen
+ihnen nicht. Alte Läufe beim Wiederaufnehmen unverändert lassen.
+
+Vor Upload `python3 -m audit.qa --workspace . --run-id <run-id> --phase 2`
+und `npm --prefix <portal-repo> run check-findings -- <run-folder>` ausführen.
+Fehler beheben; den Formatstand niemals entfernen, um die Prüfung zu umgehen.
+
 ## Voraussetzungen
 
 - `reporting/config.json` existiert, und `scripts/audit/config.py:
@@ -1297,7 +1313,7 @@ Nachdem alle Befunde aus allen vorliegenden `findings/`-Dateien durch `create()`
 | 4b | Die wichtigsten Erkenntnisse | `__TAKEAWAYS__` | Sitzung, fünf Sätze mit Befund-Kennung |
 | 4c | Die Befunde im Überblick | `__FINDINGS_OVERVIEW__` | Script |
 | 5 | Inhalt | fest im Template | nichts, die sechzehn Zeilen stehen |
-| 6 | Fachsektionen | fünfzehn `SECTION:`-Marker (alle außer `sources`) | Script, siehe Tabelle darunter |
+| 6 | Fachsektionen | sechzehn `SECTION:`-Marker (alle außer `sources`) | Script, siehe Tabelle darunter |
 | 7 | Nächster Schritt | `__NEXT_STEP__` | Sitzung |
 | 8 | Quellen | `SECTION:sources` | Script, aus `state.json > sources` |
 
@@ -1323,6 +1339,7 @@ Jede Sektion zeigt ihre eigenen Zahlen und direkt darunter die Befunde, die dara
 | `SECTION:competition` | Sichtbarkeit im Vergleich, Autorität, Linkprofil, Shopping-Präsenz, dann die Befunde | `findings/competition.json`, `dfs-rankings.json`, `dfs-backlinks.json`, `dfs-competitors.json`, `dfs-shopping.json` |
 | `SECTION:sea` | Shopping-Präsenz und was das Werbekonto zeigt, dann die Befunde | `findings/sea.json`, `ads.json`, `dfs-shopping.json` |
 | `SECTION:measures` | Die Reihenfolge der Umsetzung als Tabelle, eine Zeile je Maßnahme, mit dem Abschnitt, in dem sie ausführlich steht. Darunter nur die Maßnahmen ohne Befund am Shop | `measures.json` |
+| `SECTION:followup` | Vergleich zum Vorzeitraum aus `followup.json` (`intro`, `header`, `rows`, `notes`); entfällt ohne die Datei | `reporting/runs/<run-id>/followup.json` |
 | `SECTION:gaps` | Tabelle Quelle / Status / Grund / Was dadurch offen bleibt | `source-status.md` plus die `blocked_questions` aller Disziplinen |
 | `SECTION:method` | Wie der PTAI E-Com Score gerechnet wird: Strafpunkte, Gewichte, Grenzen, und was der Score nicht leistet. **Aus den Konstanten von `score.py` erzeugt, nicht getippt** | `scripts/audit/score.py` |
 | `SECTION:sources` | Je Quelle eine `.source-row`: Werkzeug, Umfang, Stand | `state.json > sources`, Erhebungsdatum aus `pulled_at` |
@@ -1634,6 +1651,10 @@ Form:
 **Prüffrage für den Einstieg:** würdest du diesen Satz laut sagen, wenn du dem Kunden den Report über den Tisch schiebst?
 
 **`__NEXT_STEP__`:** die eine konkrete Handlung plus der Zeitpunkt, an dem darüber gesprochen wird. Ein Absatz, keine Liste.
+
+### Vergleich zum Vorzeitraum bei einem Folge-Audit
+
+Liegt `reporting/runs/<run-id>/followup.json` im Lauf (`intro`, `header`, `rows`, `notes`), steht davor das Kapitel "Vergleich zum Vorzeitraum". Ohne die Datei entfällt es. Anlass 01.11.2026: Der Folge-Audit eines Stores nach dem Relaunch musste zeigen, was der Wechsel gebracht hat. Gleich lange Zeiträume mit gleichen Wochentagen, das Vorjahr als Saisonkontrolle, Aktionstage und Livegang ausgelassen. Der Vergleich beschreibt, was sich zeitlich bewegt hat; eine Ursache nur, wenn sie belegt ist. Eine Maßnahme aus einem früheren Lauf steht im Bericht nur im Plan, nie unter einem Befund mit gleicher Kennung.
 
 ### Drei Regeln, die im Audit anders gelten als im Monats-Report
 

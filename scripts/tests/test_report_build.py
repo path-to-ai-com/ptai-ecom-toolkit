@@ -417,13 +417,27 @@ class TestSektionen(unittest.TestCase):
             with self.subTest(sektion=key):
                 self.assertEqual(aus_template.get(number), title)
 
+    def test_vergleich_entfaellt_ohne_datei(self):
+        self.assertEqual(rb.followup_block(self._run()), "")
+
+    def test_vergleich_zeigt_tabelle_und_hinweise(self):
+        run = self._run()
+        (run.run / "followup.json").write_text(json.dumps({
+            "intro": "Je 21 Tage.", "header": ["Kennzahl", "Vorher", "Nachher"],
+            "rows": [["Bestellungen", "582", "754"]], "notes": ["Noch offen."]}),
+            encoding="utf-8")
+        run = rb.Run(run.ws, run.run_id)
+        out = rb.followup_block(run)
+        for text in ("Je 21 Tage.", "Bestellungen", "754", "Noch offen."):
+            self.assertIn(text, out)
+
     def test_jeder_marker_hat_einen_bauer(self):
         """Ein Marker ohne Funktion bliebe als Kommentar im fertigen PDF stehen."""
         template = (Path(__file__).resolve().parents[2] / "skills" / "audit"
                     / "templates" / "audit.html").read_text(encoding="utf-8")
         import re
         marker = set(re.findall(r"<!-- SECTION:(\w+) -->", template))
-        gebaut = set(rb.SECTIONS) | {"measures"}
+        gebaut = set(rb.SECTIONS) | {"measures", "followup"}
         self.assertEqual(marker, gebaut)
 
 

@@ -74,11 +74,19 @@ def build(data_dir):
         g = lambda k: sum(gm.get(m, {}).get(k) or 0 for m in ms)
         u, b = s("total_sales"), s("orders")
         ses = sum(sitzungen(m) for m in ms)
+        # Der Gesamtumsatz ist nach Erstattungen, geteilt durch Bestellungen wäre
+        # er kein Bestellwert (Folge-Audit vom 01.11.2026: 63,94 € statt rund 72 €). Es gilt
+        # der Monatswert von Shopify, nach Bestellungen gewichtet.
+        gewichtet = [(sm[m]["average_order_value"], sm[m]["orders"]) for m in ms
+                     if sm.get(m, {}).get("average_order_value") is not None
+                     and sm[m].get("orders")]
+        aov = (sum(w * n for w, n in gewichtet) / sum(n for _, n in gewichtet)
+               if gewichtet else (u / b if b else None))
         return {"monate": ms, "umsatz": u, "netto": s("net_sales"), "bestellungen": b,
                 "sessions": ses, "sessions_quelle": source,
                 "ga4_sessions": g("sessions"), "ga4_kaeufe": purchases(ms),
                 "ga4_umsatz": g("purchase_revenue"),
-                "aov": u / b if b else None,
+                "aov": aov,
                 "conversion": b / ses if ses else None}
 
     a, v = total(jetzt), total(previous_year)
