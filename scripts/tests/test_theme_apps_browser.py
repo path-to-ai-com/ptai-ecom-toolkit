@@ -268,7 +268,8 @@ class TestBildpaare(unittest.TestCase):
 
     def test_index_traegt_referenz_abdeckung_und_warnung_zum_entwurf(self):
         shots = {"state": "ok", "file": "x.png", "viewport": {"width": 1440, "height": 900},
-                 "theme_check": {"found": "000000000004", "found_role": "main"}}
+                 "theme_check": {"found": "000000000004", "found_role": "main"},
+                 "menu": {"state": "ok", "file": "home/desktop-a-menu.png", "foreign": []}}
         data = {"themes": {"a": "000000000004", "b": "000000000003"}, "captured_at": "2026-11-11T09:00:00+00:00",
                 "pairs": [{"page_id": "home", "device": "desktop", "a": shots,
                            "b": {**shots, "theme_check": {"found": "000000000003", "found_role": "unpublished"}}}]}

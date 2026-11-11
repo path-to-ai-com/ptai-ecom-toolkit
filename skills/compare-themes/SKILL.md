@@ -111,6 +111,13 @@ Vergleicht zwei Themes je Beispielseite: `<a>` ist immer das veröffentlichte Th
      Chat-Knopf) über der Schublade im Entwurf hält G4 an, außer es liegt im veröffentlichten Theme genauso
      darüber. Findet das Skript den Menüknopf nicht: `--menu-toggle '<css>'`. Anlass: Am Handy lagen ein
      E-Mail-Teaser (z-index 90000) und eine Countdown-Leiste über Horizons Schublade (z-index 18).
+   - **Am Rechner auch mit offenem Untermenü** (seit 0.3.31). Ebenso am Rechner: neu laden, auf den
+     ersten Menüpunkt mit Untermenü zeigen (Horizon, Broadcast und andere öffnen beim Zeigen), öffnet sich
+     nichts, klicken (nie auf einen Link mit Ziel), `<id>/desktop-<a|b>-menu.png` aufnehmen und über dem
+     Untermenü dieselbe Prüfung. Öffnet sich links ein Untermenü und rechts keins, oder liegt rechts etwas
+     Fremdes darüber, hält G4 an; hat keines der Themes eins, ist es ein Hinweis. Findet das Skript den
+     Menüpunkt nicht: `--menu-toggle-desktop '<css>'`. Anlass: Ein Mega-Menü am Rechner war nach dem Launch
+     kaputt, der Bildvergleich hatte das Menü nur am Handy geöffnet. Geprüft an Broadcast und Horizon.
    - Das Skript schreibt neben die Bilder `pairs.json` und in den Workspace
      `migration/verify/<date>/pairs.json` (Referenz, Abdeckung je Seite und Breite, ohne Bilder). Diesen
      Eintrag liest Gate G4. Eine nachgeholte Seite am selben Tag ergänzt ihn.
@@ -187,6 +194,12 @@ ein Bildvergleich aller Seiten fehlte, und als Vorlage lag zeitweise ein ältere
 - **"Menü offen: fremde Elemente über der Menü-Schublade":** ein App-Element liegt mit höherem z-index über
   dem Menü. Im Entwurf beheben (Ebene des Elements senken oder es bei offenem Menü ausblenden), neu
   aufnehmen.
+- **"Untermenü offen: kein Menüpunkt mit Untermenü gefunden" oder "kein Untermenü sichtbar":** am Rechner
+  den Menüpunkt im Browser ansehen und mit `--menu-toggle-desktop '<css>'` nachholen. Öffnet er sich im
+  Entwurf wirklich nicht, ist das ein Befund am Theme.
+- **Vor G5 noch einmal:** nach dem letzten Abgleich mit dem Live-Theme (Phase 9) alle Beispielseiten neu
+  aufnehmen. `visual_compare check --after-sync` zeigt, ob der Vergleich danach vollständig ist; G5 hält
+  sonst an.
 - **Banner verdeckt die Seite:** `consent.py` kennt das Consent-Werkzeug nicht. Selektor ergänzen statt
   mit Banner messen; ein Bildpaar mit Banner auf einer Seite ist unbrauchbar.
 - **Vorschauleiste verdeckt Buttons am Handy:** `pb=0` fehlt.

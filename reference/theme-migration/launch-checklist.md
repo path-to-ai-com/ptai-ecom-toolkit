@@ -70,7 +70,8 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
    07.10.2026 übersehen: auf einer Suchseite vervielfachte das die Suchereignisse in Analyse und
    Attribution.
 10. **Kein neuer Werbe- oder Analyseaufruf vor der Einwilligung** im Entwurf gegen live, gezählt je
-   Dienst über `hosts.json` (Microsoft Advertising an `bat.bing.com` und `bat.bing.net`).
+   Dienst über `hosts.json` (Microsoft Advertising an `bat.bing.com` und `bat.bing.net`). Ein E-Mail-Tool
+   wie Klaviyo lädt erst nach Einwilligung in Marketing; schon das Laden davor ist ein Befund.
 11. **Pixel-Liste des Shops festgehalten** (`webPixelsConfigList`, `<lauf>/web-pixels-before.json`):
    Pixel überleben den Theme-Wechsel, und nach dem Launch wird gegen genau diese Liste verglichen. Eine
    Vorschau des alten Themes zeigt danach schon die neue Liste.
@@ -87,6 +88,9 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
 16. **Liste dessen, was ein Rückfall nicht zurückdreht**, dem Team gezeigt (`rollback.md`; im Cockpit
    unter Rückfall, was nur diesen Launch betrifft, zuerst).
 17. **Kommunikation:** Termin, Stopp und Rückfallkriterien an alle Beteiligten.
+18. **Bildvergleich nach dem letzten Abgleich**: alle Beispielseiten am Rechner mit Untermenü offen und am
+   Handy mit Menü offen, aufgenommen nach dem letzten Abgleich mit dem Live-Theme
+   (`visual_compare check --after-sync`). Ohne ihn verweigert `run_state gate --gate G5-go-live`.
 
 ## Go/No-Go (Gate G5)
 
@@ -94,6 +98,7 @@ Go nur, wenn alles davon stimmt:
 
 - G4 entschieden, kein offener Punkt für G4 oder G5 in der Liste offener Punkte, keine Quelle mit
   Offenem außerhalb der Liste (`run_state gate --gate G5-go-live` verweigert sonst)
+- Bildvergleich nach dem letzten Abgleich vollständig und angesehen (Punkt 18; G5 verweigert sonst)
 - SEO-Ausgabe ohne Lücke gegen live
 - Abgleich II ohne offene Änderung, Schlussprüfung direkt vorher ohne Änderung
 - Vergleichswerte von diesem oder dem Vortag liegen vor

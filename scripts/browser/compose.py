@@ -15,8 +15,9 @@ Referenz (links das veröffentlichte Theme?) und die Abdeckung. Ein Bild mit
 falschem Theme oder Fehler trägt eine deutliche Markierung, damit niemand einen
 Entwurf mit dem Live-Shop vergleicht, ohne es zu merken. Seit dem Nachtrag vom
 11.11.2026 steht die Referenz mit ID und Name oben, am Handy folgt je Paar der
-Zustand "Menü offen" mit den fremden Elementen über der Schublade, und eine
-gedrosselte Aufnahme ist als solche markiert, nicht als Fehler des Shops.
+Zustand "Menü offen" mit den fremden Elementen über der Schublade, seit 0.3.31
+am Rechner ebenso "Untermenü offen", und eine gedrosselte Aufnahme ist als
+solche markiert, nicht als Fehler des Shops.
 
 Exit 0 geschrieben, 1 geschrieben, aber mindestens ein Bild ungültig oder
 fehlend oder die Referenz ist nicht das veröffentlichte Theme, 2 Fehler (kein
@@ -37,6 +38,10 @@ STATE_LABEL = {"ok": None, "wrong_theme": "Falsches Theme", "error": "Fehler", "
                "throttled": "Gedrosselt (HTTP 429), kein Fehler des Shops"}
 MENU_LABEL = {"ok": None, "overlap": "Fremdes Element über dem Menü", "no_toggle": "Kein Menüknopf gefunden",
               "no_drawer": "Menü nicht geöffnet", "error": "Fehler beim Öffnen"}
+DESKTOP_MENU_LABEL = {"ok": None, "overlap": "Fremdes Element über dem Untermenü",
+                      "no_toggle": "Kein Menüpunkt mit Untermenü gefunden", "no_drawer": "Untermenü nicht geöffnet",
+                      "error": "Fehler beim Öffnen"}
+MENU_STATE_NAME = {"mobile": "Menü offen", "desktop": "Untermenü offen"}
 
 STYLE = """
 :root { --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --warn-bg: #fff4e5; --warn: #9a4b00;
@@ -118,19 +123,21 @@ def figure(side: str, shot: dict | None, theme_id: str | None, pairs_dir: Path, 
 
 
 def menu_figure(side: str, shot: dict | None, theme_id: str | None, pairs_dir: Path, out_dir: Path,
-                side_label: str | None = None) -> str:
-    """Zustand "Menü offen" am Handy: Bild und, falls vorhanden, was über der Schublade liegt."""
+                side_label: str | None = None, device: str = "mobile") -> str:
+    """Zustand "Menü offen" am Handy oder "Untermenü offen" am Rechner: Bild und, falls vorhanden, was darüber liegt."""
+    state_name = MENU_STATE_NAME.get(device, MENU_STATE_NAME["mobile"])
     label = (f"{side.upper()} · {html.escape(side_label or SIDE_LABEL[side])} · "
-             f"Theme {html.escape(str(theme_id or '?'))} · Menü offen")
+             f"Theme {html.escape(str(theme_id or '?'))} · {state_name}")
     menu = (shot or {}).get("menu")
     if not isinstance(menu, dict):
         return f'<figure><figcaption>{label}</figcaption><div class="missing">nicht aufgenommen</div></figure>'
-    flag = MENU_LABEL.get(menu.get("state"), menu.get("state"))
+    labels = DESKTOP_MENU_LABEL if device == "desktop" else MENU_LABEL
+    flag = labels.get(menu.get("state"), menu.get("state"))
     flag_html = f'<span class="flag">{html.escape(flag)}</span>' if flag else ""
     drawer = menu.get("drawer") or {}
     items = "".join(
         f"<br>{html.escape(str(f.get('label')))}: z-index {html.escape(str(f.get('z_index')))}"
-        f" über Schublade z-index {html.escape(str(drawer.get('z_index')))},"
+        f" über {'Untermenü' if device == 'desktop' else 'Schublade'} z-index {html.escape(str(drawer.get('z_index')))},"
         f" {round(float(f.get('share') or 0) * 100)} % der Fläche"
         for f in (menu.get("foreign") or [])[:4] if isinstance(f, dict))
     if not menu.get("file"):
@@ -140,7 +147,7 @@ def menu_figure(side: str, shot: dict | None, theme_id: str | None, pairs_dir: P
     src = relative_src(menu["file"], pairs_dir, out_dir)
     return (f'<figure><figcaption>{label}{flag_html}{items}</figcaption>'
             f'<a href="{html.escape(src)}"><img src="{html.escape(src)}" loading="lazy" '
-            f'alt="{side.upper()}, Menü offen"></a></figure>')
+            f'alt="{side.upper()}, {state_name}"></a></figure>')
 
 
 def status_block(data: dict) -> str:
@@ -203,11 +210,13 @@ def render(data: dict, pairs_dir: Path, out_dir: Path, title: str | None = None)
             f'<div class="pair {html.escape(device)}">'
             f'{figure("a", pair.get("a"), themes.get("a"), pairs_dir, out_dir, a_label)}'
             f'{figure("b", pair.get("b"), themes.get("b"), pairs_dir, out_dir)}</div>')
-        if device == "mobile" and any(isinstance((pair.get(side) or {}).get("menu"), dict) for side in ("a", "b")):
+        if any(isinstance((pair.get(side) or {}).get("menu"), dict) for side in ("a", "b")):
             sections[page_id].append(
-                f'<h3>{html.escape(DEVICE_LABEL["mobile"])}, Menü offen</h3><div class="pair mobile">'
-                f'{menu_figure("a", pair.get("a"), themes.get("a"), pairs_dir, out_dir, a_label)}'
-                f'{menu_figure("b", pair.get("b"), themes.get("b"), pairs_dir, out_dir)}</div>')
+                f'<h3>{html.escape(DEVICE_LABEL.get(device, device))}, '
+                f'{MENU_STATE_NAME.get(device, MENU_STATE_NAME["mobile"])}</h3>'
+                f'<div class="pair {html.escape(device)}">'
+                f'{menu_figure("a", pair.get("a"), themes.get("a"), pairs_dir, out_dir, a_label, device)}'
+                f'{menu_figure("b", pair.get("b"), themes.get("b"), pairs_dir, out_dir, None, device)}</div>')
     body = "".join(f"<section>{heads[pid]}{''.join(parts)}</section>" for pid, parts in sections.items())
     meta = (f'A: Theme {html.escape(str(themes.get("a") or "?"))} · B: Theme {html.escape(str(themes.get("b") or "?"))}'
             f' · aufgenommen {html.escape(str(data.get("captured_at") or ""))}')

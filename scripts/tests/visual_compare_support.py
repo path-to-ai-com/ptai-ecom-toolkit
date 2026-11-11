@@ -13,7 +13,7 @@ from theme import visual_compare
 LIVE = "000000000004"
 DRAFT = "000000000002"
 GA4 = "G-BEISPIEL01"
-#: Der Zustand "Menü offen" am Handy, ohne fremde Elemente über der Schublade.
+#: Der Zustand "Menü offen" am Handy (und "Untermenü offen" am Rechner), ohne fremde Elemente darüber.
 MENU_OK = {"state": "ok", "file": "x/mobile-menu.png", "points": 240, "foreign": [],
            "drawer": {"label": "dialog.menu-drawer", "z_index": "18"}}
 
@@ -39,9 +39,10 @@ def shot(theme: str, device: str, role: str | None = "unpublished", state: str =
 def record(ids=("home", "product"), live: str = LIVE, draft: str = DRAFT,
            captured_at: str = "2026-11-11T09:00:00+00:00", live_role: str | None = "main",
            devices=visual_compare.DEVICES, menu: dict | None = MENU_OK) -> dict:
-    """Ein Eintrag wie von `shoot_pair.py`; am Handy tragen beide Seiten `menu` (ohne Angabe: in Ordnung)."""
+    """Ein Eintrag wie von `shoot_pair.py`; beide Seiten tragen `menu`, am Handy "Menü offen", am Rechner
+    "Untermenü offen" (ohne Angabe: in Ordnung)."""
     def extra(device):
-        return {"menu": dict(menu)} if device == "mobile" and menu is not None else {}
+        return {"menu": dict(menu)} if menu is not None else {}
     pairs = [{"page_id": i, "device": d, "a": shot(live, d, live_role, **extra(d)), "b": shot(draft, d, **extra(d))}
              for i in ids for d in devices]
     return {"tool": "shoot_pair", "themes": {"a": live, "b": draft}, "captured_at": captured_at, "pairs": pairs}
@@ -97,10 +98,21 @@ def complete_datalayer(workspace: Path, live: str = LIVE, draft: str = DRAFT) ->
     write_walk(workspace, "new-mobile-slow", walk(draft))
 
 
+def write_sync(workspace: Path, captured_at: str = "2026-11-11T08:00:00Z", live: str = LIVE,
+               day: str = "2026-11-11") -> Path:
+    """Ein Abgleich mit dem Live-Theme wie von `sync-live-theme` (`migration/sync/<datum>/delta.json`)."""
+    path = Path(workspace) / "migration" / "sync" / day / "delta.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"captured_at": captured_at, "live_theme_id": live,
+                                "theme_updated_at_after": captured_at}), encoding="utf-8")
+    return path
+
+
 def complete_compare(workspace: Path, ids=("home", "product")) -> tuple:
-    """Alles, was G4 außer der Liste offener Punkte braucht: Beispielseiten, ein vollständiger Bildvergleich
-    und die Durchläufe der Datenschicht. Gibt `(live, draft)` zurück."""
+    """Alles, was G4 und G5 außer der Liste offener Punkte brauchen: Beispielseiten, ein Abgleich, danach ein
+    vollständiger Bildvergleich, und die Durchläufe der Datenschicht. Gibt `(live, draft)` zurück."""
     write_pages(workspace, ids)
+    write_sync(workspace)
     write_record(workspace, record(ids))
     complete_datalayer(workspace)
     return LIVE, DRAFT

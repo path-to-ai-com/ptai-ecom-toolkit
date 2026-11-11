@@ -51,7 +51,8 @@ class TestMenuOffen(unittest.TestCase):
         self.assertIn("--menu-toggle", problem)
 
     def test_abdeckung_zaehlt_das_menue_als_grund_derselben_aufnahme(self):
-        slots = {("home", "desktop"): {"a": vcs.shot(vcs.LIVE, "desktop", "main"), "b": vcs.shot(vcs.DRAFT, "desktop")},
+        slots = {("home", "desktop"): {"a": vcs.shot(vcs.LIVE, "desktop", "main", menu=vcs.MENU_OK),
+                                       "b": vcs.shot(vcs.DRAFT, "desktop", menu=vcs.MENU_OK)},
                  ("home", "mobile"): pair(menu_b=OVERLAP)}
         cover = vc.coverage(["home"], slots, lambda _p: {"a": vcs.LIVE, "b": vcs.DRAFT})
         self.assertEqual(cover["valid"], 3)

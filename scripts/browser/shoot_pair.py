@@ -4,7 +4,8 @@ Aufruf (aus dem Workspace):
 
   uv run --quiet --with playwright==1.58.0 python scripts/browser/shoot_pair.py \
     --pages migration/inventory/pages.json --a <live-theme-id> --b <draft-theme-id> --out <ordner> \
-    [--devices desktop,mobile] [--only home,product] [--workspace .] [--pace 3] [--menu-toggle <css>]
+    [--devices desktop,mobile] [--only home,product] [--workspace .] [--pace 3] [--menu-toggle <css>] \
+    [--menu-toggle-desktop <css>]
 
 Links (`a`) steht immer das veröffentlichte Theme mit seiner ID, rechts (`b`) der
 Entwurf. Je Seite, Gerät und Seite des Paars entsteht
@@ -33,6 +34,14 @@ lagen über Horizons Schublade (z-index 18); geschlossen sah die Seite richtig a
 Elemente mit `pointer-events: none` sieht `elementFromPoint` nicht; dafür bleibt
 das Bild.
 
+**Am Rechner mit offenem Untermenü** (seit 0.3.31). Ebenso am Rechner: die Seite
+neu laden, den ersten Menüpunkt mit Untermenü im Kopfbereich suchen (oder
+`--menu-toggle-desktop`), mit der Maus darauf zeigen, öffnet sich nichts, klicken
+(nie auf einen Link mit Ziel), `<id>/desktop-<a|b>-menu.png` aufnehmen und über
+dem Untermenü dasselbe Raster prüfen. Anlass: Bei einem Shop, der auf Horizon
+umzog, war das Mega-Menü am Rechner nach dem Launch kaputt; der Bildvergleich
+öffnete das Menü nur am Handy, und der Testpunkt war ohne Bild geschlossen.
+
 **Referenz.** Die linke Seite muss das veröffentlichte Theme sein, nach dem Launch
 das alte Theme, das bis dahin veröffentlicht war (`rollback_theme_id` mit
 `published_at` im Lauf). Vor dem Launch ist Beleg die Rolle `main` im
@@ -51,9 +60,9 @@ Eintrag je Seite und Breite.
 Die Bilder gehören in den Kundenordner, nie ins Repo. Jedes Paar wird angesehen;
 eine Pixel-Differenz allein ist kein Befund. Exit 0 alle Bilder gültig und
 Referenz belegt, 1 mindestens ein Bild mit falschem Theme, Fehler oder Drosselung,
-die Referenz ist nicht das veröffentlichte Theme, oder am Handy rechts ließ sich
-das Menü nicht prüfen oder ein fremdes Element liegt darüber, 2 Fehler vor dem
-ersten Aufruf.
+die Referenz ist nicht das veröffentlichte Theme, oder rechts ließ sich das Menü
+(Handy) oder Untermenü (Rechner) nicht prüfen oder ein fremdes Element liegt
+darüber, 2 Fehler vor dem ersten Aufruf.
 """
 from __future__ import annotations
 
@@ -78,15 +87,31 @@ MENU_TOGGLES = (
     "summary[aria-label*='Menü' i]", "summary[aria-label*='Menu' i]", "[data-drawer-toggle]",
     ".header__icon--menu", ".menu-toggle", ".mobile-menu-toggle", ".hamburger",
 )
+#: Menüpunkte mit Untermenü am Rechner, in dieser Reihenfolge versucht: Dawn-Familie (details), Horizon
+#: (Listenpunkt mit Aufklappknopf, öffnet beim Zeigen), Navigation mit aria-haspopup (Broadcast und andere),
+#: Listenpunkte mit Unterliste oder Aufklappknopf, verbreitete Muster (seit 0.3.31). Ein
+#: aria-haspopup="dialog" öffnet Suche oder Warenkorb, kein Menü.
+DESKTOP_MENU_TRIGGERS = (
+    "header nav details > summary", ".menu-list__list-item:has(.menu-list__disclosure) .menu-list__link",
+    "header nav [aria-haspopup]:not([aria-haspopup='dialog'])",
+    "header nav li:has(ul a) > a", "header nav li:has(ul a) > button",
+    "header nav li:has([aria-controls][aria-expanded]) a",
+    "header [aria-haspopup]:not([aria-haspopup='dialog'])", "header li:has(ul a) > a",
+    "[data-hover-disclosure-toggle]", "[data-mega-menu-trigger]", ".has-dropdown > a", ".site-nav--has-dropdown > a",
+)
 #: Raster der Punkte über der Schublade; bei 390 x 664 Pixeln liegen sie etwa 39 x 27 Pixel auseinander.
 MENU_GRID = (10, 24)
+#: Raster über dem Untermenü am Rechner, das meist breit und flach ist.
+DESKTOP_MENU_GRID = (24, 10)
+#: Ab diesem Anteil am Bildschirm gilt ein neu sichtbares Element als Schublade (Handy) oder Untermenü (Rechner).
+MENU_MIN_SHARE = {"mobile": 0.25, "desktop": 0.02}
 #: Bis hierher (CSS-Pixel von oben) muss der Menüknopf liegen.
 MENU_TOGGLE_MAX_TOP = 220
 #: So lange öffnet sich die Schublade (Animation).
 MENU_OPEN_MS = 900
 
 #: Sucht den Menüknopf, markiert ihn und alle großen Elemente, die vor dem Klick schon sichtbar sind.
-MENU_PREPARE_JS = r"""([selectors, maxTop]) => {
+MENU_PREPARE_JS = r"""([selectors, maxTop, minShare]) => {
   const W = innerWidth, H = innerHeight;
   const shown = el => { const cs = getComputedStyle(el);
     return cs.display !== 'none' && cs.visibility !== 'hidden' && parseFloat(cs.opacity || '1') > 0.05; };
@@ -107,13 +132,14 @@ MENU_PREPARE_JS = r"""([selectors, maxTop]) => {
   if (!toggle) return null;
   toggle.el.setAttribute('data-ptai-menu-toggle', '1');
   for (const el of document.querySelectorAll('body *')) {
-    if (onScreen(el) >= 0.25 * W * H && shown(el)) el.setAttribute('data-ptai-before', '1');
+    if (onScreen(el) >= minShare * W * H && shown(el)) el.setAttribute('data-ptai-before', '1');
   }
-  return toggle.sel;
+  const href = toggle.el.tagName === 'A' ? (toggle.el.getAttribute('href') || '') : '';
+  return {selector: toggle.sel, safe_click: !href || href.startsWith('#') || href.startsWith('javascript')};
 }"""
 
 #: Findet die Schublade (neu sichtbar, groß, mit Links) und prüft je Rasterpunkt, was oben liegt.
-MENU_PROBE_JS = r"""([cols, rows]) => {
+MENU_PROBE_JS = r"""([cols, rows, minShare]) => {
   const W = innerWidth, H = innerHeight;
   const shown = el => { const cs = getComputedStyle(el);
     return cs.display !== 'none' && cs.visibility !== 'hidden' && parseFloat(cs.opacity || '1') > 0.05; };
@@ -137,7 +163,7 @@ MENU_PROBE_JS = r"""([cols, rows]) => {
   for (const el of document.querySelectorAll('body *')) {
     if (el.hasAttribute('data-ptai-before') || !shown(el)) continue;
     const a = area(box(el));
-    if (a < 0.25 * W * H || el.querySelectorAll('a[href]').length < 3) continue;
+    if (a < minShare * W * H || el.querySelectorAll('a[href]').length < 3) continue;
     if (a > best) { best = a; drawer = el; }
   }
   if (!drawer) return {state: 'no_drawer'};
@@ -172,31 +198,51 @@ def image_names(page_id: str, device: str, side: str) -> tuple[str, str]:
     return f"{page_id}/{device}-{side}.png", f"{page_id}/{device}-{side}-fold.png"
 
 
-def menu_name(page_id: str, side: str) -> str:
-    """Bild des Zustands "Menü offen" am Handy."""
-    return f"{page_id}/mobile-{side}-menu.png"
+def menu_name(page_id: str, side: str, device: str = "mobile") -> str:
+    """Bild des Zustands "Menü offen" am Handy oder "Untermenü offen" am Rechner."""
+    return f"{page_id}/{device}-{side}-menu.png"
 
 
-def shoot_menu(page, out: Path, page_id: str, side: str, toggles: tuple, wait_ms: int) -> dict:
-    """Öffnet das Menü am Handy, nimmt es auf und prüft, was über der Schublade liegt.
+def shoot_menu(page, out: Path, page_id: str, side: str, toggles: tuple, wait_ms: int,
+               device: str = "mobile") -> dict:
+    """Öffnet das Menü (Handy) oder ein Untermenü (Rechner), nimmt es auf und prüft, was darüber liegt.
 
-    Ergebnis `{"state": ok|overlap|no_toggle|no_drawer|error, "file", "toggle", "drawer", "foreign", "points"}`.
-    Die Seite ist frisch geladen; Einblendungen wie Teaser oder Leisten erscheinen oft erst nach einer
-    Wartezeit, deshalb wartet das Skript `wait_ms`, bevor es klickt.
+    Ergebnis `{"state": ok|overlap|no_toggle|no_drawer|error, "file", "toggle", "drawer", "foreign", "points"}`,
+    am Rechner dazu `opened_by` (`hover` oder `click`). Die Seite ist frisch geladen; Einblendungen wie Teaser
+    oder Leisten erscheinen oft erst nach einer Wartezeit, deshalb wartet das Skript `wait_ms`. Am Rechner
+    öffnen Mega-Menüs meist beim Zeigen, die Dawn-Familie beim Klick; geklickt wird nur, wenn der Menüpunkt
+    kein Link mit Ziel ist, sonst wechselte die Seite.
     """
+    share = MENU_MIN_SHARE[device]
+    grid = list(DESKTOP_MENU_GRID if device == "desktop" else MENU_GRID)
     page.wait_for_timeout(wait_ms)
-    toggle = page.evaluate(MENU_PREPARE_JS, [list(toggles), MENU_TOGGLE_MAX_TOP])
-    if not toggle:
+    found = page.evaluate(MENU_PREPARE_JS, [list(toggles), MENU_TOGGLE_MAX_TOP, share])
+    if not found:
         return {"state": "no_toggle", "tried": list(toggles)}
+    toggle = found["selector"]
+    locator = page.locator("[data-ptai-menu-toggle]").first
+    extra = {}
     try:
-        page.locator("[data-ptai-menu-toggle]").first.click(timeout=8000)
+        if device == "desktop":
+            locator.hover(timeout=8000)
+            extra["opened_by"] = "hover"
+        else:
+            locator.click(timeout=8000)
     except Exception as exc:
         return {"state": "error", "toggle": toggle, "error": f"Klick auf {toggle}: {type(exc).__name__}"}
     page.wait_for_timeout(MENU_OPEN_MS)
-    probe = page.evaluate(MENU_PROBE_JS, list(MENU_GRID))
-    name = menu_name(page_id, side)
+    probe = page.evaluate(MENU_PROBE_JS, [*grid, share])
+    if device == "desktop" and probe.get("state") == "no_drawer" and found.get("safe_click"):
+        try:
+            locator.click(timeout=8000)
+        except Exception as exc:
+            return {"state": "error", "toggle": toggle, "error": f"Klick auf {toggle}: {type(exc).__name__}"}
+        extra["opened_by"] = "click"
+        page.wait_for_timeout(MENU_OPEN_MS)
+        probe = page.evaluate(MENU_PROBE_JS, [*grid, share])
+    name = menu_name(page_id, side, device)
     page.screenshot(path=str(out / name))
-    return {**probe, "toggle": toggle, "file": name}
+    return {**probe, "toggle": toggle, "file": name, **extra}
 
 
 def build_pairs(jobs: list[dict], results: list[dict], themes: dict) -> dict:
@@ -282,13 +328,14 @@ def shoot(playwright, browsers: dict, job: dict) -> dict:
         result.update({"file": full_name, "fold_file": fold_name, "page_height": capture["page_height"],
                        "cut_at": capture["cut_at"], "viewport": capture["viewport"],
                        "capture": {k: capture[k] for k in ("method", "scroller", "pinned", "incomplete")}})
-        if device == "mobile" and job.get("menu", True):
+        if job.get("menu", True):
             # Frisch geladen: die Ganzseiten-Aufnahme hat Höhen festgesetzt und Container freigegeben.
+            toggles = (job.get("desktop_menu_toggles") or DESKTOP_MENU_TRIGGERS) if device == "desktop" \
+                else (job.get("menu_toggles") or MENU_TOGGLES)
             try:
                 page.goto(url, wait_until="load", timeout=job["timeout"])
                 common.handle_consent(page, "declined")
-                result["menu"] = shoot_menu(page, out, page_info["id"], side, job.get("menu_toggles") or MENU_TOGGLES,
-                                            job["wait"])
+                result["menu"] = shoot_menu(page, out, page_info["id"], side, toggles, job["wait"], device)
             except Exception as exc:
                 result["menu"] = {"state": "error", "error": f"{type(exc).__name__}: {exc}"[:300]}
         if theme["state"] != "ok":
@@ -324,7 +371,10 @@ def main(argv=None) -> int:
     parser.add_argument("--pace", type=float, default=common.PACE_SECONDS,
                         help="Mindestabstand zwischen zwei Seitenaufrufen in Sekunden")
     parser.add_argument("--menu-toggle", help="CSS-Selektor des Menüknopfs am Handy, wenn die Suche ihn nicht findet")
-    parser.add_argument("--no-menu", action="store_true", help="ohne Aufnahme 'Menü offen' (zählt nicht für G4)")
+    parser.add_argument("--menu-toggle-desktop",
+                        help="CSS-Selektor eines Menüpunkts mit Untermenü am Rechner, wenn die Suche ihn nicht findet")
+    parser.add_argument("--no-menu", action="store_true",
+                        help="ohne Aufnahme 'Menü offen' und 'Untermenü offen' (zählt nicht für G4)")
     args = parser.parse_args(argv)
     try:
         pages = common.load_pages(args.pages, common.parse_list(args.only))
@@ -345,7 +395,9 @@ def main(argv=None) -> int:
     jobs = [{"page": page, "page_id": page["id"], "device": device, "side": side, "themes": themes,
              "base_url": pages["base_url"], "out": out, "wait": args.wait, "timeout": args.timeout,
              "locale": args.locale, "menu": not args.no_menu,
-             "menu_toggles": (args.menu_toggle,) + MENU_TOGGLES if args.menu_toggle else MENU_TOGGLES}
+             "menu_toggles": (args.menu_toggle,) + MENU_TOGGLES if args.menu_toggle else MENU_TOGGLES,
+             "desktop_menu_toggles": ((args.menu_toggle_desktop,) + DESKTOP_MENU_TRIGGERS if args.menu_toggle_desktop
+                                      else DESKTOP_MENU_TRIGGERS)}
             for page in pages["pages"] for device in devices for side in ("a", "b")]
     results = common.run_jobs(jobs, shoot, args.parallel, pace=args.pace)
     data = {**build_pairs(jobs, results, themes), "base_url": pages["base_url"], "captured_at": common.now()}
@@ -360,9 +412,11 @@ def main(argv=None) -> int:
              else " (veröffentlicht)" if reference.get("published") else ""), file=sys.stderr, flush=True)
     for line in reference["problems"] + reference["warnings"]:
         print(f"Referenz: {line}", file=sys.stderr, flush=True)
-    menu_issues = [m for m in data["coverage"]["missing"] if str(m.get("reason", "")).startswith("Menü offen")]
+    menu_issues = [m for m in data["coverage"]["missing"]
+                   if str(m.get("reason", "")).startswith(tuple(visual_compare.MENU_PREFIX.values()))]
     for item in menu_issues[:6]:
-        print(f"{item['page_id']} Handy B: {item['reason']}", file=sys.stderr, flush=True)
+        device = visual_compare.DEVICE_LABEL.get(item.get("device"), item.get("device"))
+        print(f"{item['page_id']} {device} B: {item['reason']}", file=sys.stderr, flush=True)
     note = common.throttled_summary(shots)
     if note:
         print(note, file=sys.stderr, flush=True)

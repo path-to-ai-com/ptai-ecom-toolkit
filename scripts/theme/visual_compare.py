@@ -20,6 +20,16 @@ Seitdem gilt: G4 hält an, bis für jede Beispielseite aus
   (`throttled`, HTTP 429) zählt nicht und ist kein Befund am Shop
 - am Handy rechts auch der Zustand "Menü offen", ohne fremde Elemente über der
   Menü-Schublade (seit 11.11.2026, Nachtrag)
+- am Rechner rechts auch der Zustand "Untermenü offen" (seit 0.3.31): öffnet sich
+  im veröffentlichten Theme ein Untermenü und im Entwurf keins, oder liegt etwas
+  Fremdes darüber, hält G4 an; gibt es in beiden Themes keins, ist es ein Hinweis
+
+**Vor G5 noch einmal** (seit 0.3.31). Nach G4 kommt der Abgleich mit dem
+Live-Theme, und er ändert den Entwurf. Bei einem Shop, der auf Horizon umzog,
+entstand so nach der Abnahme eine dunkle leere Leiste, und kein Schritt verlangte
+danach noch Bilder. `gate_problems_after_sync` verlangt deshalb vor G5 einen
+vollständigen Bildvergleich, dessen Aufnahmen nach dem letzten Abgleich entstanden
+sind (`migration/sync/<datum>/delta.json` des Live-Themes oder `last_sync`).
 
 **Nachtrag vom Nachmittag des 11.11.2026.** Am Handy lagen ein E-Mail-Teaser und
 eine Countdown-Leiste über Horizons Menü-Schublade (z-index 90000 gegen 18). Die
@@ -42,17 +52,18 @@ Korrektur das Nachholen der betroffenen Seiten, und eine fehlgeschlagene neue
 Aufnahme verdeckt nie still eine alte gelungene: dann zählt die Seite nicht.
 
 Aufruf (aus dem Workspace):
-    python3 -m theme.visual_compare check
+    python3 -m theme.visual_compare check [--after-sync]
     python3 -m theme.visual_compare reference
 
-Ausgabe eine JSON-Zeile. `check`: Exit 0 vollständig, 1 unvollständig, 2 Fehler.
+Ausgabe eine JSON-Zeile. `check`: Exit 0 vollständig, 1 unvollständig, 2 Fehler; mit `--after-sync` zählen
+nur Aufnahmen nach dem letzten Abgleich, wie vor G5.
 `reference`: Exit 0 Referenz belegt, 1 widersprüchlich, 2 Fehler.
 """
 import argparse
 import json
 import sys
 from collections import Counter
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from theme import EXIT_ERROR, EXIT_FINDINGS, EXIT_OK, ConfigError, emit, load_config, migration_config
@@ -66,10 +77,15 @@ DEVICE_LABEL = {"desktop": "Rechner", "mobile": "Handy"}
 PUBLISHED_ROLE = "main"
 #: Status einer Aufnahme, die Shopify gedrosselt hat (`scripts/browser/common.py`).
 THROTTLED = "throttled"
-#: Zustände der Aufnahme "Menü offen" am Handy (`shoot_pair.py`, Feld `menu.state`).
+#: Zustände der Aufnahme "Menü offen" (Handy) und "Untermenü offen" (Rechner), `shoot_pair.py`, Feld `menu.state`.
 MENU_OK, MENU_OVERLAP = "ok", "overlap"
+MENU_NOT_FOUND = ("no_toggle", "no_drawer")
 MENU_REASON = {"no_toggle": "kein Menüknopf im Kopfbereich gefunden",
                "no_drawer": "nach dem Klick keine Menü-Schublade gefunden", "error": "Fehler beim Öffnen"}
+DESKTOP_MENU_REASON = {"no_toggle": "kein Menüpunkt mit Untermenü im Kopfbereich gefunden",
+                       "no_drawer": "nach Zeigen und Klick kein Untermenü sichtbar", "error": "Fehler beim Öffnen"}
+#: Anfang jedes Grundes zum Menü, je Gerät; `shoot_pair.py` sucht danach.
+MENU_PREFIX = {"mobile": "Menü offen", "desktop": "Untermenü offen"}
 RECORD_NAME = "pairs.json"
 PAGES_PATH = Path("migration") / "inventory" / "pages.json"
 
@@ -195,31 +211,47 @@ def describe_foreign(item: dict, drawer: dict | None) -> str:
     return str(item.get("label")) + (f" ({', '.join(parts)})" if parts else "")
 
 
-def menu_problem(pair: dict | None) -> tuple:
-    """`(problem, hinweis)` für den Zustand "Menü offen" am Handy, rechts im Paar; je None, wenn nichts ist.
+def menu_problem(pair: dict | None, device: str = "mobile") -> tuple:
+    """`(problem, hinweis)` für "Menü offen" (Handy) oder "Untermenü offen" (Rechner), rechts im Paar.
 
     Ein Problem hält G4 an: Aufnahme fehlt, Menü ließ sich nicht öffnen, oder ein fremdes Element liegt über
-    der Schublade. Liegt dasselbe Element (gleiches Kennzeichen) links genauso darüber, ist es schon im
-    veröffentlichten Theme so und nur ein Hinweis.
+    der Schublade oder dem Untermenü. Liegt dasselbe Element (gleiches Kennzeichen) links genauso darüber, ist
+    es schon im veröffentlichten Theme so und nur ein Hinweis. Am Rechner hat nicht jeder Shop ein Untermenü:
+    findet die Suche in beiden Themes keins, ist das ein Hinweis; öffnet sich links eins und rechts nicht, ein
+    Problem.
     """
+    prefix = MENU_PREFIX.get(device, MENU_PREFIX["mobile"])
+    desktop = device == "desktop"
     shot_b = (pair or {}).get("b") or {}
     menu = shot_b.get("menu")
     if not isinstance(menu, dict):
-        return ("Menü offen nicht aufgenommen; shoot_pair.py ab 0.3.30 nimmt es am Handy mit auf", None)
+        return ((f"{prefix} nicht aufgenommen; shoot_pair.py ab 0.3.31 öffnet am Rechner das Untermenü"
+                 if desktop else f"{prefix} nicht aufgenommen; shoot_pair.py ab 0.3.30 nimmt es am Handy mit auf"),
+                None)
     state = menu.get("state")
+    flag = "--menu-toggle-desktop '<Selektor eines Menüpunkts mit Untermenü>'" if desktop \
+        else "--menu-toggle '<Selektor des Menüknopfs>'"
     if state not in (MENU_OK, MENU_OVERLAP):
-        reason = MENU_REASON.get(state, state or "ohne Status")
+        reason = (DESKTOP_MENU_REASON if desktop else MENU_REASON).get(state, state or "ohne Status")
         detail = f": {menu['error']}" if menu.get("error") else ""
-        return (f"Menü offen: {reason}{detail}; mit --menu-toggle '<Selektor des Menüknopfs>' nachholen", None)
+        if desktop and state in MENU_NOT_FOUND:
+            menu_a = ((pair or {}).get("a") or {}).get("menu")
+            if not (isinstance(menu_a, dict) and menu_a.get("state") in (MENU_OK, MENU_OVERLAP)):
+                return None, (f"{prefix}: in beiden Themes kein Untermenü gefunden; gibt es eins, mit {flag} "
+                              "nachholen")
+            return (f"{prefix}: {reason} im Entwurf, im veröffentlichten Theme öffnet sich eins "
+                    f"({menu_a.get('toggle')}); mit {flag} nachholen", None)
+        return (f"{prefix}: {reason}{detail}; mit {flag} nachholen", None)
     foreign = [f for f in menu.get("foreign") or [] if isinstance(f, dict)]
     if not foreign:
         return None, None
     before = menu_labels((pair or {}).get("a"))
     new = [f for f in foreign if str(f.get("label")) not in before]
     known = [f for f in foreign if str(f.get("label")) in before]
-    problem = ("Menü offen: fremde Elemente über der Menü-Schublade: "
+    where = "dem Untermenü" if desktop else "der Menü-Schublade"
+    problem = (f"{prefix}: fremde Elemente über {where}: "
                + "; ".join(describe_foreign(f, menu.get("drawer")) for f in new[:3])) if new else None
-    note = ("Menü offen: liegt im veröffentlichten Theme genauso über dem Menü: "
+    note = (f"{prefix}: liegt im veröffentlichten Theme genauso über dem Menü: "
             + "; ".join(str(f.get("label")) for f in known[:3])) if known else None
     return problem, note
 
@@ -228,9 +260,10 @@ def coverage(page_ids: list, slots: dict, themes_of=None) -> dict:
     """Abdeckung je Seite, Breite und Seite des Paars.
 
     `slots` ordnet `(page_id, device)` ein Paar zu (`{"a": shot, "b": shot}`). `themes_of(pair)` liefert
-    die erwarteten Theme-IDs des Paars; ohne Angabe stehen sie im Paar unter `themes`. Am Handy zählt rechts
-    zusätzlich der Zustand "Menü offen" (`menu_problem`); er steht, wenn das Bild selbst gültig ist, als
-    Grund derselben Aufnahme in `missing`, damit jede Aufnahme höchstens einmal fehlt.
+    die erwarteten Theme-IDs des Paars; ohne Angabe stehen sie im Paar unter `themes`. Rechts zählt
+    zusätzlich der Zustand "Menü offen" am Handy und "Untermenü offen" am Rechner (`menu_problem`); er steht,
+    wenn das Bild selbst gültig ist, als Grund derselben Aufnahme in `missing`, damit jede Aufnahme höchstens
+    einmal fehlt.
     """
     missing, notes = [], []
     for page_id in page_ids:
@@ -239,8 +272,8 @@ def coverage(page_ids: list, slots: dict, themes_of=None) -> dict:
             themes = (themes_of(pair) if themes_of else (pair or {}).get("themes")) or {}
             for side in SIDES:
                 problem = shot_problem((pair or {}).get(side), device, themes.get(side))
-                if not problem and device == "mobile" and side == "b":
-                    problem, note = menu_problem(pair)
+                if not problem and side == "b":
+                    problem, note = menu_problem(pair, device)
                     if note:
                         notes.append({"page_id": page_id, "device": device, "side": side, "note": note})
                 if problem:
@@ -449,10 +482,51 @@ def _label(entry: dict) -> str:
     return f"{entry['page_id']} {DEVICE_LABEL.get(entry['device'], entry['device'])} {entry['side'].upper()}"
 
 
-def evaluate(workspace, config: dict, values: dict | None = None) -> dict:
+def moment(value) -> datetime | None:
+    """Zeitpunkt aus einem ISO-Text (Datum, Datum mit Uhrzeit, `Z` oder Versatz), ohne Zone als UTC."""
+    if not value:
+        return None
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def last_sync(workspace, config: dict, values: dict | None = None) -> dict | None:
+    """Der letzte Abgleich mit dem Live-Theme: `{"at": datetime, "label", "source"}`, None ohne Abgleich.
+
+    Quelle ist das jüngste `migration/sync/<datum>/delta.json` des Live-Themes (`sync-live-theme`) und
+    `last_sync` im Lauf, das die Sitzung nach dem Abgleich setzt; es gilt das spätere. `last_sync` trägt oft
+    nur ein Datum, dann zählt der Beginn des Tages.
+    """
+    values = run_values(workspace) if values is None else values
+    live, _ = current_ids(config, values)
+    found = []
+    for path in (Path(workspace) / "migration" / "sync").glob("*/delta.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or (live and data.get("live_theme_id")
+                                          and not same_id(data.get("live_theme_id"), live)):
+            continue
+        at = moment(data.get("captured_at"))
+        if at:
+            found.append({"at": at, "label": str(data.get("captured_at")),
+                          "source": f"migration/sync/{path.parent.name}/delta.json"})
+    at = moment(values.get("last_sync"))
+    if at:
+        found.append({"at": at, "label": str(values["last_sync"]), "source": "last_sync im Lauf"})
+    return max(found, key=lambda f: f["at"]) if found else None
+
+
+def evaluate(workspace, config: dict, values: dict | None = None, since: datetime | None = None) -> dict:
     """Ob der Bildvergleich für G4 vollständig ist, mit Gründen. Liest nur.
 
-    Ohne `values` gelten die Werte des jüngsten Migrationslaufs (`run_values`).
+    Ohne `values` gelten die Werte des jüngsten Migrationslaufs (`run_values`). Mit `since` zählen nur
+    Aufnahmen ab diesem Zeitpunkt (vor G5: nach dem letzten Abgleich).
     """
     values = run_values(workspace) if values is None else values
     live, draft = current_ids(config, values)
@@ -504,6 +578,8 @@ def evaluate(workspace, config: dict, values: dict | None = None) -> dict:
                     continue
                 key = (str(pair.get("page_id")), pair.get("device"))
                 stamp = str(pair.get("captured_at") or data.get("captured_at") or "")
+                if since is not None and (moment(stamp) is None or moment(stamp) < since):
+                    continue  # vor dem letzten Abgleich aufgenommen
                 if key not in slots or stamp >= slots[key][0]:
                     slots[key] = (stamp, pair)
                     themes_by_slot[id(pair)] = themes
@@ -528,8 +604,30 @@ def gate_problems(workspace, config: dict, values: dict | None = None) -> list:
     live = result.get("rollback_theme_id") or result.get("live_theme_id") or "<live-theme-id>"
     draft = result.get("draft_theme_id") or "<draft-theme-id>"
     hint = (f"aufnehmen mit compare-themes --compare (shoot_pair.py --a {live} --b {draft}), alle Beispielseiten, "
-            "Rechner 1440 und Handy 390 mit Menü offen")
+            "Rechner 1440 mit Untermenü offen und Handy 390 mit Menü offen")
     return ["Bildvergleich unvollständig: " + "; ".join(result["problems"]) + f"; {hint}"]
+
+
+def gate_problems_after_sync(workspace, config: dict, values: dict | None = None) -> list:
+    """Sätze für `run_state gate --gate G5-go-live`: ein vollständiger Bildvergleich nach dem letzten Abgleich.
+
+    Leer heißt: hält nicht an. Ohne festgehaltenen Abgleich hält G5 an, denn direkt vor dem Launch wird der
+    Stand des Live-Themes neu gezogen (Phase 9) und danach erst verglichen.
+    """
+    values = run_values(workspace) if values is None else values
+    sync = last_sync(workspace, config, values)
+    live, draft = current_ids(config, values)
+    hint = (f"neu aufnehmen mit compare-themes --compare (shoot_pair.py --a {live or '<live-theme-id>'} "
+            f"--b {draft or '<draft-theme-id>'}), alle Beispielseiten, Rechner mit Untermenü offen und Handy mit "
+            "Menü offen")
+    if sync is None:
+        return ["kein Abgleich mit dem Live-Theme festgehalten (migration/sync/<datum>/delta.json oder last_sync); "
+                f"vor G5 erst sync-live-theme, dann {hint}"]
+    result = evaluate(workspace, config, values, since=sync["at"])
+    if result["ok"]:
+        return []
+    return [f"Bildvergleich nach dem letzten Abgleich ({sync['label']}, {sync['source']}) unvollständig: "
+            + "; ".join(result["problems"]) + f"; {hint}"]
 
 
 def shop_themes(config: dict, workspace, transport=None) -> tuple:
@@ -547,6 +645,8 @@ def main(argv: list[str] | None = None, *, transport=None) -> int:
     parser = argparse.ArgumentParser(prog="theme.visual_compare", description=__doc__.split("\n\n")[0])
     parser.add_argument("command", choices=("check", "reference"))
     parser.add_argument("--workspace", default=".")
+    parser.add_argument("--after-sync", action="store_true",
+                        help="nur Aufnahmen nach dem letzten Abgleich zählen, wie vor G5")
     args = parser.parse_args(argv)
     try:
         config = load_config(args.workspace)
@@ -559,7 +659,15 @@ def main(argv: list[str] | None = None, *, transport=None) -> int:
         print(result["line"], file=sys.stderr, flush=True)
         emit(result)
         return EXIT_OK if result["ok"] else EXIT_FINDINGS
-    result = evaluate(args.workspace, config)
+    if args.after_sync:
+        sync = last_sync(args.workspace, config)
+        if sync is None:
+            emit({"ok": False, "problems": gate_problems_after_sync(args.workspace, config), "last_sync": None})
+            return EXIT_FINDINGS
+        result = evaluate(args.workspace, config, since=sync["at"])
+        result["last_sync"] = {"at": sync["label"], "source": sync["source"]}
+    else:
+        result = evaluate(args.workspace, config)
     emit(result)
     return EXIT_OK if result["ok"] else EXIT_FINDINGS
 

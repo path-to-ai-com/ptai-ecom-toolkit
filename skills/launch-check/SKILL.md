@@ -253,7 +253,8 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
    - `app-injections` auf `missing` oder `manual`: Zeile oder Embed im Entwurf ansehen, entfernen oder
      ins Ziel-Repo übernehmen, dann neu hochladen
    - `tracking-pre-consent` auf `missing`: Auslöser der Anfrage im Browser suchen (Initiator), die App
-     oder das Tag an die Einwilligung binden, neu mitschneiden
+     oder das Tag an die Einwilligung binden, neu mitschneiden. Ein E-Mail-Tool wie Klaviyo erst nach
+     Einwilligung in Marketing laden (App-Embed an die Consent-Kategorie binden)
    - `web-pixels` auf `blocked`: Mitschnitt des Live-Themes mit HTML ziehen; ohne die Liste fällt nach
      dem Launch kein entferntes Pixel auf
 
@@ -463,7 +464,7 @@ Lesewege, recherchiert am 10.11.2026 (Modul `theme.test_order`):
 | Übersetzungen | Theme-Übersetzungen | je veröffentlichter Sprache: übersetzt, veraltet, Anteil neu gegen alt |
 | Tracking | Hosts je Seite | Mitschnitt alt gegen neu, je Consent-Zustand; Shopify selbst und die Shop-Domain zählen nicht, ihre Subdomains schon (zugeordnet über `hosts` in `apps.json`); gestrichen laut Entscheidungsliste ist `ok` mit Beleg |
 | Tracking | Mitschnitt mit Einwilligung | beide Themes mit `--consent accepted`, und in jedem Durchlauf hat der Dialog zugestimmt (`consent_result`); ein Ordner `*-accepted` allein genügt nicht |
-| Tracking | Werbung und Analyse vor Einwilligung | Durchläufe ohne Einwilligung und Anfragen vor dem Klick (`consent_phase: pre`), je Dienst über `hosts.json` (Microsoft Advertising an `bat.bing.com` und `bat.bing.net`); ein Dienst, der neu vor der Einwilligung sendet, ist `missing`, einer, der nur neu lädt, ein Hinweis |
+| Tracking | Werbung, Analyse und E-Mail-Marketing vor Einwilligung | Durchläufe ohne Einwilligung und Anfragen vor dem Klick (`consent_phase: pre`), je Dienst über `hosts.json` (Microsoft Advertising an `bat.bing.com` und `bat.bing.net`); ein Dienst, der neu vor der Einwilligung sendet, ist `missing`, einer, der nur neu lädt, ein Hinweis; ein E-Mail-Tool (`email_sms`, etwa Klaviyo) ist schon mit dem Laden `missing`, weil es dabei seine Kennung setzt (seit 0.3.31) |
 | Tracking | Pixel-Liste festgehalten | `webPixelsConfigList` aus dem HTML des Mitschnitts des Live-Themes, sonst aus einem Abruf der Startseite, nach `$RUN/web-pixels-before.json`; nicht lesbar `blocked` |
 | Tracking | Custom Pixels gesichert | jedes Custom Pixel mit `drop` oder `replace` liegt unter `migration/inventory/pixels/` als `<name>.js` mit einer Notiz `<name>.md` (Pixel-ID, Sendet, Wo, An); sonst `missing` |
 | Tracking | Datenschicht je GA4-Property | Durchläufe von `walk_checkout.py --headless` unter `migration/verify/*/events/` oder `$RUN/events/`: je Property und Ereignis (`view_item`, `add_to_cart`, `begin_checkout`) alt gegen neu unter denselben Bedingungen; Pflicht am Handy in WebKit mit `--latency`; ein abgebrochener Abruf von `/cart` steht im Beleg; ohne Durchlauf `blocked` |

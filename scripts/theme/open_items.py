@@ -964,6 +964,16 @@ def main(argv: list[str] | None = None) -> int:
                 result["datalayer"] = {"ok": not datalayer, "problems": datalayer}
                 if not compare["ok"] or unproven or datalayer:
                     code = EXIT_FINDINGS
+            elif args.gate == "G5-go-live":
+                # Seit 0.3.31: vor dem Go ein Bildvergleich nach dem letzten Abgleich, wie run_state gate G5.
+                try:
+                    config = load_config(workspace)
+                except ConfigError:
+                    config = {}
+                after_sync = visual_compare.gate_problems_after_sync(workspace, config)
+                result["visual_after_sync"] = {"ok": not after_sync, "problems": after_sync}
+                if after_sync:
+                    code = EXIT_FINDINGS
         elif args.command == "sources":
             config = load_config(workspace)
             gaps = source_gaps(items, workspace, config, migration=True)

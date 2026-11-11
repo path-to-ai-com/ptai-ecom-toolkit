@@ -67,8 +67,9 @@ gelten bei jedem weiteren Lauf, mit Name und Datum dessen, der geantwortet hat.
   `include` oder `script` in `layout/theme.liquid` und neue oder wieder eingeschaltete App-Embeds gegen
   den hochgeladenen Stand. Referenz vor dem Launch ist das Ziel-Repo, danach die Sicherung des Entwurfs,
   die `theme.launch publish` direkt vor dem Veröffentlichen anlegt (`<lauf>/published-draft/`).
-- *Vor Einwilligung* (`tracking-pre-consent`, `-after`): Werbe- und Analysedienste, die neu vor einer
-  Einwilligung senden, über den Host-Katalog (Microsoft Advertising an `bat.bing.com` und `bat.bing.net`).
+- *Vor Einwilligung* (`tracking-pre-consent`, `-after`): Werbe-, Analyse- und E-Mail-Marketing-Dienste, die
+  neu vor einer Einwilligung senden, über den Host-Katalog (Microsoft Advertising an `bat.bing.com` und
+  `bat.bing.net`). E-Mail- und Marketing-Tools wie Klaviyo zählen schon, wenn sie nur laden (Nachtrag 0.3.31).
 - *Pixel-Liste* (`web-pixels` vorher, `web-pixels-after` danach): `webPixelsConfigList` des Live-Shops
   wird vor dem Launch in `<lauf>/web-pixels-before.json` festgehalten und danach verglichen; ein
   fehlendes Pixel ist ein Befund, außer es ist bewusst entfernt und, als Custom Pixel, gesichert.
@@ -187,8 +188,13 @@ GENERIC_WORDS = frozenset({
     "google", "consent", "cookie", "cookies", "banner", "pixel", "pixels", "tracking", "analytics", "compliance",
     "privacy", "rules", "window", "function", "javascript", "value", "unless", "endif", "endunless", "media",
     "stylesheet", "crossorigin", "anonymous"})
-#: Kategorien aus `hosts.json`, deren Aufrufe vor einer Einwilligung zählen.
-PRE_CONSENT_CATEGORIES = ("ads", "analytics", "session_recording")
+#: Kategorien aus `hosts.json`, deren Aufrufe vor einer Einwilligung zählen. `email_sms` seit 0.3.31: bei
+#: einem Launch lud ein E-Mail-Tool auch nach „Ablehnen“ (11.11.2026), und der Check zählte es nicht mit.
+PRE_CONSENT_CATEGORIES = ("ads", "analytics", "session_recording", "email_sms")
+#: Kategorien, bei denen schon das Laden vor der Einwilligung ein Befund ist. Ein E-Mail-Tool setzt beim
+#: Laden seine Kennung (Klaviyo `__kla_id`) und zeigt Formulare; einen Modus ohne Cookies wie den Consent
+#: Mode von Google gibt es dort nicht.
+LOAD_COUNTS_CATEGORIES = ("email_sms",)
 
 
 # ---------------------------------------------------------------------------
@@ -1907,7 +1913,7 @@ def check_consent_after(ctx: dict) -> dict:
 
 
 def pre_consent_senders(capture: dict, own: set, catalog, host_map: dict | None = None) -> tuple:
-    """Dienste für Werbung, Analyse und Sitzungsaufzeichnung, die vor einer Einwilligung senden oder laden.
+    """Dienste für Werbung, Analyse, Sitzungsaufzeichnung und E-Mail-Marketing, die vor einer Einwilligung senden oder laden.
 
     Vor der Einwilligung heißt: jeder Durchlauf ohne Einwilligung und in einem Durchlauf mit Einwilligung
     jede Anfrage bis zum Klick (`consent_phase: pre`). Ein Dienst zählt über den Host-Katalog, nie über
@@ -1939,15 +1945,16 @@ def pre_consent_senders(capture: dict, own: set, catalog, host_map: dict | None 
 
 
 def check_pre_consent(ctx: dict) -> dict:
-    """Sendet das neue Theme vor einer Einwilligung an einen Werbe- oder Analysedienst, an den das alte nicht sendete?
+    """Sendet das neue Theme vor einer Einwilligung an einen Werbe-, Analyse- oder E-Mail-Dienst, an den das alte nicht sendete?
 
     Verglichen wird neu gegen alt, nicht absolut: ein Consent Mode im erweiterten Modus sendet auch vor
     der Einwilligung Pings ohne Cookies, und das war vorher schon so. Neu ist ein Befund; ein Dienst, der
-    neu nur lädt, ohne zu senden, steht als Hinweis.
+    neu nur lädt, ohne zu senden, steht als Hinweis. Ausnahme `LOAD_COUNTS_CATEGORIES`: ein E-Mail-Tool
+    wie Klaviyo, das neu vor der Einwilligung lädt, ist ein Befund, auch ohne Messaufruf.
     """
     after = ctx["after"]
     group, cid = "Tracking", "tracking-pre-consent-after" if after else "tracking-pre-consent"
-    title = "Werbung und Analyse vor Einwilligung, neu gegen alt"
+    title = "Werbung, Analyse und E-Mail-Marketing vor Einwilligung, neu gegen alt"
     which = "veröffentlichten Themes (capture/after-declined)" if after else "Entwurfs (capture/new-declined)"
     if not ctx["old"]["pages"] or not ctx["new"]["pages"]:
         return make_check(cid, group, title, BLOCKED,
@@ -1968,25 +1975,37 @@ def check_pre_consent(ctx: dict) -> dict:
 
     senders = sorted(k for k in now if now[k]["sends"] and not (before.get(k) or {}).get("sends"))
     loaders = sorted(k for k in now if now[k]["loads"] and not now[k]["sends"] and k not in before)
+    counted = [k for k in loaders if catalog.describe(k)["category"] in LOAD_COUNTS_CATEGORIES]
+    loaders = [k for k in loaders if k not in counted]
     same = sorted(k for k in now if now[k]["sends"] and (before.get(k) or {}).get("sends"))
     evidence = f"{new_runs} Durchläufe ohne Einwilligung im neuen, {old_runs} im alten Theme"
     if senders:
         evidence += "; sendet neu vor der Einwilligung: " + short_list([describe(k, now[k]["sends"]) for k in senders], 6)
+    if counted:
+        evidence += "; E-Mail-Tool lädt neu vor der Einwilligung (setzt schon damit seine Kennung): " + short_list(
+            [describe(k, now[k]["loads"]) for k in counted], 4)
     if loaders:
         evidence += "; lädt neu vor der Einwilligung, ohne zu senden: " + short_list(
             [describe(k, now[k]["loads"]) for k in loaders], 4)
     if same:
         evidence += "; sendet vor der Einwilligung wie im alten Theme: " + short_list(
             [catalog.describe(k)["service_name"] for k in same], 6)
-    if not (senders or loaders or same):
-        evidence += "; kein Werbe- oder Analysedienst sendet vor der Einwilligung"
-    status = MISSING if senders else OK
-    check = make_check(cid, group, title, status, evidence,
-                       action="Auslöser im Browser suchen (Initiator der Anfrage, meist eine App oder ein Tag), "
-                              "abschalten oder an die Einwilligung binden, dann neu mitschneiden" if senders else "",
-                       owner=OPERATOR if senders else "", links=link_pair(ctx) if senders else [])
+    if not (senders or counted or loaders or same):
+        evidence += "; kein Werbe-, Analyse- oder E-Mail-Dienst sendet vor der Einwilligung"
+    found = bool(senders or counted)
+    action = ""
+    if found:
+        action = ("Auslöser im Browser suchen (Initiator der Anfrage, meist eine App oder ein Tag), "
+                  "abschalten oder an die Einwilligung binden, dann neu mitschneiden")
+        if counted:
+            action += ("; ein E-Mail-Tool erst nach Einwilligung in Marketing laden (App-Embed an die "
+                       "Consent-Kategorie binden oder das Skript erst nach der Zustimmung einfügen)")
+    status = MISSING if found else OK
+    check = make_check(cid, group, title, status, evidence, action=action,
+                       owner=OPERATOR if found else "", links=link_pair(ctx) if found else [])
     check["details"] = {"sends": {k: sorted(now[k]["sends"]) for k in senders},
-                        "loads": {k: sorted(now[k]["loads"]) for k in loaders}, "as_before": same}
+                        "loads": {k: sorted(now[k]["loads"]) for k in loaders},
+                        "loads_counted": {k: sorted(now[k]["loads"]) for k in counted}, "as_before": same}
     return check
 
 

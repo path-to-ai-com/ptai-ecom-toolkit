@@ -241,8 +241,8 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   |---|---|
   | `phase --phase 2-inventory --status done` | die Prüfliste fehlt oder ein Punkt daraus nicht in der Liste steht |
   | `phase --phase 6-verify --status done` | ein Punkt `blocker` offen ist oder der jüngste Prüfbericht unter `migration/verify/` Offenes hält, das in der Liste fehlt |
-  | `gate --gate G4-acceptance` | ein Punkt für G4 offen ist, eine Quelle Offenes hält, das in der Liste fehlt, ein Testpunkt ohne Bilder vom Entwurf erledigt ist, der Bildvergleich unvollständig ist (`visual_compare check`, am Handy auch mit Menü offen) oder die Datenschicht je GA4-Property am Handy mit langsamer Verbindung nicht belegt ist oder etwas verliert |
-  | `gate --gate G5-go-live` | ein Punkt für G4 oder G5 offen ist, oder wie bei G4 eine Quelle |
+  | `gate --gate G4-acceptance` | ein Punkt für G4 offen ist, eine Quelle Offenes hält, das in der Liste fehlt, ein Testpunkt ohne Bilder vom Entwurf erledigt ist, der Bildvergleich unvollständig ist (`visual_compare check`, am Handy mit Menü offen, am Rechner mit Untermenü offen) oder die Datenschicht je GA4-Property am Handy mit langsamer Verbindung nicht belegt ist oder etwas verliert |
+  | `gate --gate G5-go-live` | ein Punkt für G4 oder G5 offen ist, wie bei G4 eine Quelle, oder kein vollständiger Bildvergleich vorliegt, der nach dem letzten Abgleich aufgenommen wurde (`visual_compare check --after-sync`, seit 0.3.31) |
 
 - **Werte** für `set`: `live_theme_id`, `draft_theme_id`, `snapshot`, `last_sync`, `published_at`, `policies_version` und `policies_applied_at` (schreibt `policies apply`).
 - `show` nennt unter `open_items` die Zahl offener Punkte je Gate.
@@ -865,7 +865,8 @@ die Testpunkte. `open_items gate --gate G4-acceptance` zeigt unter `visual_compa
 - Die Referenz steht mit ID und Name am Anfang jedes Vergleichs und jeder Abnahme
   (`visual_compare reference`). Vorschau-Links anderer Themes sind keine Vorlage.
 - Am Handy nimmt der Bildvergleich auch den Zustand "Menü offen" auf; ein fremdes Element über der
-  Menü-Schublade im Entwurf hält G4 an.
+  Menü-Schublade im Entwurf hält G4 an. Seit 0.3.31 ebenso am Rechner "Untermenü offen": öffnet sich im
+  Entwurf kein Untermenü, wo das veröffentlichte Theme eins hat, oder liegt etwas darüber, hält G4 an.
 - **Datenschicht je GA4-Property:** je ein Durchlauf ohne Bestellung auf Live-Theme und Entwurf, am Handy
   in WebKit mit langsamer Verbindung (`launch-check`, Ablauf vor dem Launch, Schritt 3). Was das Live-Theme
   an eine Property sendet (`view_item`, `add_to_cart`, `begin_checkout`) und der Entwurf nicht, hält G4 an;
@@ -942,13 +943,22 @@ Mitschnitt beider Themes wie in `launch-check` (Ablauf vor dem Launch, Schritte 
 - Seit 11.11.2026 hält der Check die Pixel-Liste des Shops in `<lauf>/web-pixels-before.json` fest,
   prüft, ob sich im Entwurf eine App eingetragen hat, die nicht im Ziel-Repo steht (`app-injections`), ob
   ein Dienst vor der Einwilligung sendet (`tracking-pre-consent`, Microsoft an `bat.bing.com` und
-  `bat.bing.net`) und ob jedes Custom Pixel, das entfällt, gesichert ist (`custom-pixel-backup`).
+  `bat.bing.net`; seit 0.3.31 auch E-Mail-Tools wie Klaviyo, die schon mit dem Laden zählen) und ob jedes
+  Custom Pixel, das entfällt, gesichert ist (`custom-pixel-backup`).
 - **Nach jedem `launch check`** den Stand ins Cockpit (`run_state show`, dann `run_state cockpit` an
   `report_migration`, Abschnitt "Stand im Cockpit"). Das Cockpit zeigt im Blatt der Migration dieselbe
   Go-Liste mit Summe, den Ablauf (Vorbereiten, Prüfen, Go, Veröffentlichen, Prüfen danach, Beobachten)
   und den Rückfall; so hakt das Team dort mit ab, ohne eigene Seite daneben.
 
-**Gate G5** ist selbst ein Go-Punkt (`go-decision`). Zuerst `open_items gate --gate G5-go-live`. Was
+**Bildvergleich nach dem letzten Abgleich** (seit 0.3.31). Der Abgleich vor dem Launch (Vorbereitung,
+Schritt 2) ändert den Entwurf nach G4; im November 2026 entstand so eine dunkle leere Leiste, und kein
+Schritt verlangte danach noch Bilder. Nach dem letzten Abgleich deshalb alle Beispielseiten neu aufnehmen
+(`compare-themes --compare`, Rechner mit Untermenü offen, Handy mit Menü offen) und jedes Paar ansehen.
+`visual_compare check --after-sync` muss vollständig melden; sonst hält G5 an. Ändert ein weiterer Abgleich
+den Entwurf, gilt das wieder.
+
+**Gate G5** ist selbst ein Go-Punkt (`go-decision`). Zuerst `open_items gate --gate G5-go-live`; es zeigt
+unter `visual_after_sync`, ob der Bildvergleich nach dem letzten Abgleich vollständig ist. Was
 `launch-check` als abgedeckt meldet, schließt `open_items close-covered --launch-check
 reporting/runs/<date>-launch-check/launch-check.json` mit Beleg; alles andere wird behoben oder mit Person
 und Datum verschoben. `show` muss `ready_for_launch: true` melden. Steht danach nur noch G5 offen,

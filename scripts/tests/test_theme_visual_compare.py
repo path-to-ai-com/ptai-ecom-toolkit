@@ -235,7 +235,14 @@ class TestRunStateG4(GateWorkspace):
             self.state.decide_gate("G4-acceptance", "Beispielperson")
         self.assertIn("Testpunkte erledigt ohne Bilder vom Entwurf: TP-03", str(ctx.exception))
 
-    def test_g5_verlangt_keinen_bildvergleich(self):
+    def test_g5_verlangt_einen_bildvergleich_nach_dem_letzten_abgleich(self):
+        # Bis 0.3.30 verlangte G5 keinen Bildvergleich; seit 0.3.31 einen nach dem letzten Abgleich.
+        vcs.write_record(self.ws, vcs.record(captured_at="2026-11-11T09:00:00+00:00"))
+        vcs.write_sync(self.ws, captured_at="2026-11-11T10:00:00Z")
+        with self.assertRaises(run_state.StateError) as ctx:
+            self.state.decide_gate("G5-go-live", "Beispielperson")
+        self.assertIn("Bildvergleich nach dem letzten Abgleich (2026-11-11T10:00:00Z", str(ctx.exception))
+        vcs.write_record(self.ws, vcs.record(captured_at="2026-11-11T11:00:00+00:00"), day="2026-11-12")
         self.state.decide_gate("G5-go-live", "Beispielperson")
         self.assertTrue(self.state.data["gates"]["G5-go-live"])
 

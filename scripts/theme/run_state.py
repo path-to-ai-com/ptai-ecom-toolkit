@@ -63,6 +63,10 @@ ein Testpunkt der Abnahme ohne Bilder vom Entwurf erledigt ist. Bei einem Shop, 
 Layoutfehler erst nach dem Launch auf: die Abnahme hatte Testpunkte einzeln geprüft, mehrere standen ohne Bild
 auf erledigt, und einen Bildvergleich über alle Seiten gab es vor G4 nicht.
 
+Seit 0.3.31 verlangt auch G5 einen vollständigen Bildvergleich, und zwar einen, dessen Aufnahmen nach dem
+letzten Abgleich mit dem Live-Theme entstanden sind (`visual_compare.gate_problems_after_sync`). Bei demselben
+Shop entstand nach der Abnahme beim Abgleich eine dunkle leere Leiste; nach G4 verlangte kein Schritt mehr Bilder.
+
 Seit 0.3.17 gibt `cockpit` die Eingabe für das Werkzeug `report_migration` des Cockpits aus: Marke, Store, Lauf
 und `migration.json`, wie sie im Lauf liegt. Damit gibt das Claude des Teams den Stand selbst ins Cockpit, nach
 jedem Push und am Ende jeder Sitzung. Bis dahin kam `migration.json` nur mit `publish` des Betreibers in den
@@ -314,7 +318,8 @@ def check_open_items(workspace: Path, *, phase: str | None = None, gate: str | N
     """Hält eine Phase oder ein Gate an, solange die Liste offener Punkte es verlangt. Fragt nie.
 
     G4 verlangt außerdem den vollständigen Bildvergleich (`visual_compare`) und Bilder an jedem erledigten
-    Testpunkt. `values` sind die Werte des Laufs; `draft_theme_id` gilt von dort, wenn die Config sie nicht hat.
+    Testpunkt, G5 einen vollständigen Bildvergleich nach dem letzten Abgleich. `values` sind die Werte des
+    Laufs; `draft_theme_id` gilt von dort, wenn die Config sie nicht hat.
     """
     try:
         items = open_items.load(workspace)
@@ -372,6 +377,9 @@ def check_open_items(workspace: Path, *, phase: str | None = None, gate: str | N
             problems += visual_compare.gate_problems(workspace, config, values)
             # Seit 11.11.2026: die Datenschicht je GA4-Property, Entwurf gegen Live, am Handy mit langsamer Verbindung.
             problems += funnel_events.gate_problems(workspace, config, values)
+        if gate == "G5-go-live":
+            # Seit 0.3.31: der Abgleich vor dem Launch ändert den Entwurf nach G4; vor dem Go noch einmal Bilder.
+            problems += visual_compare.gate_problems_after_sync(workspace, config, values)
         if problems:
             raise StateError(f"Gate {gate} hält an. " + " | ".join(problems))
 
