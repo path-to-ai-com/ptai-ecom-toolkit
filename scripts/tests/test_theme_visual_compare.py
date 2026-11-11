@@ -219,6 +219,7 @@ class TestRunStateG4(GateWorkspace):
 
     def test_g4_erlaubt_mit_vollstaendigem_bildvergleich(self):
         vcs.write_record(self.ws, vcs.record())
+        vcs.complete_datalayer(self.ws)
         self.state.decide_gate("G4-acceptance", "Beispielperson")
         self.assertEqual(self.state.data["gates"]["G4-acceptance"]["decided_by"], "Beispielperson")
 

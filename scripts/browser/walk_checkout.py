@@ -5,7 +5,8 @@ Nur nach ausdrücklicher Freigabe des Teams. Aufruf:
   uv run --quiet --with playwright==1.58.0 python scripts/browser/walk_checkout.py \
     --pages <pages.json> --out <lauf>/test-order --approved-by "<Name>" \
     [--product-path /products/<handle>] [--contact <kontakt.json>] \
-    [--consent accepted|declined] [--timeout-minutes 20] [--headless]
+    [--consent accepted|declined] [--timeout-minutes 20] [--headless] \
+    [--device desktop|mobile] [--latency <ms>] [--theme <theme-id>]
 
 Öffnet ein sichtbares Browserfenster und geht durch:
 
@@ -31,6 +32,23 @@ Exit 0 Dankeseite erreicht (mit `--headless`: alle Stufen bis zur Zahlung), 1 so
 2 Fehler vor dem ersten Aufruf.
 
 `--headless` ist der Probelauf ohne Bestellung: bis zur Zahlung, dann Schluss.
+
+**Datenschicht je GA4-Property** (seit 11.11.2026, Nachtrag). Derselbe Probelauf
+belegt `view_item`, `add_to_cart` und `begin_checkout` je Property (`theme.funnel_events`):
+
+- `--device mobile` läuft in WebKit als iPhone (390 px), wie Safari. Ein verlorenes
+  `add_to_cart` zeigte sich am 11.11.2026 nur dort.
+- `--latency <ms>` verzögert jede Anfrage der Seite an die eigene Domain (fetch und
+  XHR, etwa `/cart/add.js` und `/cart.js`) um so viele Millisekunden, in Chromium und
+  WebKit gleich. So verliert ein Abruf, der beim Seitenwechsel noch läuft, wie bei
+  langsamer Verbindung. Messaufrufe an fremde Hosts bleiben unverzögert; sie gehen
+  mit keepalive und überstehen den Wechsel.
+- `--theme <id>` öffnet die Seiten als Vorschau dieses Themes (vor dem Launch der
+  Entwurf und das Live-Theme, danach das alte als Rückfall-Theme).
+
+Ablage für Gate G4 und Launch-Check: `migration/verify/<date>/events/<old|new>-<gerät>[-slow]/`.
+Antwortet Shopify mit HTTP 429 oder der Warteseite, steht `throttle` im Ergebnis:
+gedrosselt, kein Fehler des Shops.
 """
 from __future__ import annotations
 
@@ -263,12 +281,46 @@ def fill_contact(walk: Walk, contact: dict) -> None:
                 + (f"; Feld nicht gefunden: {', '.join(missing)}" if missing else ""))
 
 
+#: Verzögert fetch und XHR an die eigene Herkunft; `__LATENCY__` wird ersetzt.
+LATENCY_JS = r"""(() => {
+  const delay = __LATENCY__;
+  const same = u => { try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; } };
+  const later = () => new Promise(resolve => setTimeout(resolve, delay));
+  const fetch0 = window.fetch;
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || String(input);
+    if (!same(url)) return fetch0.apply(this, arguments);
+    const self = this, args = arguments;
+    return later().then(() => fetch0.apply(self, args));
+  };
+  const open0 = XMLHttpRequest.prototype.open, send0 = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) { this.__ptaiSame = same(url); return open0.apply(this, arguments); };
+  XMLHttpRequest.prototype.send = function () {
+    if (!this.__ptaiSame) return send0.apply(this, arguments);
+    const self = this, args = arguments;
+    setTimeout(() => send0.apply(self, args), delay);
+  };
+})();"""
+
+
+def latency_script(ms: int) -> str | None:
+    """Das Init-Skript für `--latency`, None ohne Verzögerung."""
+    return LATENCY_JS.replace("__LATENCY__", str(int(ms))) if ms and int(ms) > 0 else None
+
+
 def walk_checkout(playwright, args, pages: dict, out: Path) -> dict:
     token = make_token()
     product_path = pick_product_path(pages, args.product_path)
     started = time.time()
-    browser = playwright.chromium.launch(headless=args.headless)
-    context = browser.new_context(**common.context_options(playwright, "desktop", args.locale))
+    device = getattr(args, "device", "desktop") or "desktop"
+    engine = common.ENGINE[device]
+    browser = getattr(playwright, engine).launch(headless=args.headless)
+    context = browser.new_context(**common.context_options(playwright, device, args.locale))
+    script = latency_script(getattr(args, "latency", 0))
+    if script:
+        context.add_init_script(script=script)
+    theme_id = getattr(args, "theme", None)
+    watch = common.ThrottleWatch(pages["base_url"]).attach(context)
     page = context.new_page()
     walk = Walk(page, out, started)
     by_request: dict = {}
@@ -293,12 +345,14 @@ def walk_checkout(playwright, args, pages: dict, out: Path) -> dict:
     context.on("request", on_request)
     context.on("response", on_response)
     context.on("requestfailed", on_failed)
-    result = {"tool": "walk_checkout", "version": 1, "token": token, "approved_by": args.approved_by,
+    result = {"tool": "walk_checkout", "version": 2, "token": token, "approved_by": args.approved_by,
               "approved_at": common.now(), "base_url": pages["base_url"], "product_path": product_path,
               "consent_mode": args.consent, "headless": bool(args.headless), "started_at": common.now(),
-              "thank_you": {"reached": False}}
+              "device": device, "engine": engine, "latency_ms": int(getattr(args, "latency", 0) or 0),
+              "theme_requested": theme_id, "thank_you": {"reached": False}}
     try:
-        response = page.goto(pages["base_url"] + product_path, wait_until="load", timeout=args.timeout_ms)
+        response = page.goto(common.page_url(pages["base_url"], product_path, theme_id, hide_bar=bool(theme_id)),
+                             wait_until="load", timeout=args.timeout_ms)
         page.wait_for_timeout(1500)
         result["theme"] = common.theme_in_page(page)
         status = response.status if response else None
@@ -319,7 +373,8 @@ def walk_checkout(playwright, args, pages: dict, out: Path) -> dict:
         walk.current = "mark"
         mark_cart(walk, token)
         walk.current = "cart"
-        page.goto(pages["base_url"] + "/cart", wait_until="load", timeout=args.timeout_ms)
+        page.goto(common.page_url(pages["base_url"], "/cart", theme_id, hide_bar=bool(theme_id)), wait_until="load",
+                  timeout=args.timeout_ms)
         page.wait_for_timeout(1500)
         text = walk.text()
         count = walk.cart_count()
@@ -385,6 +440,9 @@ def walk_checkout(playwright, args, pages: dict, out: Path) -> dict:
         result["finished_at"] = common.now()
         result["stages"] = walk.stages
         result["requests"] = walk.requests
+        signal = watch.signal(page)
+        if signal:
+            result["throttle"] = signal
         context.close()
         browser.close()
     return result
@@ -402,6 +460,11 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", dest="timeout_ms", type=int, default=60000, help="Zeitlimit je Seite in ms")
     parser.add_argument("--locale", default="de-DE")
     parser.add_argument("--headless", action="store_true", help="Probelauf bis zur Zahlung, ohne Übergabe")
+    parser.add_argument("--device", choices=common.DEVICES, default="desktop",
+                        help="mobile: WebKit als iPhone, wie Safari")
+    parser.add_argument("--latency", type=int, default=0,
+                        help="Verzögerung je Anfrage an die eigene Domain in ms (langsame Verbindung)")
+    parser.add_argument("--theme", help="Theme-ID als Vorschau; ohne sie das veröffentlichte Theme")
     args = parser.parse_args(argv)
     if not args.approved_by.strip():
         print(json.dumps({"error": "--approved-by braucht den Namen aus dem Team"}, ensure_ascii=False))
@@ -428,9 +491,13 @@ def main(argv=None) -> int:
     common.write_json(out / "walk.json", result)
     failed = [s["stage"] for s in result["stages"] if s["state"] == "failed"]
     done = result["thank_you"]["reached"] or (args.headless and not failed)
+    if result.get("throttle"):
+        print(f"Gedrosselt: {result['throttle']['reason']}. Später erneut.", file=sys.stderr, flush=True)
     print(json.dumps({"out": str(out / "walk.json"), "token": result["token"], "thank_you": result["thank_you"],
-                      "failed": failed, "requests": len(result["requests"])}, ensure_ascii=False))
-    return 0 if done and not failed else 1
+                      "failed": failed, "requests": len(result["requests"]), "device": result["device"],
+                      "latency_ms": result["latency_ms"], "throttled": bool(result.get("throttle"))},
+                     ensure_ascii=False))
+    return 0 if done and not failed and not result.get("throttle") else 1
 
 
 if __name__ == "__main__":

@@ -255,6 +255,13 @@ def find_order(transport, token: str, since: datetime | None) -> dict | None:
     return None
 
 
+def orders_since(transport, since: datetime) -> tuple:
+    """`(anzahl, gedeckelt)` der Bestellungen seit `since`; höchstens 20 je Abfrage (dieselbe Abfrage wie oben)."""
+    filter_ = f"created_at:>='{since.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}'"
+    nodes = ((transport.execute(ORDER_QUERY, {"query": filter_}).get("orders") or {}).get("nodes")) or []
+    return len(nodes), len(nodes) >= 20
+
+
 def order_amount(order: dict) -> tuple:
     money = ((order.get("totalPriceSet") or {}).get("shopMoney")) or {}
     try:
@@ -348,6 +355,43 @@ class GA4Reader:
                                   "endMinutesAgo": 0}]}
         data = self._call(GA4_REALTIME_URL, body)
         return sum(int(float((row.get("metricValues") or [{}])[0].get("value") or 0)) for row in data.get("rows") or [])
+
+    def realtime_events(self, names: list, minutes: int = GA4_REALTIME_MINUTES) -> dict:
+        """Zahl je Ereignis der letzten Minuten: `{"add_to_cart": 12, ...}`; fehlende Ereignisse mit 0."""
+        body = {"dimensions": [{"name": "eventName"}], "metrics": [{"name": "eventCount"}],
+                "dimensionFilter": {"filter": {"fieldName": "eventName",
+                                               "inListFilter": {"values": list(names)}}},
+                "minuteRanges": [{"startMinutesAgo": max(0, min(int(minutes), GA4_REALTIME_MINUTES)),
+                                  "endMinutesAgo": 0}]}
+        data = self._call(GA4_REALTIME_URL, body)
+        out = {name: 0 for name in names}
+        for row in data.get("rows") or []:
+            name = (row.get("dimensionValues") or [{}])[0].get("value")
+            if name in out:
+                out[name] += int(float((row.get("metricValues") or [{}])[0].get("value") or 0))
+        return out
+
+
+def ga4_reader_factory(workspace):
+    """Eine Funktion `prop -> (GA4Reader, None)` oder `(None, grund)` für beliebige Properties, ein Zugang.
+
+    Für den Abgleich je Property nach dem Launch (`theme.funnel_events`): jede Property braucht ihre ID,
+    der Zugang ist derselbe.
+    """
+    try:
+        from audit import env  # erst hier: das Theme-Paket bleibt ohne Audit-Paket importierbar
+        creds = env.get("PTAI_GOOGLE_CREDENTIALS", workspace)
+    except Exception as exc:  # noqa: BLE001  Paket fehlt oder .env nicht lesbar
+        reason = f"Zugang nicht lesbar: {exc}"[:200]
+        return lambda prop: (None, reason)
+    if not creds:
+        return lambda prop: (None, "PTAI_GOOGLE_CREDENTIALS nicht gesetzt (Workspace-.env oder zentral)")
+
+    def token():
+        from google_token import get_access_token
+        return get_access_token(creds, "analytics")
+
+    return lambda prop: (GA4Reader(prop, token), None)
 
 
 def ga4_from_config(config: dict, workspace) -> tuple:

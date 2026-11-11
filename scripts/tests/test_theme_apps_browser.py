@@ -127,7 +127,7 @@ class TestMitschnitt(unittest.TestCase):
     def test_zusammenfassung_zaehlt_jeden_ausgang(self):
         runs = [{"state": "ok", "requests": [1, 2]}, {"state": "wrong_theme", "requests": []},
                 {"state": "error"}, {"state": "ok", "consent_result": {"result": "stuck"}, "requests": [1]}]
-        self.assertEqual(capture_network.summarize(runs), {"runs": 4, "ok": 2, "wrong_theme": 1, "errors": 1,
+        self.assertEqual(capture_network.summarize(runs), {"runs": 4, "ok": 2, "wrong_theme": 1, "throttled": 0, "errors": 1,
                                                            "consent_stuck": 1, "requests": 3})
 
     def test_fixture_hat_das_format_des_mitschnitts(self):

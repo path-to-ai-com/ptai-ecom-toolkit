@@ -29,8 +29,11 @@ Jede Anfrage trägt `consent_phase`: `pre` bis zum Klick im Cookie-Dialog, danac
 und das nur, wenn das Team den Mitschnitt mit Einwilligung freigegeben hat.
 
 Je Seite und Gerät läuft ein frischer Kontext, bis zum Seitenende gescrollt, mit
-Wartezeit, standardmäßig zweimal. Kasse und Dankeseite gehören nicht dazu; dort
-sieht man Pixel nur mit einer Testbestellung.
+Wartezeit, standardmäßig zweimal. Zwischen zwei Seitenaufrufen liegen mindestens
+`--pace` Sekunden; antwortet Shopify mit HTTP 429 oder der Warteseite, ist der
+Durchlauf `throttled` (kein Fehler des Shops) und läuft nach einer Pause einmal neu.
+Kasse und Dankeseite gehören nicht dazu; dort sieht man Pixel nur mit einer
+Testbestellung.
 """
 from __future__ import annotations
 
@@ -136,6 +139,7 @@ def capture_page(playwright, browsers: dict, job: dict) -> dict:
     result = {"page_id": page_info["id"], "template": page_info.get("template"), "path": page_info["path"],
               "url": url, "device": device, "browser": engine, "run": job["run"], "consent": job["consent"],
               "state": "ok", "error": None}
+    page = None
     try:
         page = context.new_page()
         response = page.goto(url, wait_until="load", timeout=job["timeout"])
@@ -193,6 +197,10 @@ def capture_page(playwright, browsers: dict, job: dict) -> dict:
     finally:
         result["requests"] = requests
         result["seconds"] = round(time.time() - started, 1)
+        # Gedrosselt geht vor falschem Theme und Fehler: die Warteseite trägt keinen Theme-Nachweis.
+        title = common.page_title(page) if page is not None else None
+        common.mark_throttled(result, common.throttle_signal(result.get("status"), title,
+                                                             common.count_429(requests, job["base_url"])))
         context.close()
     return result
 
@@ -214,6 +222,7 @@ def summarize(runs: list[dict]) -> dict:
         "runs": len(runs),
         "ok": sum(1 for r in runs if r.get("state") == "ok"),
         "wrong_theme": sum(1 for r in runs if r.get("state") == "wrong_theme"),
+        "throttled": sum(1 for r in runs if r.get("state") == common.THROTTLED),
         "errors": sum(1 for r in runs if r.get("state") == "error"),
         "consent_stuck": sum(1 for r in runs if (r.get("consent_result") or {}).get("result") == "stuck"),
         "requests": sum(len(r.get("requests") or []) for r in runs),
@@ -234,6 +243,8 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=int, default=60000, help="Zeitlimit für das Laden in ms")
     parser.add_argument("--locale", default="de-DE")
     parser.add_argument("--parallel", type=int, default=common.MAX_PARALLEL, help="höchstens 2")
+    parser.add_argument("--pace", type=float, default=common.PACE_SECONDS,
+                        help="Mindestabstand zwischen zwei Seitenaufrufen in Sekunden")
     args = parser.parse_args(argv)
 
     try:
@@ -256,7 +267,7 @@ def main(argv=None) -> int:
     baselines: dict = {}
     jobs = build_jobs(pages, devices, max(1, args.runs), args, html_dir, baselines)
     started = common.now()
-    results = common.run_jobs(jobs, capture_page, args.parallel)
+    results = common.run_jobs(jobs, capture_page, args.parallel, pace=args.pace)
     runs = []
     for job, result in zip(jobs, results):
         if result.get("job") is not None:
@@ -270,6 +281,9 @@ def main(argv=None) -> int:
             "baseline_globals": baselines, "runs": runs}
     common.write_json(out / "network.json", data)
     summary = summarize(runs)
+    note = common.throttled_summary(runs)
+    if note:
+        print(note, file=sys.stderr, flush=True)
     print(json.dumps({"out": str(out / "network.json"), **summary}, ensure_ascii=False))
     return 0 if summary["ok"] == summary["runs"] and not summary["consent_stuck"] else 1
 

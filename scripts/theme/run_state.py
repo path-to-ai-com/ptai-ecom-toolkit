@@ -78,7 +78,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from theme import ConfigError, load_config
-from theme import handover, open_items, questions, ruled, steps, visual_compare
+from theme import funnel_events, handover, open_items, questions, ruled, steps, visual_compare
 
 PHASES = (
     "0-setup", "1-snapshot", "2-inventory", "3-mapping", "4-build", "5-upload",
@@ -370,6 +370,8 @@ def check_open_items(workspace: Path, *, phase: str | None = None, gate: str | N
                                 "open_items done --id <id> --evidence <text> --desktop-image <bild> "
                                 "--mobile-image <bild>")
             problems += visual_compare.gate_problems(workspace, config, values)
+            # Seit 11.11.2026: die Datenschicht je GA4-Property, Entwurf gegen Live, am Handy mit langsamer Verbindung.
+            problems += funnel_events.gate_problems(workspace, config, values)
         if problems:
             raise StateError(f"Gate {gate} hält an. " + " | ".join(problems))
 

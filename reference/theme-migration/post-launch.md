@@ -49,7 +49,16 @@ Launch, nach dem in der ersten Stunde ein gutes Dutzend sichtbarer Fehler gemeld
 - Erst die Ursache belegen, dann ändern: Bildpaar alt gegen live, berechnete Werte im Browser, bei Tracking
   der Auslöser-Stack und die Pixel-Liste vorher gegen nachher. Keine Korrektur auf Vermutung.
 - Vorlage für Aussehen ist das Rückfall-Theme (`rollback_theme_id`), immer mit seiner ID im Link
-  (`?preview_theme_id=<id>`), nie ein älteres Theme oder ein Repo-Stand.
+  (`?preview_theme_id=<id>`), nie ein älteres Theme oder ein Repo-Stand. Vor jedem Vergleich nennt
+  `bin/theme visual_compare reference` es mit ID und Name; diese Zeile steht am Anfang jeder Nachricht über
+  einen Vergleich. Vorschau-Links anderer Themes, auch aus Chat oder älteren Berichten, sind keine Vorlage.
+  Am Nachmittag des 11.11.2026 wurden Schriften gegen ein älteres Theme umgestellt und mussten
+  zurückgenommen werden.
+- Prüfläufe gegen den Live-Shop laufen gedrosselt (`--pace`, höchstens zwei Browser). Eine Antwort mit
+  HTTP 429 oder der Warteseite "Nur einen Moment…" ist eine Drosselung, kein Fehler des Shops; Horizons
+  Nachladen scheitert dann, und das Bild sieht kaputt aus. Nicht als Befund werten, langsamer wiederholen.
+- Am Handy jeden Fix auch mit offenem Menü ansehen (`shoot_pair` nimmt es auf) und Tracking-Fixes am Handy
+  mit langsamer Verbindung prüfen (`walk_checkout.py --headless --device mobile --latency 800`).
 
 **Ablauf**
 

@@ -149,6 +149,18 @@ Google-Ads-Conversion im gesicherten Code ist nach dem Launch ein eigenes Ziel d
 - **Ein Dienst zählt über den Host-Katalog, nie über einen Hostnamen.** Microsoft Advertising sendet an
   `bat.bing.com` und an `bat.bing.net`; eine Messung, die nur einen Host prüft, übersieht Aufrufe vor der
   Einwilligung.
+- **Eine abgelöste Consent-App wird deinstalliert, nicht deaktiviert, und ihre Datei unter Inhalte >
+  Dateien gelöscht.** Manche Consent-Apps legen ihre Regeln als Datei in Shopify Files ab und schreiben
+  beim Veröffentlichen eine Zeile ins Layout, die sie lädt. Deaktivieren in der App wirkt auf keines von
+  beiden. Am 11.11.2026 lud so ein Werbe-Tag ohne Einwilligung. Nach dem Launch prüft das
+  `consent-app-after`; im Inventar steht die App mit `category: consent` und `decision: replace`.
+- **Ereignisse je Property am Handy mit langsamer Verbindung prüfen, nicht nur am Rechner.** Eine eigene
+  Datenschicht, die `add_to_cart` erst nach einem zweiten Abruf von `/cart.js` meldet, verliert es, wenn
+  das Theme nach dem Hinzufügen sofort weiterleitet (Horizon mit Warenkorb als Seite): Safari verwirft den
+  laufenden Abruf. Am Rechner mit schneller Verbindung fällt das nicht auf. Lösung im Theme: die Meldung
+  auf der nächsten Seite nachholen (etwa über sessionStorage). Geprüft je Property alt gegen neu mit
+  `walk_checkout.py --headless --device mobile --latency 800` (`theme.funnel_events`), nach dem Launch
+  zusätzlich in der GA4-Echtzeit gegen die serverseitig belieferte Property.
 
 ## Neu-Anbindung im Ziel-Theme
 

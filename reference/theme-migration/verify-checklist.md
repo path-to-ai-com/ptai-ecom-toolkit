@@ -37,7 +37,12 @@ Diese Regeln stehen wörtlich im Auftrag jedes Prüfers.
    Seite ohne passenden Nachweis zählt nicht. Für Messungen `pb=0` anhängen.
 5. Consent-Banner über `skills/capture-screens/scripts/consent.py` ablehnen, damit beide Seiten gleich
    aussehen.
-6. Einige Sekunden zwischen zwei Seitenaufrufen.
+6. Mindestens drei Sekunden zwischen zwei Seitenaufrufen (`--pace` der Browser-Skripte). Antwortet
+   Shopify mit HTTP 429 oder der Warteseite "Nur einen Moment…", ist das eine Drosselung, kein Fehler des
+   Shops: nicht als Befund werten, langsamer wiederholen.
+6a. Verglichen wird nur mit der Referenz aus `visual_compare reference` (vor dem Launch das
+   veröffentlichte Theme, danach das Rückfall-Theme), mit ID und Name im Ergebnis. Vorschau-Links anderer
+   Themes sind keine Vorlage.
 7. Eigenes Unterverzeichnis je Prüfer unter `migration/verify/<date>/<checker>/`.
 8. Nichts erfinden. Was nicht prüfbar war, steht als nicht geprüft mit Grund im Ergebnis, nie als
    bestanden.
@@ -73,6 +78,10 @@ erzeugten Datei. Danach laufen Neubau, Upload und die betroffenen Prüfer erneut
   `main`), rechts der aktuelle Entwurf. `run_state gate --gate G4-acceptance` hält an, solange eine Aufnahme
   fehlt oder nicht zählt (`visual_compare check`). Bei einem Umzug auf Horizon fielen Layoutfehler erst
   nach dem Launch auf, weil die Abnahme nur Stichproben und Einzelpunkte prüfte.
+- **Am Handy auch mit offenem Menü.** `shoot_pair` öffnet das Menü und prüft, ob ein fremdes Element
+  (Teaser, Kampagnenleiste, Chat-Knopf) über der Schublade liegt. Im Entwurf hält das G4 an, außer es liegt
+  im veröffentlichten Theme genauso darüber. Am 11.11.2026 lagen ein E-Mail-Teaser und eine
+  Countdown-Leiste über Horizons Schublade; geschlossen sah die Seite richtig aus.
 - **Horizon:** am Rechner scrollt `.page-wrapper`, nicht das Dokument, und der Footer rendert wegen
   `content-visibility: auto` erst, wenn er im Bild war. Ein Ganzseiten-Bild, das nur fensterhoch ist oder
   einen leeren Footer zeigt, ist kein Ergebnis. `shoot_pair` scrollt im Container, erzwingt die

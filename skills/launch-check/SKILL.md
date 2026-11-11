@@ -1,6 +1,6 @@
 ---
 name: launch-check
-description: Prüft vor einem Livegang alle Launch-Voraussetzungen und gibt aus, was noch fehlt, als wiederholbarer Prüflauf mit Go/No-Go-Empfehlung. Je Punkt der Launch-Checkliste ein Status (ok, missing, blocked, manual, n/a) mit einer Zeile Beleg, Verantwortlichem und Links auf Entwurf und Live: Zeitpunkt (Wochentag, Feiertag, Saisonspitze, Kampagnen, Preis- und A/B-Tests), Abnahme und offene Befunde aus jedem Prüfbericht (auch außerhalb des Workspace über theme_migration.report_paths), Prüfliste aus Phase 2, Abgleich mit dem Live-Stand, Änderungsstopp, Entwurf und Rückfall-Theme, App-Embeds, App-Einträge gegen den hochgeladenen Stand, Theme-Übersetzungen, Tracking je Seite per Mitschnitt, Werbe- und Analyseaufrufe vor Einwilligung, Pixel-Liste des Shops und Sicherung der Custom Pixels, Pagination und Analyse-Ereignisse je Seitentyp, SEO (robots.txt, noindex, Canonicals, Statuscodes, strukturierte Daten, hreflang, Open Graph, Title und Description je Seitentyp und Sprache gegen live), Vergleichswerte von heute oder gestern, Go/No-Go- und Rückfallkriterien, Kommunikation, Plattform-Fristen. Mit --after die Prüfungen direkt nach dem Veröffentlichen, mit Testbestellung nach Freigabe (Kasse bis zur Zahlung, Kauf je Ziel in Shopify, GA4 je Property, Google Ads je Kauf-Conversion, Meta, Storno), Tracking nach Einwilligung, App-Einträgen seit dem Veröffentlichen und Pixel-Liste vorher gegen nachher. Führt Phase 9 der Theme-Migration eigenständig aus, auch ohne Migrationslauf und für Launches ohne Theme-Wechsel (größere Theme-Änderung, neuer Shop). Nutzen bei /ptai-ecom:launch-check, "Launch-Check", "sind wir bereit für den Livegang", "was fehlt noch bis zum Launch", "Go/No-Go", "Prüfung nach dem Veröffentlichen", in Phase 9 einer Theme-Migration. Zeigt jeden Go-Punkt als Haken-Liste (bin/theme launch check: ✅ erledigt, ❌ fehlt, ⏸ blockiert, ✋ manuell, Summe am Ende); in einer Migration ist G5 selbst ein Go-Punkt. Schreibt nichts in den Shop und veröffentlicht nicht selbst; veröffentlicht wird im geführten Launch von theme-migration nach dem Ja der Person der Marke. Liest reporting/config.json im Kunden-Workspace.
+description: Prüft vor einem Livegang alle Launch-Voraussetzungen und gibt aus, was noch fehlt, als wiederholbarer Prüflauf mit Go/No-Go-Empfehlung. Je Punkt der Launch-Checkliste ein Status (ok, missing, blocked, manual, n/a) mit einer Zeile Beleg, Verantwortlichem und Links auf Entwurf und Live: Zeitpunkt (Wochentag, Feiertag, Saisonspitze, Kampagnen, Preis- und A/B-Tests), Abnahme und offene Befunde aus jedem Prüfbericht (auch außerhalb des Workspace über theme_migration.report_paths), Prüfliste aus Phase 2, Abgleich mit dem Live-Stand, Änderungsstopp, Entwurf und Rückfall-Theme, App-Embeds, App-Einträge gegen den hochgeladenen Stand, Theme-Übersetzungen, Tracking je Seite per Mitschnitt, Werbe- und Analyseaufrufe vor Einwilligung, Pixel-Liste des Shops und Sicherung der Custom Pixels, Datenschicht je GA4-Property (view_item, add_to_cart, begin_checkout) alt gegen neu am Handy mit Safari und langsamer Verbindung, Pagination und Analyse-Ereignisse je Seitentyp, SEO (robots.txt, noindex, Canonicals, Statuscodes, strukturierte Daten, hreflang, Open Graph, Title und Description je Seitentyp und Sprache gegen live), Vergleichswerte von heute oder gestern, Go/No-Go- und Rückfallkriterien, Kommunikation, Plattform-Fristen. Mit --after die Prüfungen direkt nach dem Veröffentlichen, mit Testbestellung nach Freigabe (Kasse bis zur Zahlung, Kauf je Ziel in Shopify, GA4 je Property, Google Ads je Kauf-Conversion, Meta, Storno), Tracking nach Einwilligung, App-Einträgen seit dem Veröffentlichen, abgelöster Consent-App (deinstalliert, Datei unter Inhalte gelöscht), Pixel-Liste vorher gegen nachher und GA4-Echtzeit je Property gegen die Littledata-Property und die Bestellungen. Von Shopify gedrosselte Aufrufe (HTTP 429) zählen als nicht prüfbar, nie als Fehler des Shops. Führt Phase 9 der Theme-Migration eigenständig aus, auch ohne Migrationslauf und für Launches ohne Theme-Wechsel (größere Theme-Änderung, neuer Shop). Nutzen bei /ptai-ecom:launch-check, "Launch-Check", "sind wir bereit für den Livegang", "was fehlt noch bis zum Launch", "Go/No-Go", "Prüfung nach dem Veröffentlichen", in Phase 9 einer Theme-Migration. Zeigt jeden Go-Punkt als Haken-Liste (bin/theme launch check: ✅ erledigt, ❌ fehlt, ⏸ blockiert, ✋ manuell, Summe am Ende); in einer Migration ist G5 selbst ein Go-Punkt. Schreibt nichts in den Shop und veröffentlicht nicht selbst; veröffentlicht wird im geführten Launch von theme-migration nach dem Ja der Person der Marke. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # launch-check: bereit für den Livegang?
@@ -61,6 +61,13 @@ Arbeitsverzeichnis: der Kunden-Workspace mit `reporting/`, wie bei jeder Skill d
   Bot-Abfrage, und der Bericht sieht trotzdem vollständig aus. Abrufe ohne Browser laufen nacheinander
   mit vier Sekunden Abstand; vor dem Launch sind es nur `robots.txt` und, wenn der Mitschnitt kein HTML
   trägt, die Startseite des Live-Shops für die Pixel-Liste.
+- **Gedrosselt ist kein Befund** (seit 11.11.2026). Die Browser-Skripte halten zwischen zwei
+  Seitenaufrufen mindestens drei Sekunden Abstand (`--pace`). Antwortet Shopify mit HTTP 429 oder der
+  Warteseite "Nur einen Moment…", ist der Durchlauf `throttled`: er zählt in keinem Vergleich, alle
+  Fäden pausieren eine Minute, und er läuft einmal neu. Bleibt er gedrosselt, steht der Punkt auf
+  `blocked` mit "von Shopify gedrosselt, kein Fehler des Shops"; später mit `--parallel 1 --pace 10`
+  nachholen. Anlass: Im Test gegen den Live-Shop scheiterte Horizons Nachladen an 429, und das sah aus
+  wie ein Fehler im Theme.
 - **Nicht Prüfbares steht als `blocked` mit Grund, nie als `ok`.** Eine Antwort auf eine Frage gilt nur
   mit dem Namen der antwortenden Person.
 
@@ -185,6 +192,27 @@ Lauf-ID `<heute>-launch-check`, Ordner `reporting/runs/<heute>-launch-check/`, i
    Standard ist ohne Einwilligung. Mit `--consent accepted` nach `old-accepted` und `new-accepted` nur,
    wenn das Team den Mitschnitt mit Einwilligung freigegeben hat.
 
+   **Datenschicht je GA4-Property**, mit derselben Freigabe: je Theme ein Durchlauf ohne Bestellung am
+   Handy in WebKit (Safari) mit langsamer Verbindung, nacheinander, erst das Live-Theme:
+
+   ```bash
+   uv run --quiet --with playwright==1.58.0 python "${CLAUDE_PLUGIN_ROOT}/scripts/browser/walk_checkout.py" \
+     --pages "$RUN/pages.json" --headless --device mobile --latency 800 --theme <live-theme-id> \
+     --out migration/verify/<date>/events/old-mobile-slow --approved-by "<Name aus dem Team>"
+   uv run --quiet --with playwright==1.58.0 python "${CLAUDE_PLUGIN_ROOT}/scripts/browser/walk_checkout.py" \
+     --pages "$RUN/pages.json" --headless --device mobile --latency 800 --theme <draft-theme-id> \
+     --out migration/verify/<date>/events/new-mobile-slow --approved-by "<Name aus dem Team>"
+   ```
+
+   - `--latency 800` verzögert jede Anfrage der Seite an die eigene Domain (fetch, XHR) um 800 ms. So
+     verliert ein Abruf, der beim Seitenwechsel noch läuft, wie bei langsamer Verbindung.
+   - Zusätzlich sinnvoll: dieselben zwei Durchläufe am Rechner (`--device desktop`, ohne `--latency`) nach
+     `old-desktop` und `new-desktop`. Sie ersetzen den Durchlauf am Handy nicht.
+   - Der Prüflauf vergleicht je Property (`tid=G-…`) und Ereignis (`view_item`, `add_to_cart`,
+     `begin_checkout`): was alt ankam und neu fehlt, ist `missing` (`funnel-ga4-<g-id>`). Dasselbe liest
+     Gate G4. Anlass: Ein `add_to_cart` ging am Handy verloren, weil Horizon mit Warenkorb als Seite sofort
+     weiterleitete und Safari den laufenden Abruf von `/cart.js` verwarf; am Rechner fiel es nicht auf.
+
 4. **Prüflauf:**
 
    ```bash
@@ -256,6 +284,11 @@ In einer Migration ist `launch-check.md` die Vorlage für Gate G5. Den Migration
 Direkt nach dem Veröffentlichen (im geführten Launch nach "Jetzt kommt der Launch-Check After."), in
 dieser Reihenfolge:
 
+0. **Abgelöste Consent-App entfernen**, durch das Team im Admin: die App deinstallieren, nicht nur
+   deaktivieren, und ihre Datei unter Inhalte > Dateien löschen (etwa `<app>-rules.js`). Deaktivieren
+   wirkt weder auf die Zeile, die sie beim Veröffentlichen ins Layout schreibt, noch auf die Datei. Am
+   11.11.2026 lud so ein Werbe-Tag ohne Einwilligung. Geprüft wird das als `consent-app-after`.
+
 1. **Mitschnitt des veröffentlichten Themes** nach `$RUN/capture/after-declined` mit
    `--theme <new-live-theme-id>`, dieselbe Seitenliste.
 2. **Mitschnitt mit Einwilligung**, wenn das Team ihn freigegeben hat (Frage `tracking-consent` vor dem
@@ -290,6 +323,21 @@ dieser Reihenfolge:
      Ob mit echter Zahlung und späterer Erstattung oder mit einem Rabattcode über 100 Prozent, entscheidet
      das Team; den Shop am Launch-Tag in den Testmodus der Zahlung zu stellen, gehört nicht dazu.
    - `--headless` ist ein Probelauf bis zur Zahlung, ohne Bestellung.
+   **Datenschicht auf dem veröffentlichten Theme**: dieselben Durchläufe wie vor dem Launch nach
+   `$RUN/events/new-mobile-slow` (ohne `--theme` oder mit der neuen ID) und auf dem Rückfall-Theme
+   (`--theme <alte ID>`) nach `$RUN/events/old-mobile-slow`. Die Durchläufe des alten Themes vom Tag vor
+   dem Launch unter `migration/verify/` gelten mit, sieben Tage lang.
+
+   **Echtzeit je Property** braucht je Messkennung die Property-ID in der Config, die serverseitig
+   belieferte mit `via` als Referenz:
+
+   ```json
+   "ga4_properties": {"G-…": {"property_id": "…", "via": "Littledata"}, "G-…": {"property_id": "…"}}
+   ```
+
+   Aussagekräftig erst mit Verkehr; ab etwa 30 Minuten nach dem Launch prüfen, bei `blocked` ("zu wenig
+   Verkehr") später erneut.
+
 4. **Prüflauf:**
 
    ```bash
@@ -329,6 +377,15 @@ dieser Reihenfolge:
      ob die Einwilligung `Shopify.customerPrivacy` (analytics, marketing) und den Consent Mode erreicht
    - Werbe- und Analyseaufrufe vor der Einwilligung, neu gegen vorher (`tracking-pre-consent-after`), je
      Dienst über `hosts.json`: Microsoft Advertising zählt an `bat.bing.com` und an `bat.bing.net`
+   - abgelöste Consent-App (`consent-app-after`): keine Zeile im Live-Layout und kein geladenes Skript aus
+     Shopify Files, das zu ihr gehört; jede Datei, die sie vor dem Launch aus Files lud, antwortet nicht
+     mehr (sonst `missing`); danach die Frage an das Team, ob sie deinstalliert ist
+   - Datenschicht je GA4-Property (`funnel-ga4-<g-id>-after`), veröffentlichtes Theme gegen Rückfall-Theme
+     am Handy mit langsamer Verbindung
+   - GA4-Echtzeit je Property (`realtime-ga4-<g-id>`): `view_item`, `add_to_cart`, `begin_checkout` gegen
+     die Littledata-Property, `purchase` gegen die Bestellungen in Shopify, letzte 29 Minuten, normiert über
+     die Seitenaufrufe (eine Property im Browser zählt nur mit Einwilligung). Null bei genug Verkehr ist
+     `missing`, weniger als die Hälfte der Erwartung eine Frage
    - die Pixel-Liste des Shops (`webPixelsConfigList`) gegen die von vor dem Launch (`web-pixels-after`):
      aus `web-pixels-before.json` des Laufs davor, sonst aus einem Mitschnitt des alten Themes von vor dem
      Launch oder dem HTML der Bestandsaufnahme. Ein fehlendes Pixel ist `missing`, außer es ist bewusst
@@ -409,10 +466,13 @@ Lesewege, recherchiert am 10.11.2026 (Modul `theme.test_order`):
 | Tracking | Werbung und Analyse vor Einwilligung | Durchläufe ohne Einwilligung und Anfragen vor dem Klick (`consent_phase: pre`), je Dienst über `hosts.json` (Microsoft Advertising an `bat.bing.com` und `bat.bing.net`); ein Dienst, der neu vor der Einwilligung sendet, ist `missing`, einer, der nur neu lädt, ein Hinweis |
 | Tracking | Pixel-Liste festgehalten | `webPixelsConfigList` aus dem HTML des Mitschnitts des Live-Themes, sonst aus einem Abruf der Startseite, nach `$RUN/web-pixels-before.json`; nicht lesbar `blocked` |
 | Tracking | Custom Pixels gesichert | jedes Custom Pixel mit `drop` oder `replace` liegt unter `migration/inventory/pixels/` als `<name>.js` mit einer Notiz `<name>.md` (Pixel-ID, Sendet, Wo, An); sonst `missing` |
+| Tracking | Datenschicht je GA4-Property | Durchläufe von `walk_checkout.py --headless` unter `migration/verify/*/events/` oder `$RUN/events/`: je Property und Ereignis (`view_item`, `add_to_cart`, `begin_checkout`) alt gegen neu unter denselben Bedingungen; Pflicht am Handy in WebKit mit `--latency`; ein abgebrochener Abruf von `/cart` steht im Beleg; ohne Durchlauf `blocked` |
 | Tracking | Pagination und Analyse-Ereignisse | je Seitentyp und Gerät: `page=N` in `final_url` (Nachladen beim Scrollen schreibt die Seite in die Adresse) und Anfragen je Analysedienst, Minimum neu gegen Maximum alt; ab 1,5-fach und 3 mehr ein Fehler, geändertes Nachladen allein eine Frage |
 | Nach dem Launch | Tracking nach Einwilligung | je Seitentyp Dienste mit erteilter Einwilligung, neu gegen vorher; `Shopify.customerPrivacy` und Consent Mode nach der Zustimmung erteilt |
 | Nach dem Launch | Testbestellung je Ziel | Durchlauf `walk_checkout.py`, Bestellung über Admin `orders`, GA4 über `transactionId`, Werbe-Pixel über den Aufruf von der Dankeseite, dazu jede GA4-Property und Google-Ads-Kauf-Conversion von vorher einzeln (Tabelle oben) |
 | Nach dem Launch | App-Einträge seit dem Veröffentlichen | Live-Theme gegen `published-draft/` aus `launch publish`, sonst gegen das Ziel-Repo; Regeln wie vor dem Launch |
+| Nach dem Launch | Abgelöste Consent-App | Zeile im Live-Layout, Skripte aus Shopify Files im Mitschnitt (`/cdn/shop/files/`, `cdn.shopify.com/s/files/…/files/`), Abruf ihrer Dateien von vorher; danach die Frage nach dem Deinstallieren |
+| Nach dem Launch | Echtzeit je GA4-Property | Data API `runRealtimeReport` je Property aus `theme_migration.ga4_properties` gegen die Property mit `via` und gegen Admin `orders` im selben Fenster |
 | Nach dem Launch | Pixel-Liste vorher gegen nachher | Liste des Live-Shops gegen `web-pixels-before.json`; fehlt ein Pixel ohne Entscheidung oder ein entferntes Custom Pixel ohne Sicherung, `missing` |
 | SEO | robots.txt | `templates/robots.txt.liquid` in beiden Themes, Live-Ausgabe gesichert |
 | SEO | Statuscodes, noindex, Canonicals | aus dem Mitschnitt des Entwurfs gegen den des Live-Themes |
@@ -500,6 +560,18 @@ Es entstehen keine Bilder.
 - **`purchase-ga4-<g-id>` `missing`, obwohl `purchase-google-analytics` erfüllt ist:** eine Property
   bekommt den Kauf, eine andere nicht. Meist sendete an sie ein Pixel nur in der Kasse; die Sicherung
   unter `migration/inventory/pixels/` zeigt, welches. Wiederherstellen, dann erneut testen.
+- **`funnel-ga4-<g-id>` `missing` mit "add_to_cart fehlt" am Handy:** die Datenschicht verliert die
+  Meldung beim Seitenwechsel (Warenkorb als Seite leitet sofort weiter, Safari verwirft laufende Abrufe).
+  Steht "beim Seitenwechsel abgebrochen: GET /cart.js" im Beleg, ist das die Spur. Lösung im Theme: die
+  Meldung auf der nächsten Seite nachholen (etwa über sessionStorage) statt nach einem zweiten Abruf.
+- **`funnel-events` `blocked`:** kein Durchlauf am Handy mit langsamer Verbindung auf beiden Themes, oder
+  der Durchlauf ohne erteilte Einwilligung. Die zwei Aufrufe stehen in der Aktion.
+- **`realtime-ga4` `blocked`:** `theme_migration.ga4_properties` fehlt oder der Zugang des Dienstkontos
+  zur Property. "zu wenig Verkehr" heißt: später erneut.
+- **`consent-app-after` `missing`:** die abgelöste App lädt noch oder ihre Datei liegt noch unter Inhalte >
+  Dateien. App deinstallieren, Zeile und Embed entfernen, Datei löschen, neu mitschneiden.
+- **Punkte `blocked` mit "von Shopify gedrosselt":** zu viele Aufrufe in kurzer Zeit. Kein Fehler des
+  Shops; mit `--parallel 1 --pace 10` nachholen (`--only <ids>`).
 - **Jemand bittet um Veröffentlichen:** diese Skill veröffentlicht nicht. In einer Migration führt
   `theme-migration` den Launch (Phase 9): Haken-Liste grün, Frage, Ja mit Namen, `launch publish`. Ohne
   Migrationslauf nennt sie den Weg im Admin (`launch-checklist.md`, Veröffentlichen).

@@ -106,6 +106,12 @@ Die Abnahme verwendet dieselben Begriffe wie die Oberfläche des Portals.
 3. Auch der Link auf den heutigen Shop enthält die Theme-ID, weil Shopify eine Vorschau per Cookie speichert und die normale Shop-URL danach weiter den Entwurf zeigt.
 4. Beide IDs stehen in der `CLAUDE.md` des Theme-Repos der Brand.
 5. `check-test-round` meldet jeden Shop-Link ohne Theme-ID als Fehler.
+6. **Die Abnahme nennt ihr Referenz-Theme mit ID und Name**, im `intro` oder in `preview`: die Zeile aus
+   `"${CLAUDE_PLUGIN_ROOT}/bin/theme" visual_compare reference`, etwa "Verglichen wird mit dem heutigen
+   Shop: Theme 000000000000 „Beispiel Theme“". Referenz ist immer das veröffentlichte Theme, nach dem
+   Launch das alte als Rückfall-Theme. "Im heutigen Shop ansehen" nutzt genau diese ID; Vorschau-Links
+   anderer Themes stehen in keiner Abnahme und dienen nie als Vorlage. Anlass: Am 11.11.2026 wurde gegen
+   ein älteres Theme verglichen, und eine Änderung an den Schriften musste zurückgenommen werden.
 
 ## Prüfen und veröffentlichen
 

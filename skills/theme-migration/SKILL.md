@@ -241,7 +241,7 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   |---|---|
   | `phase --phase 2-inventory --status done` | die Prüfliste fehlt oder ein Punkt daraus nicht in der Liste steht |
   | `phase --phase 6-verify --status done` | ein Punkt `blocker` offen ist oder der jüngste Prüfbericht unter `migration/verify/` Offenes hält, das in der Liste fehlt |
-  | `gate --gate G4-acceptance` | ein Punkt für G4 offen ist, eine Quelle Offenes hält, das in der Liste fehlt, ein Testpunkt ohne Bilder vom Entwurf erledigt ist oder der Bildvergleich unvollständig ist (`visual_compare check`) |
+  | `gate --gate G4-acceptance` | ein Punkt für G4 offen ist, eine Quelle Offenes hält, das in der Liste fehlt, ein Testpunkt ohne Bilder vom Entwurf erledigt ist, der Bildvergleich unvollständig ist (`visual_compare check`, am Handy auch mit Menü offen) oder die Datenschicht je GA4-Property am Handy mit langsamer Verbindung nicht belegt ist oder etwas verliert |
   | `gate --gate G5-go-live` | ein Punkt für G4 oder G5 offen ist, oder wie bei G4 eine Quelle |
 
 - **Werte** für `set`: `live_theme_id`, `draft_theme_id`, `snapshot`, `last_sync`, `published_at`, `policies_version` und `policies_applied_at` (schreibt `policies apply`).
@@ -860,6 +860,17 @@ veröffentlichte Theme mit seiner ID im Link, rechts der Entwurf. Jedes Bildpaar
 die Testpunkte. `open_items gate --gate G4-acceptance` zeigt unter `visual_compare`, was fehlt, und unter
 `done_without_images` jeden Testpunkt, der ohne Bilder vom Entwurf erledigt ist. Beides hält G4 an.
 
+**Nachtrag vom 11.11.2026, ebenfalls vor G4:**
+
+- Die Referenz steht mit ID und Name am Anfang jedes Vergleichs und jeder Abnahme
+  (`visual_compare reference`). Vorschau-Links anderer Themes sind keine Vorlage.
+- Am Handy nimmt der Bildvergleich auch den Zustand "Menü offen" auf; ein fremdes Element über der
+  Menü-Schublade im Entwurf hält G4 an.
+- **Datenschicht je GA4-Property:** je ein Durchlauf ohne Bestellung auf Live-Theme und Entwurf, am Handy
+  in WebKit mit langsamer Verbindung (`launch-check`, Ablauf vor dem Launch, Schritt 3). Was das Live-Theme
+  an eine Property sendet (`view_item`, `add_to_cart`, `begin_checkout`) und der Entwurf nicht, hält G4 an;
+  ebenso ein fehlender Durchlauf. `open_items gate` zeigt das unter `datalayer`.
+
 Hält nichts mehr an, bespricht die Person der Marke die Abnahme mit Path to AI. Vorlage dafür: die Ansicht
 `migration/open-items.md` (Abschnitt Abnahme), jede entschiedene Abweichung ("wie heute" oder "anders"), jeder
 verschobene Punkt mit Person und Datum. Bis zum Gespräch steht in der Übergabe
@@ -997,8 +1008,10 @@ Nur nach einem ausdrücklichen Ja der Person der Marke, mit ihrem Namen:
 Der Befehl endet mit "Jetzt kommt der Launch-Check After." Die Sitzung sagt genau das und macht sofort
 weiter, ohne zu fragen:
 
+0. Eine abgelöste Consent-App deinstalliert das Team sofort im Admin, nicht nur deaktivieren, und löscht
+   ihre Datei unter Inhalte > Dateien (`launch-check`, Abschnitt "Nach dem Veröffentlichen", Schritt 0).
 1. Mitschnitt des veröffentlichten Themes und, mit Freigabe, mit Einwilligung (`launch-check`, Abschnitt
-   "Nach dem Veröffentlichen", Schritte 1 und 2).
+   "Nach dem Veröffentlichen", Schritte 1 und 2), dazu die Durchläufe der Datenschicht auf beiden Themes.
 2. Testbestellung **nur nach Freigabe**: `walk_checkout.py --approved-by "<Name>"` geht die Kasse bis zur
    Zahlung durch, die Person aus dem Team setzt die Bestellung im geöffneten Fenster ab.
 3. Dann:
@@ -1016,8 +1029,14 @@ weiter, ohne zu fragen:
    Analyseaufruf vor der Einwilligung, und der Kauf in **jeder** GA4-Property und jeder
    Google-Ads-Kauf-Conversion, die der Shop vorher bediente (`purchase-ga4-<g-id>`,
    `purchase-google-ads-<id>-<label>`); läuft der Kauf über den Server, bestätigt ihn ein Mensch im
-   Echtzeitbericht jeder Property, nicht nur in einem Tracking-Werkzeug. Altes und neues Theme kommen aus dem Stand (`rollback_theme_id`), nicht von Hand. Am Ende
-   der festgehaltene Stand: `published_at` mit dem Namen, neue `live_theme_id`, Rückfall-Theme.
+   Echtzeitbericht jeder Property, nicht nur in einem Tracking-Werkzeug. Altes und neues Theme kommen aus
+   dem Stand (`rollback_theme_id`), nicht von Hand. Seit dem Nachtrag vom 11.11.2026 dazu: die
+   abgelöste Consent-App ist deinstalliert und ihre Datei unter Inhalte > Dateien gelöscht
+   (`consent-app-after`), die Datenschicht je Property auf dem veröffentlichten Theme gegen das
+   Rückfall-Theme am Handy mit langsamer Verbindung (`funnel-ga4-<g-id>-after`) und die GA4-Echtzeit je
+   Property gegen die Littledata-Property und die Bestellungen (`realtime-ga4-<g-id>`, braucht
+   `theme_migration.ga4_properties`). Am Ende der festgehaltene Stand: `published_at` mit dem Namen, neue
+   `live_theme_id`, Rückfall-Theme.
 4. Was offen bleibt, abarbeiten und `launch check --after` wiederholen. Storno und Erstattung der
    Testbestellung fragt die Liste beim Team ab; steht GA4 noch auf `blocked`, am Folgetag erneut prüfen.
 5. Sitemap in der Search Console neu einreichen (Frage in der Liste).
@@ -1031,7 +1050,9 @@ Launch". Kurz:
    das Duplikat wird `draft_theme_id`. Am Live-Theme wird nie direkt gearbeitet.
 2. **Getrennte Bereiche** mit getrennten Dateien, parallel möglich; gemeinsame Dateien
    (`settings_data.json`, `layout/theme.liquid`, eigene CSS-Datei, `locales/*`) ändert genau ein Bereich.
-   Je Befund Ursache belegt und Bildpaar Rückfall-Theme gegen Duplikat in 1440 und 390 px.
+   Je Befund Ursache belegt und Bildpaar Rückfall-Theme gegen Duplikat in 1440 und 390 px. Referenz ist
+   das Rückfall-Theme, also das bis zum Launch veröffentlichte, mit ID und Name genannt
+   (`visual_compare reference`); nie ein drittes Theme aus der Bibliothek oder ein Vorschau-Link.
 3. **Chargen:** eine feste Dateiliste geht live nach dem ausdrücklichen Go der verantwortlichen Person, je
    Charge zuerst die **Drift-Prüfung** (`sync --last <referenz>`; keine Datei der Charge darf seitdem live
    geändert sein), dann `shopify theme push --only … --nodelete` ins Live-Theme, dann **Zurücklesen**

@@ -77,6 +77,21 @@ gelten bei jedem weiteren Lauf, mit Name und Datum dessen, der geantwortet hat.
 - *Kauf je Messziel*: jede GA4-Property und jede Google-Ads-Kauf-Conversion, die der Shop vor dem Launch
   bediente, ist ein eigener Punkt der Testbestellung.
 
+**Nachtrag vom Nachmittag des 11.11.2026**, aus drei weiteren Befunden:
+
+- *Datenschicht je GA4-Property* (`funnel-ga4-<g-id>`, nach dem Launch mit `-after`): `view_item`,
+  `add_to_cart` und `begin_checkout` je Property aus Durchläufen von `walk_checkout.py --headless`, altes
+  gegen neues Theme unter denselben Bedingungen, Pflicht am Handy in WebKit mit langsamer Verbindung
+  (`theme.funnel_events`). Ein `add_to_cart` ging verloren, weil Safari einen Abruf beim Seitenwechsel
+  verwarf; am Rechner fiel das nicht auf.
+- *Echtzeit je Property* (nur `--after`, `realtime-ga4-<g-id>`): GA4-Echtzeit je Property gegen die
+  Property, die der Shop serverseitig beliefert (Littledata), und `purchase` gegen die Bestellungen.
+- *Abgelöste Consent-App* (nur `--after`, `consent-app-after`): Skripte aus Shopify Files, die die App ins
+  Layout schreibt, im Live-Theme und in den Seiten; ihre Datei darf nicht mehr abrufbar sein, und die App
+  ist deinstalliert, nicht nur deaktiviert.
+- *Gedrosselte Mitschnitte* (HTTP 429, Warteseite) zählen nicht und stehen als nicht prüfbar, nie als
+  Fehler des Shops.
+
 CLI:
     python3 -m theme.launch_check [--after] [--live-theme-id <id>] [--draft-theme-id <id>]
         [--launch-date YYYY-MM-DD] [--run-id <id>] [--pages <pages.json>]
@@ -101,7 +116,8 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from theme import (EXIT_ERROR, EXIT_FINDINGS, EXIT_OK, ConfigError, emit, load_config, migration_config,
                    now_utc, write_json)
-from theme import apps, launch_findings, open_items, run_state, seo_parity, sync, test_order, tracking_ids, web_pixels
+from theme import (apps, funnel_events, launch_findings, open_items, run_state, seo_parity, sync, test_order,
+                   tracking_ids, web_pixels)
 from theme.files import fetch_by_names, list_files, list_themes
 from theme.shopify import ShopifyError, numeric_id, transport_from_config
 from theme.translations import read_resource
@@ -456,9 +472,21 @@ def third_party_keys(runs: list, own_hosts: set, catalog, host_map: dict | None 
     return keys - {None}
 
 
+def throttled_runs(capture: dict, side: str) -> list:
+    """Durchläufe, die Shopify gedrosselt hat (HTTP 429, Warteseite): `home (mobile, neu)`.
+
+    Sie zählen in keinem Vergleich (nur `state: ok` zählt) und stehen als nicht prüfbar im Beleg. Am
+    11.11.2026 scheiterte im Test gegen den Live-Shop Horizons Nachladen an 429, und das sah aus wie ein
+    Fehler des Shops.
+    """
+    return sorted({f"{r.get('page_id')} ({r.get('device')}, {side})" for e in capture["pages"].values()
+                   for r in e["runs"] if r.get("state") == "throttled"})
+
+
 def compare_tracking(old: dict, new: dict, own_hosts: set, catalog, host_map: dict | None = None) -> dict:
     """Je Seite und Consent-Zustand: was alt lädt und neu fehlt, was neu dazukommt."""
-    result = {"missing": [], "added": [], "pages": 0, "wrong_theme": [], "unmatched": [], "unconfirmed": []}
+    result = {"missing": [], "added": [], "pages": 0, "wrong_theme": [], "unmatched": [], "unconfirmed": [],
+              "throttled": throttled_runs(old, "alt") + throttled_runs(new, "neu")}
     for page_id, old_entry in sorted(old["pages"].items(), key=lambda kv: str(kv[0])):
         new_entry = new["pages"].get(page_id)
         if not new_entry:
@@ -469,6 +497,10 @@ def compare_tracking(old: dict, new: dict, own_hosts: set, catalog, host_map: di
         for mode in sorted({r.get("consent") for r in old_entry["runs"]} & {r.get("consent") for r in new_entry["runs"]}):
             old_runs = [r for r in old_entry["runs"] if r.get("consent") == mode and r.get("state") == "ok"]
             new_runs = [r for r in new_entry["runs"] if r.get("consent") == mode and r.get("state") == "ok"]
+            if not (old_runs and new_runs):
+                # Kein gültiger Durchlauf auf einer Seite (gedrosselt, falsches Theme, Fehler): ohne ihn fehlte im
+                # Vergleich jeder Dienst. Der Grund steht unter throttled oder wrong_theme.
+                continue
             # Ohne erteilte Einwilligung auf einer Seite fiele jeder Dienst nach der Einwilligung als fehlend auf.
             if any(r for r in old_runs + new_runs if not consent_counts(r)) and not (
                     any(consent_counts(r) for r in old_runs) and any(consent_counts(r) for r in new_runs)):
@@ -1701,6 +1733,10 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
     if result["wrong_theme"]:
         status = BLOCKED if status == OK else status
         evidence += "; Durchläufe mit falschem Theme: " + short_list(result["wrong_theme"])
+    if result["throttled"]:
+        status = BLOCKED if status == OK else status
+        evidence += ("; von Shopify gedrosselt (HTTP 429), kein Fehler des Shops, nicht verglichen: "
+                     + short_list(result["throttled"]))
     if result["unmatched"]:
         evidence += "; ohne Gegenstück: " + short_list(result["unmatched"])
     if result["unconfirmed"]:
@@ -1709,7 +1745,9 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
     paths = sorted({m["path"] for m in result["missing"] if m.get("path")})[:4]
     out = [make_check(check_id, group, title, status, evidence,
                       action="Einbindung im neuen Theme herstellen oder bewusst streichen (apps-and-tracking.md)"
-                      if result["missing"] else "", owner=OPERATOR if status != OK else "",
+                      if result["missing"] else "gedrosselte Seiten mit capture_network.py --parallel 1 --pace 10 "
+                      "nachholen (--only <ids>)" if result["throttled"] else "",
+                      owner=OPERATOR if status != OK else "",
                       links=[l for p in paths for l in link_pair(ctx, p)])]
     out[0]["details"] = {"missing": result["missing"], "added": result["added"], "dropped": intended}
     if not after:
@@ -2221,6 +2259,236 @@ def check_web_pixels_after(ctx: dict) -> dict:
         owner=OPERATOR if gone_bad else BOTH if status == MANUAL else "")
     check["details"] = {"missing": gone_bad, "removed_on_purpose": gone_ok, "lost_targets": lost, "added": added}
     return check
+
+
+def property_slug(g_id: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", g_id.lower()).strip("-")
+
+
+def check_funnel_events(ctx: dict) -> list:
+    """Datenschicht je GA4-Property: altes gegen neues Theme, Pflicht am Handy (Safari) mit langsamer Verbindung.
+
+    Liest Durchläufe von `walk_checkout.py --headless` (`theme.funnel_events`): unter diesem Lauf `events/`,
+    sonst `migration/verify/*/events/` und andere Läufe der letzten sieben Tage. Vor dem Launch ist "neu"
+    der Entwurf, danach das veröffentlichte Theme und "alt" das Rückfall-Theme. Was alt unter denselben
+    Bedingungen an eine Property ging und neu fehlt, ist ein Befund.
+    """
+    group = "Tracking"
+    suffix = "-after" if ctx["after"] else ""
+    title = "Datenschicht je GA4-Property (Handy, Safari, langsame Verbindung)"
+    walks = funnel_events.find_walks(ctx["workspace"], [ctx["run_dir"] / "events"])
+    old_walks = funnel_events.pick(walks, ctx["old_id"])
+    new_walks = funnel_events.pick(walks, ctx["new_id"])
+    which = "veröffentlichten Themes" if ctx["after"] else "Entwurfs"
+    base = f"reporting/runs/{ctx['run_dir'].name}/events" if ctx["after"] else "migration/verify/<date>/events"
+    action = ("Durchläufe ohne Bestellung, nach Freigabe des Mitschnitts mit Einwilligung: "
+              + funnel_events.walk_commands(ctx["old_id"], ctx["new_id"], base))
+    if not new_walks:
+        return [make_check("funnel-events" + suffix, group, title, BLOCKED,
+                           f"kein Durchlauf des {which} (events/*/walk.json); ein verlorenes add_to_cart zeigt sich "
+                           "oft nur am Handy mit Safari und langsamer Verbindung", action=action, owner=OPERATOR)]
+    result = funnel_events.compare(old_walks, new_walks, ctx["old_id"], ctx["new_id"])
+    blocked = ("; nicht verglichen: " + short_list(result["blocked"], 3)) if result["blocked"] else ""
+    if not result["properties"]:
+        if result["mobile_slow"] and not result["blocked"]:
+            return [make_check("funnel-events" + suffix, group, title, NA,
+                               "keine GA4-Ereignisse des Kaufwegs im Browser, weder alt noch neu; eine serverseitige "
+                               "Property prüft nach dem Launch die Echtzeit (realtime-ga4-*)")]
+        return [make_check("funnel-events" + suffix, group, title, BLOCKED,
+                           "kein vergleichbarer Durchlauf am Handy mit langsamer Verbindung" + blocked,
+                           action=action, owner=OPERATOR)]
+    out = []
+    for tid, entries in sorted(result["properties"].items()):
+        status, evidence = funnel_events.property_verdict(entries, result["mobile_slow"])
+        out.append(make_check(
+            f"funnel-ga4-{property_slug(tid)}{suffix}", group, f"Datenschicht: GA4-Property {tid}", status,
+            evidence + blocked,
+            action=("Ereignis im neuen Theme wieder senden: die Datenschicht darf beim Seitenwechsel nach dem "
+                    "Hinzufügen nichts verlieren (etwa die Meldung auf der nächsten Seite nachholen), dann beide "
+                    "Durchläufe wiederholen") if status == MISSING else action if status == BLOCKED else "",
+            owner=OPERATOR if status != OK else "", links=link_pair(ctx, "/cart")))
+        out[-1]["details"] = {"entries": entries, "conditions": result["conditions"]}
+    return out
+
+
+def check_funnel_realtime(ctx: dict) -> list:
+    """Nach dem Launch: GA4-Echtzeit je Property gegen die serverseitige Property und gegen die Bestellungen.
+
+    Die Property-IDs stehen in `theme_migration.ga4_properties`; die mit `via` (etwa Littledata) ist die
+    Referenz. Gelesen wird nur, Abgleich und Grenzen in `theme.funnel_events.realtime_verdict`.
+    """
+    group = "Tracking"
+    title = "Echtzeit je GA4-Property gegen Littledata und Bestellungen"
+    props = funnel_events.configured_properties(ctx["config"])
+    if not props:
+        known = sorted(purchase_targets(ctx)["ga4"])
+        return [make_check("realtime-ga4", group, title, BLOCKED,
+                           "theme_migration.ga4_properties fehlt; die Echtzeit braucht je Messkennung die Property-ID"
+                           + (f"; Properties von vor dem Launch: {short_list(known, 6)}" if known else ""),
+                           action='in reporting/config.json eintragen: "ga4_properties": {"G-…": {"property_id": '
+                                  '"…", "via": "Littledata"}, "G-…": {"property_id": "…"}}', owner=OPERATOR)]
+    factory = ctx.get("ga4_for") or test_order.ga4_reader_factory(ctx["workspace"])
+    numbers = {}
+    for g_id, spec in props.items():
+        reader, error = factory(spec["property_id"])
+        if reader is None:
+            numbers[g_id] = (None, error)
+            continue
+        numbers[g_id] = test_order.safe_call(reader.realtime_events, list(funnel_events.REALTIME_EVENTS))
+    since = datetime.now(timezone.utc) - timedelta(minutes=funnel_events.REALTIME_MINUTES)
+    counted, order_error = shop(ctx, "orders-realtime", test_order.orders_since, since)
+    orders = counted[0] if counted else None
+    reference_id = next((g for g, spec in props.items() if spec.get("via")), None)
+    reference = (numbers.get(reference_id) or (None, None))[0] if reference_id else None
+    notes = []
+    if not reference_id:
+        notes.append("keine Property mit via (serverseitig) in ga4_properties; nur purchase gegen die Bestellungen")
+    elif reference is None:
+        notes.append(f"Referenz {reference_id} nicht lesbar ({numbers[reference_id][1]})")
+    if orders is None:
+        notes.append(f"Bestellungen nicht lesbar ({order_error})")
+    elif counted[1]:
+        notes.append("mindestens 20 Bestellungen im Fenster")
+    out = []
+    for g_id, (values, error) in sorted(numbers.items()):
+        spec = props[g_id]
+        cid = "realtime-ga4-" + property_slug(g_id)
+        label = f"Echtzeit: GA4-Property {g_id}" + (f" (über {spec['via']}, Referenz)" if g_id == reference_id else "")
+        if values is None:
+            out.append(make_check(cid, group, label, BLOCKED, f"Property {spec['property_id']} nicht lesbar: {error}",
+                                  action="Zugang des Dienstkontos zur Property prüfen", owner=OPERATOR))
+            continue
+        status, evidence, low = funnel_events.realtime_verdict(values, None if g_id == reference_id else reference,
+                                                               orders)
+        evidence += ("; " + "; ".join(notes)) if notes else ""
+        out.append(make_check(
+            cid, group, label, status, evidence,
+            action=("Einbindung dieser Property prüfen (Datenschicht, Tag Manager, Kassen-Pixel), dann erneut "
+                    "abgleichen") if status == MISSING else (
+                "später erneut prüfen, sobald Verkehr da ist" if status == BLOCKED else ""),
+            question=(f"{g_id} zählt deutlich weniger als erwartet ({', '.join(low)}). Erklärt das die "
+                      "Einwilligungsrate, oder fehlt ein Ereignis?") if status == MANUAL else "",
+            owner=OPERATOR if status in (MISSING, BLOCKED) else BOTH if status == MANUAL else ""))
+    return out
+
+
+#: Skripte aus Shopify Files (Inhalte > Dateien), nicht aus den Theme-Assets.
+FILES_URL = re.compile(r"(?:cdn\.shopify\.com/s/files/1/(?:\d+/)+files/|/cdn/shop/files/)[^\s'\"<>?]+", re.I)
+SCRIPT_SRC = re.compile(r"""<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']""", re.I)
+
+
+def files_name(url: str) -> str | None:
+    """Dateiname eines Skripts aus Shopify Files, None für alles andere."""
+    match = FILES_URL.search(url or "")
+    return match.group(0).rsplit("/", 1)[-1].lower() if match and match.group(0).lower().endswith(".js") else None
+
+
+def capture_files_scripts(capture: dict) -> dict:
+    """Skripte aus Shopify Files in einem Mitschnitt: `{dateiname: adresse}`, aus Anfragen und HTML."""
+    found = {}
+    for entry in capture["pages"].values():
+        for run in entry["runs"]:
+            urls = [r.get("url") or "" for r in run.get("requests") or []]
+            urls += SCRIPT_SRC.findall(run_html(run) or "")
+            for url in urls:
+                name = files_name(url)
+                if name:
+                    full = url if "://" in url else ("https:" + url if url.startswith("//") else run_base(run) + url)
+                    found.setdefault(name, full)
+    return found
+
+
+def run_base(run: dict) -> str:
+    return str(run.get("_base") or "").rstrip("/")
+
+
+def consent_apps(ctx: dict) -> dict:
+    """Abgelöste Consent-Apps: `{name: (schlüssel, beleg)}` aus der Bestandsaufnahme und der Entscheidungsliste."""
+    out = {}
+    for row in inventory_rows(ctx) or []:
+        if row.get("category") != "consent" or row.get("decision") not in DROPPED_DECISIONS:
+            continue
+        keys = {k.lower() for k in (str(row.get("service_id") or ""), str(row.get("app_handle") or "")) if k}
+        name = str(row.get("service_name") or row.get("app_handle") or row.get("service_id"))
+        out[name] = (keys, dropped_reason(ctx, *keys) or f"{name}: {row['decision']} laut apps.json")
+    for key, label in ctx["dropped"].items():
+        if ctx["catalog"].describe(key)["category"] == "consent":
+            name = ctx["catalog"].describe(key)["service_name"]
+            keys, _ = out.get(name, (set(), label))
+            out[name] = (keys | {key}, label)
+    return out
+
+
+def check_consent_app_after(ctx: dict) -> dict:
+    """Nach dem Launch: ist eine abgelöste Consent-App wirklich weg?
+
+    Am 11.11.2026 trug sich eine abgelöste Consent-App beim Veröffentlichen wieder ein: eine Zeile in
+    `layout/theme.liquid`, die ein Skript aus Shopify Files lädt, und ein App-Embed. Das Skript lud ein
+    Werbe-Tag ohne Einwilligung. Deaktivieren in der App wirkt nicht auf die Zeile und nicht auf die Datei.
+    Geprüft wird deshalb: keine Zeile im Live-Layout und kein geladenes Skript aus Shopify Files, das zu der
+    App gehört; jede Datei, die sie vor dem Launch aus Files lud, antwortet nicht mehr; und die Frage an das
+    Team, ob die App deinstalliert ist.
+    """
+    group, cid = "Apps und Embeds", "consent-app-after"
+    title = "Abgelöste Consent-App deinstalliert, ihre Datei gelöscht"
+    apps_ = consent_apps(ctx)
+    if not apps_:
+        return make_check(cid, group, title, NA, "kein Consent-Tool laut Entscheidung abgelöst (apps.json, "
+                                                 "decisions.json)")
+    words = {name: {w for k in keys for w in distinctive_words(k)} | distinctive_words(name)
+             for name, (keys, _) in apps_.items()}
+
+    def owner_of(text: str) -> str | None:
+        found = distinctive_words(text)
+        return next((name for name, w in words.items() if w & found), None)
+
+    problems, unknown, unreachable, checked = [], [], [], []
+    layout, error = file_body(ctx, ctx["new_id"], "layout/theme.liquid")
+    if layout is not None:
+        checked.append("theme.liquid")
+        for line in layout_lines(layout):
+            if ("file_url" in line or FILES_URL.search(line)) and owner_of(line):
+                problems.append(f"Zeile im Live-Layout: {line[:100]} ({owner_of(line)})")
+    after_scripts = capture_files_scripts(ctx["new"])
+    before_scripts = capture_files_scripts(ctx["old"])
+    if ctx["new"]["pages"]:
+        checked.append("Mitschnitt nach dem Launch")
+        for name, url in sorted(after_scripts.items()):
+            if owner_of(name):
+                problems.append(f"lädt noch aus Shopify Files: {name} ({owner_of(name)})")
+            elif name not in before_scripts:
+                unknown.append(name)
+    for index, (name, url) in enumerate(sorted((n, u) for n, u in before_scripts.items() if owner_of(n))):
+        if index:
+            ctx["sleep"](FETCH_PAUSE)
+        fetched, fetch_error = safe(ctx["fetch"], url)
+        checked.append(f"Datei {name}")
+        if fetched and fetched[0] == 200:
+            problems.append(f"Datei {name} liegt noch unter Inhalte > Dateien (antwortet 200)")
+        elif not fetched:
+            unreachable.append(f"{name} ({fetch_error})")
+    names = ", ".join(sorted(apps_))
+    evidence = f"abgelöst: {'; '.join(sorted({label for _, label in apps_.values()}))}"
+    evidence += f"; geprüft: {', '.join(checked) or 'nichts (kein Layout, kein Mitschnitt)'}"
+    if error and layout is None:
+        evidence += f"; theme.liquid nicht lesbar ({error})"
+    if problems:
+        evidence += "; " + short_list(problems, 6)
+    if unknown:
+        evidence += "; Skripte aus Shopify Files ohne Zuordnung, neu seit dem Launch: " + short_list(unknown, 4)
+    if unreachable:
+        evidence += "; Abruf gescheitert: " + short_list(unreachable, 3)
+    if problems:
+        return make_check(cid, group, title, MISSING, evidence,
+                          action=f"{names} im Admin deinstallieren (nicht nur deaktivieren), die Zeile aus "
+                                 "layout/theme.liquid und das Embed entfernen, die Datei unter Inhalte > Dateien "
+                                 "löschen; dann neu mitschneiden und prüfen", owner=BOTH, links=link_pair(ctx))
+    if not checked:
+        return make_check(cid, group, title, BLOCKED, evidence, action="Mitschnitt nach dem Launch ziehen",
+                          owner=OPERATOR)
+    return make_check(cid, group, title, MANUAL, evidence + "; keine Zeile, kein Skript, keine Datei mehr",
+                      question=f"Ist {names} im Admin unter Apps deinstalliert, nicht nur deaktiviert? Sonst trägt "
+                               "sie sich beim nächsten Veröffentlichen wieder ein.", owner=TEAM)
 
 
 def check_pagination(ctx: dict) -> list:
@@ -3035,9 +3303,10 @@ def recommend(checks: list) -> str:
 
 def collect(ctx: dict) -> list:
     if ctx["after"]:
-        checks = check_published(ctx) + [check_injections(ctx)] + check_after_seo(ctx) \
+        checks = check_published(ctx) + [check_injections(ctx), check_consent_app_after(ctx)] + check_after_seo(ctx) \
             + check_seo_output(ctx, after=True) + check_tracking(ctx, after=True) + [check_consent_after(ctx)] \
-            + [check_pre_consent(ctx), check_web_pixels_after(ctx)] + check_pagination(ctx) \
+            + [check_pre_consent(ctx), check_web_pixels_after(ctx)] + check_funnel_events(ctx) \
+            + check_funnel_realtime(ctx) + check_pagination(ctx) \
             + check_test_order(ctx) + check_after_languages(ctx) + check_after_rest(ctx)
     else:
         seo = [check_seo_robots(ctx, "SEO"), check_seo_pages(ctx, "SEO")] + check_seo_output(ctx)
@@ -3047,7 +3316,7 @@ def collect(ctx: dict) -> list:
         checklist = [] if ledger_mode(ctx) else [check_checklist(ctx, statuses)]
         checks = (check_timing(ctx) + check_acceptance(ctx, statuses) + checklist + check_sync(ctx) + check_draft(ctx)
                   + check_embeds(ctx) + [check_injections(ctx)] + check_translations(ctx) + check_tracking(ctx)
-                  + [check_pre_consent(ctx)] + check_web_pixels(ctx) + check_pagination(ctx)
+                  + [check_pre_consent(ctx)] + check_web_pixels(ctx) + check_funnel_events(ctx) + check_pagination(ctx)
                   + seo + check_baseline(ctx) + check_criteria(ctx) + check_go_decision(ctx)
                   + check_customer_accounts(ctx)
                   + check_script_tags(ctx))
@@ -3137,7 +3406,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def execute(args, *, transport=None, fetch=None, sleep=None, ga4=None) -> tuple:
+def execute(args, *, transport=None, fetch=None, sleep=None, ga4=None, ga4_props=None) -> tuple:
     """Ein Prüflauf aus fertigen Argumenten: `(report, exit_code, ctx)`. Wirft `ConfigError`, `OSError` oder
     `ValueError`; `main` und `theme.launch` fangen sie."""
     workspace = Path(args.workspace)
@@ -3145,16 +3414,20 @@ def execute(args, *, transport=None, fetch=None, sleep=None, ga4=None) -> tuple:
     ctx = build_context(args, config, workspace, transport=transport)
     if ga4 is not None:
         ctx["ga4"] = (ga4, None)
+    if ga4_props is not None:
+        # Für Tests: je Property-ID ein Leser; eine fehlende Property ist nicht lesbar.
+        ctx["ga4_for"] = lambda prop: ((ga4_props[prop], None) if prop in ga4_props
+                                       else (None, f"kein Zugang zu Property {prop}"))
     ctx["fetch"] = fetch or http_fetch
     ctx["sleep"] = sleep or time.sleep
     report, code = run(ctx)
     return report, code, ctx
 
 
-def main(argv: list[str] | None = None, *, transport=None, fetch=None, sleep=None, ga4=None) -> int:
+def main(argv: list[str] | None = None, *, transport=None, fetch=None, sleep=None, ga4=None, ga4_props=None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        report, code, ctx = execute(args, transport=transport, fetch=fetch, sleep=sleep, ga4=ga4)
+        report, code, ctx = execute(args, transport=transport, fetch=fetch, sleep=sleep, ga4=ga4, ga4_props=ga4_props)
     except (ConfigError, OSError, ValueError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         emit({"ok": False, "error": str(exc)})

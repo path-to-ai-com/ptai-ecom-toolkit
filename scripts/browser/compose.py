@@ -13,7 +13,10 @@ Bis 11.11.2026 zeigte die Seite nur die Erstansicht, und Fehler weiter unten
 (Newsletter, Footer, schmale Inhaltsseiten) fielen niemandem auf. Oben stehen die
 Referenz (links das veröffentlichte Theme?) und die Abdeckung. Ein Bild mit
 falschem Theme oder Fehler trägt eine deutliche Markierung, damit niemand einen
-Entwurf mit dem Live-Shop vergleicht, ohne es zu merken.
+Entwurf mit dem Live-Shop vergleicht, ohne es zu merken. Seit dem Nachtrag vom
+11.11.2026 steht die Referenz mit ID und Name oben, am Handy folgt je Paar der
+Zustand "Menü offen" mit den fremden Elementen über der Schublade, und eine
+gedrosselte Aufnahme ist als solche markiert, nicht als Fehler des Shops.
 
 Exit 0 geschrieben, 1 geschrieben, aber mindestens ein Bild ungültig oder
 fehlend oder die Referenz ist nicht das veröffentlichte Theme, 2 Fehler (kein
@@ -30,7 +33,10 @@ from pathlib import Path
 
 DEVICE_LABEL = {"desktop": "Rechner, 1440 px (Chromium)", "mobile": "Handy, 390 px (WebKit, iPhone)"}
 SIDE_LABEL = {"a": "veröffentlicht", "b": "Entwurf"}
-STATE_LABEL = {"ok": None, "wrong_theme": "Falsches Theme", "error": "Fehler", "incomplete": "Bild unvollständig"}
+STATE_LABEL = {"ok": None, "wrong_theme": "Falsches Theme", "error": "Fehler", "incomplete": "Bild unvollständig",
+               "throttled": "Gedrosselt (HTTP 429), kein Fehler des Shops"}
+MENU_LABEL = {"ok": None, "overlap": "Fremdes Element über dem Menü", "no_toggle": "Kein Menüknopf gefunden",
+              "no_drawer": "Menü nicht geöffnet", "error": "Fehler beim Öffnen"}
 
 STYLE = """
 :root { --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --warn-bg: #fff4e5; --warn: #9a4b00;
@@ -92,7 +98,8 @@ def figure(side: str, shot: dict | None, theme_id: str | None, pairs_dir: Path, 
         return f'<figure><figcaption>{label}</figcaption><div class="missing">keine Aufnahme</div></figure>'
     flag = STATE_LABEL.get(shot.get("state"), shot.get("state"))
     flag_html = f'<span class="flag">{html.escape(flag)}</span>' if flag else ""
-    reason = (shot.get("theme_check") or {}).get("reason") or shot.get("error")
+    reason = ((shot.get("throttle") or {}).get("reason") or (shot.get("theme_check") or {}).get("reason")
+              or shot.get("error"))
     reason_html = f"<br>{html.escape(str(reason))}" if reason and flag else ""
     link = f' · <a href="{html.escape(shot["url"])}">Seite öffnen</a>' if shot.get("url") else ""
     if not shot.get("fold_file") and not shot.get("file"):
@@ -110,6 +117,32 @@ def figure(side: str, shot: dict | None, theme_id: str | None, pairs_dir: Path, 
             f'loading="lazy" alt="{side.upper()}, ganze Seite"></a></figure>')
 
 
+def menu_figure(side: str, shot: dict | None, theme_id: str | None, pairs_dir: Path, out_dir: Path,
+                side_label: str | None = None) -> str:
+    """Zustand "Menü offen" am Handy: Bild und, falls vorhanden, was über der Schublade liegt."""
+    label = (f"{side.upper()} · {html.escape(side_label or SIDE_LABEL[side])} · "
+             f"Theme {html.escape(str(theme_id or '?'))} · Menü offen")
+    menu = (shot or {}).get("menu")
+    if not isinstance(menu, dict):
+        return f'<figure><figcaption>{label}</figcaption><div class="missing">nicht aufgenommen</div></figure>'
+    flag = MENU_LABEL.get(menu.get("state"), menu.get("state"))
+    flag_html = f'<span class="flag">{html.escape(flag)}</span>' if flag else ""
+    drawer = menu.get("drawer") or {}
+    items = "".join(
+        f"<br>{html.escape(str(f.get('label')))}: z-index {html.escape(str(f.get('z_index')))}"
+        f" über Schublade z-index {html.escape(str(drawer.get('z_index')))},"
+        f" {round(float(f.get('share') or 0) * 100)} % der Fläche"
+        for f in (menu.get("foreign") or [])[:4] if isinstance(f, dict))
+    if not menu.get("file"):
+        reason = html.escape(str(menu.get("error") or ""))
+        return (f'<figure><figcaption>{label}{flag_html}{"<br>" + reason if reason else ""}</figcaption>'
+                f'<div class="missing">kein Bild</div></figure>')
+    src = relative_src(menu["file"], pairs_dir, out_dir)
+    return (f'<figure><figcaption>{label}{flag_html}{items}</figcaption>'
+            f'<a href="{html.escape(src)}"><img src="{html.escape(src)}" loading="lazy" '
+            f'alt="{side.upper()}, Menü offen"></a></figure>')
+
+
 def status_block(data: dict) -> str:
     """Referenz und Abdeckung über den Paaren; fehlen beide (älteres pairs.json), nichts."""
     reference, cover = data.get("reference"), data.get("coverage")
@@ -117,8 +150,12 @@ def status_block(data: dict) -> str:
         return ""
     lines = []
     if reference:
-        if reference.get("ok") and reference.get("published"):
-            lines.append(f"<p>Links das veröffentlichte Theme {html.escape(str(reference.get('theme_id')))}, "
+        name = f" „{html.escape(str(reference['name']))}“" if reference.get("name") else ""
+        if reference.get("ok") and reference.get("kind") == "rollback":
+            lines.append(f"<p>Links das alte Theme {html.escape(str(reference.get('theme_id')))}{name}, bis zum "
+                         "Launch veröffentlicht, jetzt Rückfall-Theme.</p>")
+        elif reference.get("ok") and reference.get("published"):
+            lines.append(f"<p>Links das veröffentlichte Theme {html.escape(str(reference.get('theme_id')))}{name}, "
                          "belegt durch den Theme-Nachweis jeder Seite.</p>")
         elif reference.get("ok"):
             lines.append(f"<p>Links Theme {html.escape(str(reference.get('theme_id')))}, gleich live_theme_id der "
@@ -138,6 +175,9 @@ def status_block(data: dict) -> str:
                             for m in missing[:30])
             more = f"<li>und {len(missing) - 30} weitere</li>" if len(missing) > 30 else ""
             lines.append(f"<ul>{items}{more}</ul>")
+        for note in (cover.get("notes") or [])[:10]:
+            lines.append(f'<p><span class="flag">Hinweis</span> {html.escape(str(note.get("page_id")))}: '
+                         f'{html.escape(str(note.get("note")))}</p>')
     return f'<div class="status">{"".join(lines)}</div>'
 
 
@@ -147,7 +187,8 @@ def render(data: dict, pairs_dir: Path, out_dir: Path, title: str | None = None)
     title = title or "Theme-Vergleich"
     reference = data.get("reference") or {}
     # "veröffentlicht" nur mit Beleg; ein pairs.json vor 11.11.2026 hat keinen.
-    a_label = ("veröffentlicht" if reference.get("published") else "Referenz nicht belegt") if reference \
+    a_label = ("Rückfall-Theme" if reference.get("kind") == "rollback" and reference.get("ok") else
+               "veröffentlicht" if reference.get("published") else "Referenz nicht belegt") if reference \
         else "Referenz"
     sections: dict[str, list[str]] = {}
     heads: dict[str, str] = {}
@@ -162,6 +203,11 @@ def render(data: dict, pairs_dir: Path, out_dir: Path, title: str | None = None)
             f'<div class="pair {html.escape(device)}">'
             f'{figure("a", pair.get("a"), themes.get("a"), pairs_dir, out_dir, a_label)}'
             f'{figure("b", pair.get("b"), themes.get("b"), pairs_dir, out_dir)}</div>')
+        if device == "mobile" and any(isinstance((pair.get(side) or {}).get("menu"), dict) for side in ("a", "b")):
+            sections[page_id].append(
+                f'<h3>{html.escape(DEVICE_LABEL["mobile"])}, Menü offen</h3><div class="pair mobile">'
+                f'{menu_figure("a", pair.get("a"), themes.get("a"), pairs_dir, out_dir, a_label)}'
+                f'{menu_figure("b", pair.get("b"), themes.get("b"), pairs_dir, out_dir)}</div>')
     body = "".join(f"<section>{heads[pid]}{''.join(parts)}</section>" for pid, parts in sections.items())
     meta = (f'A: Theme {html.escape(str(themes.get("a") or "?"))} · B: Theme {html.escape(str(themes.get("b") or "?"))}'
             f' · aufgenommen {html.escape(str(data.get("captured_at") or ""))}')

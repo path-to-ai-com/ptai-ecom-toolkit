@@ -41,6 +41,10 @@ eine Änderung nach sich (`scripts/theme/launch_check.py`).
    am Handy (390) als ganze Seite, links das veröffentlichte Theme (Theme-Nachweis mit Rolle `main`),
    rechts der Entwurf, jedes Paar angesehen (`visual_compare check` ohne Befund), und kein Testpunkt der
    Abnahme ohne Bilder vom Entwurf erledigt. Beides prüft `run_state gate` selbst.
+   Seit dem Nachtrag vom 11.11.2026 außerdem: die Referenz steht mit ID und Name in jedem Vergleich und
+   jeder Abnahme (`visual_compare reference`), am Handy ist auch das offene Menü aufgenommen, ohne fremdes
+   Element über der Schublade, und die Datenschicht je GA4-Property ist am Handy (WebKit) mit langsamer
+   Verbindung belegt, Entwurf gegen Live (`walk_checkout.py --headless --device mobile --latency 800`).
 2. **Jede Quelle in der Liste:** Prüfberichte, auch außerhalb des Workspace
    (`theme_migration.report_paths`), die Prüfliste aus Phase 2 (`theme_migration.acceptance_checklist`)
    und die Abnahme halten nichts Offenes, das in der Liste fehlt (`open_items sources`). Am
@@ -163,6 +167,16 @@ Direkt nach dem Veröffentlichen ("Jetzt kommt der Launch-Check After."), als Ha
    (`tracking-pre-consent-after`, je Dienst über `hosts.json`, also `bat.bing.com` und `bat.bing.net`).
    Die Pixel-Liste des Shops gegen die von vor dem Launch (`web-pixels-after`): ein fehlendes Pixel ist
    ein Befund, außer es ist bewusst entfernt und, als Custom Pixel, gesichert.
+   **Eine abgelöste Consent-App** deinstalliert das Team direkt nach dem Veröffentlichen, nicht nur
+   deaktivieren, und löscht ihre Datei unter Inhalte > Dateien. Der Launch-Check sucht danach Zeilen im
+   Live-Layout und Skripte aus Shopify Files, die zu ihr gehören, ruft ihre Dateien von vorher ab und
+   fragt nach dem Deinstallieren (`consent-app-after`). Am 11.11.2026 trug sich eine nur deaktivierte
+   Consent-App beim Veröffentlichen wieder ein und lud ein Werbe-Tag ohne Einwilligung.
+   **Datenschicht je GA4-Property** auf dem veröffentlichten Theme gegen das Rückfall-Theme, am Handy mit
+   langsamer Verbindung (`funnel-ga4-<g-id>-after`), und **GA4-Echtzeit je Property**: `view_item`,
+   `add_to_cart`, `begin_checkout` gegen die serverseitig belieferte Property (Littledata), `purchase`
+   gegen die Bestellungen (`realtime-ga4-<g-id>`, Property-IDs in `theme_migration.ga4_properties`).
+   Anlass: `add_to_cart` fehlte nach einem Launch in einer Property, Littledata zählte weiter.
 5. Kasse und Kauf mit einer Testbestellung, **nur nach ausdrücklicher Freigabe durch das Team**: das
    Skript geht die Kasse bis zur Zahlung durch (Warenkorb, Steuer- und Versandhinweis, Versand), die
    Bestellung setzt ein Mensch ab. Danach je Ziel ein Status mit Beleg: Bestellung in Shopify, GA4 über

@@ -42,7 +42,10 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
 
 1. **Prüfrahmen schreiben:** `migration/verify/<date>/CONTEXT.md`, die Datei, die jeder Prüfer zuerst
    liest. Inhalt:
-   - Store und Domain, Live- und Entwurfs-ID
+   - Store und Domain, Live- und Entwurfs-ID, und die Referenz mit ID und Name aus
+     `"${CLAUDE_PLUGIN_ROOT}/bin/theme" visual_compare reference` (vor dem Launch das veröffentlichte
+     Theme, danach das Rückfall-Theme). Jeder Prüfer vergleicht nur damit; Vorschau-Links anderer Themes
+     sind keine Vorlage. Die Zeile steht auch oben im Prüfbericht
    - Vorschau-Mechanik: `?preview_theme_id=<id>`, Theme-Nachweis über `Shopify.theme.id`, `pb=0`,
      Vorschau-Cookie
    - Beispielseiten (`pages.json`)
@@ -76,8 +79,10 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
    - die Eingabedateien (`seo.json`, `design.json`, `functions.json`, `apps.json`, `tracking.json`,
      `translations.json`, `templates.json`, je nach Prüfer)
    - die Werkzeuge: `crawl-site` für SEO, `compare-themes --compare` für Gestaltung (alle Beispielseiten,
-     Rechner 1440 und Handy 390, links das veröffentlichte Theme),
-     `scripts/browser/capture_network.py` für Apps und Tracking, Lighthouse dreimal mit Median für
+     Rechner 1440 und Handy 390 mit Menü offen, links das veröffentlichte Theme),
+     `scripts/browser/capture_network.py` und für die Datenschicht je GA4-Property
+     `scripts/browser/walk_checkout.py --headless --device mobile --latency 800` auf beiden Themes
+     (`launch-check`, Ablauf vor dem Launch, Schritt 3) für Apps und Tracking, Lighthouse dreimal mit Median für
      Performance, axe und Lighthouse für Barrierefreiheit, `shopify theme check` und `theme.limits` für
      Struktur
    - das Ausgabeziel `migration/verify/<date>/<checker>/findings.json` plus `findings.md`, mit festem

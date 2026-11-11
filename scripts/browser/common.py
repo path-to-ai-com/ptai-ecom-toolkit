@@ -17,6 +17,13 @@ Regeln, die hier stehen, damit jedes Skript sie gleich einhält:
 - **`pb=0`** blendet die Vorschauleiste für Messungen und Bilder aus.
 - **Höchstens zwei Seiten gleichzeitig** auf einer Storefront, sonst drosselt
   Shopify.
+- **Tempo begrenzt, Drosselung erkannt** (seit 11.11.2026). Zwischen zwei
+  Seitenaufrufen liegen über alle Arbeitsfäden mindestens `PACE_SECONDS`
+  (`Pacer`). Antwortet Shopify mit HTTP 429 oder der Warteseite "Nur einen
+  Moment…", ist der Aufruf `throttled`, kein Fehler des Shops: alle Fäden
+  pausieren `COOLDOWN_SECONDS`, der Abstand verdoppelt sich, und die Seite läuft
+  einmal neu. Anlass: Beim Prüfen eines Live-Shops scheiterte Horizons
+  Nachladen an 429, und das Bild sah aus wie ein Fehler im Theme.
 - **Consent wird abgelehnt**, außer ein Mitschnitt mit Einwilligung ist
   ausdrücklich verlangt (`--consent accepted`, nur nach Freigabe des Teams).
 - **Chromium am Rechner, WebKit als iPhone.** Die WebKit-Aufnahme ist Pflicht,
@@ -37,6 +44,8 @@ import datetime
 import json
 import re
 import sys
+import threading
+import time
 from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 
@@ -49,6 +58,17 @@ from theme.visual_compare import WIDTHS  # noqa: E402
 
 #: Höchstens so viele Seiten gleichzeitig auf einer Storefront.
 MAX_PARALLEL = 2
+#: Mindestabstand in Sekunden zwischen zwei Seitenaufrufen, über alle Arbeitsfäden eines Laufs.
+PACE_SECONDS = 3.0
+#: So lange ruhen alle Fäden, nachdem Shopify gedrosselt hat; danach läuft die Seite einmal neu.
+COOLDOWN_SECONDS = 60.0
+#: Größer wird der Abstand auch nach mehreren Drosselungen nicht.
+MAX_PACE_SECONDS = 20.0
+#: Status eines Aufrufs, den Shopify gedrosselt hat. Kein Fehler des Shops und kein Ergebnis.
+THROTTLED = "throttled"
+#: Shopifys Warteseite bei Drosselung und Bot-Abfrage, im Seitentitel, deutsch und englisch.
+THROTTLE_TEXT = re.compile(r"Nur einen Moment|Einen Moment bitte|Just a moment|Too many requests|Zu viele Anfragen",
+                           re.I)
 DESKTOP_VIEWPORT = {"width": WIDTHS["desktop"], "height": 900}
 #: In Playwright 390 x 664 CSS-Pixel; die Breite wird in `context_options` trotzdem fest gesetzt.
 MOBILE_DEVICE = "iPhone 13"
@@ -180,6 +200,102 @@ def write_json(path: Path, data) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Drosselung: erkennen und das Tempo begrenzen, ohne Browser prüfbar
+# ---------------------------------------------------------------------------
+
+def shop_host(url: str | None, base_url: str | None) -> bool:
+    """Geht die Adresse an den Shop selbst: Shop-Domain (mit und ohne www) oder `*.myshopify.com`."""
+    host = (urlparse(url or "").hostname or "").lower()
+    base = (urlparse(base_url or "").hostname or "").lower()
+    if not host:
+        return False
+    bare = base[4:] if base.startswith("www.") else base
+    return host in (base, bare, "www." + bare) or host.endswith(".myshopify.com")
+
+
+def count_429(requests: list, base_url: str | None) -> int:
+    """Anfragen an den Shop, die Shopify mit HTTP 429 beantwortet hat (Zeilen aus `request_record`)."""
+    return sum(1 for r in requests or [] if r.get("status") == 429 and shop_host(r.get("url"), base_url))
+
+
+def throttle_signal(document_status, title: str | None, shop_429: int = 0) -> dict | None:
+    """Hat Shopify gedrosselt? `{"reason", "requests_429"}` oder None.
+
+    Drei Zeichen, jedes für sich genügt: die Seite selbst antwortet 429, der Titel ist die Warteseite
+    ("Nur einen Moment…"), oder eine Anfrage an den Shop bekam 429. Das Letzte ist der heimtückische
+    Fall: die Seite lädt, aber Horizons Nachladen (Abschnitte, Warenkorb, Empfehlungen) scheitert, und
+    das Bild sieht aus wie ein Fehler im Theme.
+    """
+    reasons = []
+    if document_status == 429:
+        reasons.append("Seite antwortet HTTP 429")
+    if title and THROTTLE_TEXT.search(title):
+        reasons.append(f"Warteseite „{' '.join(title.split())[:60]}“")
+    if shop_429:
+        reasons.append(f"{shop_429} {'Anfrage' if shop_429 == 1 else 'Anfragen'} an den Shop mit HTTP 429")
+    if not reasons:
+        return None
+    return {"reason": "; ".join(reasons) + "; Drosselung durch Shopify, kein Fehler des Shops",
+            "requests_429": int(shop_429)}
+
+
+def mark_throttled(result: dict, signal: dict | None) -> dict:
+    """Setzt `state: throttled`, wenn gedrosselt wurde; das geht vor `wrong_theme` und `error`.
+
+    Die Warteseite trägt keinen Theme-Nachweis, und ein abgebrochenes Nachladen wirft Fehler. Beides ist
+    dann Folge der Drosselung, nicht ihr Grund.
+    """
+    if signal:
+        result["state"] = THROTTLED
+        result["throttle"] = signal
+    return result
+
+
+class Pacer:
+    """Abstand zwischen Seitenaufrufen über alle Arbeitsfäden; nach einer Drosselung Pause und mehr Abstand.
+
+    Jeder Aufruf reserviert seinen Zeitpunkt unter einer Sperre und wartet danach ohne sie. Uhr und Warten
+    sind austauschbar, damit sich das ohne echte Zeit prüfen lässt.
+    """
+
+    def __init__(self, pace: float = PACE_SECONDS, cooldown: float = COOLDOWN_SECONDS,
+                 clock=time.monotonic, sleep=time.sleep):
+        self.pace = max(0.0, float(pace))
+        self.cooldown = max(0.0, float(cooldown))
+        self.clock, self.sleep = clock, sleep
+        self.lock = threading.Lock()
+        self.next_at = 0.0
+        self.throttle_events = 0
+
+    def wait(self) -> float:
+        """Wartet bis zum nächsten freien Zeitpunkt; gibt die Wartezeit in Sekunden zurück."""
+        with self.lock:
+            now = self.clock()
+            start = max(now, self.next_at)
+            self.next_at = start + self.pace
+        delay = start - now
+        if delay > 0:
+            self.sleep(delay)
+        return delay
+
+    def throttled(self) -> None:
+        """Shopify hat gedrosselt: alle pausieren, der Abstand verdoppelt sich bis `MAX_PACE_SECONDS`."""
+        with self.lock:
+            self.throttle_events += 1
+            self.pace = min(max(self.pace * 2, PACE_SECONDS), MAX_PACE_SECONDS)
+            self.next_at = max(self.next_at, self.clock() + self.cooldown)
+
+
+def throttled_summary(results: list) -> str | None:
+    """Eine Zeile für stderr, wenn Aufrufe gedrosselt blieben; None sonst."""
+    hits = [r for r in results or [] if isinstance(r, dict) and r.get("state") == THROTTLED]
+    if not hits:
+        return None
+    return (f"{len(hits)} Aufrufe von Shopify gedrosselt (HTTP 429), kein Fehler des Shops. Nicht als Befund "
+            "werten; später mit --parallel 1 und größerem --pace nachholen (--only <ids>).")
+
+
+# ---------------------------------------------------------------------------
 # Seitenhöhe und Scrollstand, ohne Browser prüfbar
 # ---------------------------------------------------------------------------
 
@@ -275,23 +391,30 @@ def browser_for(playwright, browsers: dict, device: str):
     return browsers[engine]
 
 
-def run_jobs(jobs: list, handler, parallel: int = MAX_PARALLEL) -> list:
+def run_jobs(jobs: list, handler, parallel: int = MAX_PARALLEL, *, pace: float = PACE_SECONDS,
+             cooldown: float = COOLDOWN_SECONDS, retries: int = 1, pacer: Pacer | None = None) -> list:
     """Führt `handler(playwright, browsers, job)` für jeden Auftrag aus, höchstens `parallel` gleichzeitig.
 
     Jeder Arbeitsfaden hat seine eigene Playwright-Instanz, weil die API nicht
     über Fäden hinweg geteilt werden darf. Ein Fehler in einem Auftrag wird zu
     `{"state": "error", "error": …}` und hält die anderen nicht an.
+
+    Vor jedem Auftrag wartet der Faden auf den `Pacer` (Abstand `pace` über alle
+    Fäden). Kommt ein Auftrag `throttled` zurück, pausieren alle `cooldown`
+    Sekunden, und er läuft bis zu `retries`-mal neu; bleibt er gedrosselt, steht
+    er so im Ergebnis.
     """
     import queue
-    import threading
 
     from playwright.sync_api import sync_playwright
 
     parallel = max(1, min(int(parallel), MAX_PARALLEL))
+    pacer = pacer or Pacer(pace, cooldown)
     pending: "queue.Queue" = queue.Queue()
     for index, job in enumerate(jobs):
         pending.put((index, job))
     results: list = [None] * len(jobs)
+    attempts = [0] * len(jobs)
 
     def worker():
         with sync_playwright() as playwright:
@@ -302,12 +425,20 @@ def run_jobs(jobs: list, handler, parallel: int = MAX_PARALLEL) -> list:
                         index, job = pending.get_nowait()
                     except queue.Empty:
                         return
+                    pacer.wait()
                     try:
                         results[index] = handler(playwright, browsers, job)
                     except Exception as exc:  # Netz, Zeitlimit, Browser
                         results[index] = {"job": job, "state": "error", "error": f"{type(exc).__name__}: {exc}"[:500]}
-                    print(f"{index + 1}/{len(jobs)} {job_label(job)}: {(results[index] or {}).get('state')}",
-                          file=sys.stderr, flush=True)
+                    state = (results[index] or {}).get("state")
+                    print(f"{index + 1}/{len(jobs)} {job_label(job)}: {state}", file=sys.stderr, flush=True)
+                    if state == THROTTLED:
+                        pacer.throttled()
+                        if attempts[index] < retries:
+                            attempts[index] += 1
+                            print(f"  gedrosselt, Pause {int(pacer.cooldown)} s, Abstand jetzt {pacer.pace:g} s, "
+                                  "dann erneut", file=sys.stderr, flush=True)
+                            pending.put((index, job))
             finally:
                 for browser in browsers.values():
                     try:
@@ -321,6 +452,35 @@ def run_jobs(jobs: list, handler, parallel: int = MAX_PARALLEL) -> list:
     for thread in threads:
         thread.join()
     return results
+
+
+def page_title(page) -> str | None:
+    try:
+        return page.title()
+    except Exception:
+        return None
+
+
+class ThrottleWatch:
+    """Zählt in einem Browser-Kontext die Antworten des Shops mit HTTP 429; `signal` urteilt über die Seite."""
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+        self.count = 0
+
+    def attach(self, context) -> "ThrottleWatch":
+        context.on("response", self._on_response)
+        return self
+
+    def _on_response(self, response) -> None:
+        try:
+            if response.status == 429 and shop_host(response.url, self.base_url):
+                self.count += 1
+        except Exception:
+            pass
+
+    def signal(self, page, document_status=None) -> dict | None:
+        return throttle_signal(document_status, page_title(page), self.count)
 
 
 def job_label(job) -> str:

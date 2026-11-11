@@ -257,8 +257,10 @@ def measure_page(playwright, browsers: dict, job: dict) -> dict:
     browser = common.browser_for(playwright, browsers, device)
     url = common.page_url(job["base_url"], page_info["path"], job["theme"], hide_bar=True)
     context = browser.new_context(**common.context_options(playwright, device, job["locale"]))
+    watch = common.ThrottleWatch(job["base_url"]).attach(context)
     result = {"page_id": page_info["id"], "template": page_info.get("template"), "path": page_info["path"],
               "url": url, "device": device, "browser": common.ENGINE[device], "state": "ok"}
+    page = None
     try:
         page = context.new_page()
         response = page.goto(url, wait_until="load", timeout=job["timeout"])
@@ -282,6 +284,8 @@ def measure_page(playwright, browsers: dict, job: dict) -> dict:
         result["state"] = "error"
         result["error"] = f"{type(exc).__name__}: {exc}"[:500]
     finally:
+        if page is not None:
+            common.mark_throttled(result, watch.signal(page, result.get("status")))
         context.close()
     return result
 
@@ -297,6 +301,8 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=int, default=60000)
     parser.add_argument("--locale", default="de-DE")
     parser.add_argument("--parallel", type=int, default=common.MAX_PARALLEL, help="höchstens 2")
+    parser.add_argument("--pace", type=float, default=common.PACE_SECONDS,
+                        help="Mindestabstand zwischen zwei Seitenaufrufen in Sekunden")
     args = parser.parse_args(argv)
     try:
         pages = common.load_pages(args.pages, common.parse_list(args.only))
@@ -313,7 +319,7 @@ def main(argv=None) -> int:
              "theme": args.theme, "wait": args.wait, "timeout": args.timeout, "locale": args.locale}
             for page in pages["pages"] for device in devices]
     started = common.now()
-    results = common.run_jobs(jobs, measure_page, args.parallel)
+    results = common.run_jobs(jobs, measure_page, args.parallel, pace=args.pace)
     measured = []
     for job, result in zip(jobs, results):
         if result.get("job") is not None:
@@ -328,6 +334,7 @@ def main(argv=None) -> int:
     bad = [p for p in measured if p.get("state") != "ok"]
     print(json.dumps({"out": args.out, "pages": len(measured), "ok": len(measured) - len(bad),
                       "wrong_theme": sum(1 for p in bad if p.get("state") == "wrong_theme"),
+                      "throttled": sum(1 for p in bad if p.get("state") == common.THROTTLED),
                       "errors": sum(1 for p in bad if p.get("state") == "error")}, ensure_ascii=False))
     return 1 if bad else 0
 

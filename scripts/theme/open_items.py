@@ -956,9 +956,13 @@ def main(argv: list[str] | None = None) -> int:
                     config = {}
                 compare = visual_compare.evaluate(workspace, config)
                 unproven = items.done_without_images()
-                result["visual_compare"] = {k: compare.get(k) for k in ("ok", "problems", "records")}
+                result["visual_compare"] = {k: compare.get(k) for k in ("ok", "problems", "records", "reference")}
                 result["done_without_images"] = [brief(i) for i in unproven]
-                if not compare["ok"] or unproven:
+                # Seit 11.11.2026: die Datenschicht je GA4-Property am Handy mit langsamer Verbindung.
+                from theme import funnel_events  # erst hier, wie run_state es auch liest
+                datalayer = funnel_events.gate_problems(workspace, config, visual_compare.run_values(workspace))
+                result["datalayer"] = {"ok": not datalayer, "problems": datalayer}
+                if not compare["ok"] or unproven or datalayer:
                     code = EXIT_FINDINGS
         elif args.command == "sources":
             config = load_config(workspace)
