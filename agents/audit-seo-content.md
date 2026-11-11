@@ -87,7 +87,7 @@ Alles Weitere nur mit `select` und `.[0:n]` oder als Auszählung, die eine Zahl 
    - Aus `gsc.json > top_queries` ohne Markenanfragen: Anfragen mit mindestens dem Median an Impressionen, deren CTR unter der Hälfte des Medians ihres Positionsbands liegt (Bänder 1 bis 3, 4 bis 10, 11 bis 20).
    - Vergleich gegen den eigenen Datensatz, weil es keine übertragbare CTR-Benchmark gibt. Die Schwelle "halber Median" ist eine Festlegung vom 27.09.2026, kein Richtwert aus einer Quelle; so steht es im Befund.
 
-## Kriterienliste, Version 2026-09-27
+## Kriterienliste, Version 2026-11-06
 
 **Jedes Kriterium der Tabelle ergibt genau einen Eintrag in `criteria`** (Schema unter Ausgabe), mit einem dieser vier Ergebnisse:
 
@@ -100,6 +100,7 @@ Alles Weitere nur mit `select` und `.[0:n]` oder als Auszählung, die eine Zahl 
 
 - Eine Ergebniszeile je Kriterium verhindert, dass ein Befundthema im nächsten Lauf ohne Spur wegfällt; Kernfragen allein leisten das nicht.
 - **Snapshot von vor dem 27.09.2026**: ohne die neuen Felder (Spalte Quelle). Die betroffenen Kriterien sind `not_measurable`, nie `passed`.
+- **Kriterien ab Version 2026-11-06** (in der Tabelle mit „seit 06.11.2026“ markiert): Läufe davor haben sie nicht. Ein Folgelauf führt sie als neue Zeile, nie als Verschlechterung.
 - **Legt die Tabelle eine Einordnung fest, gilt sie.** Sie steht dort, wo zwei Läufe sonst verschieden urteilen würden.
 
 | ID | Kernfrage | Prüfung | Quelle | Feste Einordnung |
@@ -107,7 +108,7 @@ Alles Weitere nur mit `select` und `.[0:n]` oder als Auszählung, die eine Zahl 
 | `con.ranking-inventory` | 1 | Bestand, Bänder bis Seite eins, Alter der Datenbankwerte | `dfs-rankings.json > summary`, `top_keywords[].last_updated_time` | Bänder `null` sind `not_measurable`, keine Null. Überschneiden sich DataForSEO und Search Console gar nicht, tragen alle Ranking-Kriterien den Vorbehalt zum Markt |
 | `con.visibility-trend` | 2 | Bewegungszähler, Verlauf, wo vorhanden | `dfs-rankings.json > visibility_history`, `summary.is_new`, `is_up`, `is_down`, `is_lost`, `notes_history` | ohne zwei Zeitpunkte kein Trend; `notes_history` ist ein Befund, kein Fehler |
 | `con.keyword-gaps` | 3 | Lücken mit Suchvolumen, jede gegen Katalog und Crawl geprüft | `dfs-competitors.json > keyword_gaps`, `summary_gaps` | eine Lücke ohne passendes Sortiment ist eine Sortimentsfrage und kein SEO-Befund |
-| `con.thin-categories` | 4 | Kategorien ohne eigenen Text | `catalog.json > summary.collections_without_description`, `collections_total` | |
+| `con.thin-categories` | 4 | Kategorien ohne eigenen Text; seit 06.11.2026 zusätzlich Kategorien mit null bis zwei Produkten | `catalog.json > summary.collections_without_description`, `collections_total`; Produktzahl je Kategorie aus `catalog.json`, sonst aus den Produktlinks der ersten Listenseite in `crawl.json > pages[]` | eine indexierbare Kategorie mit null bis zwei Produkten ist ein Befund `gering`: zusammenlegen oder `noindex` |
 | `con.missing-descriptions` | 5 | Produkte ohne Beschreibung, ohne SEO-Title, ohne SEO-Description, Längenverteilung | `catalog.json > summary` | |
 | `con.duplicate-product-copy` | 5 | gleiche Beschreibung bei mehreren aktiven Produkten, meist übernommener Herstellertext | `catalog.json > summary.duplicate_description_groups`, `duplicate_descriptions` (neu seit 27.09.2026) | |
 | `con.cannibalization` | 6 | zwei Seiten teilen sich eine Anfrage | `gsc.json > query_pages` (neu seit 27.09.2026), `crawl.json > findings_index.titles.duplicate_groups` | `confirmed` nur mit dem Signal aus der Search Console; doppelte Titles allein gehören `tec.duplicate-titles` |
@@ -171,7 +172,7 @@ Fünf Felder je Befund, ohne Beleg kein Befund:
   "run_id": "<run-id>",
   "generated_at": "2026-10-01T09:00:00+00:00",
   "blocked_questions": [],
-  "criteria_version": "2026-09-27",
+  "criteria_version": "2026-11-06",
   "criteria": [
     {"id": "con.duplicate-product-copy", "result": "violated",
      "value": "<Zahl mit Grundgesamtheit>", "finding_id": "SEO-02"},

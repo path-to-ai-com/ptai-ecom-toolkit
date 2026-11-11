@@ -20,7 +20,7 @@ Skill stattdessen über `shopify theme push --unpublished` beziehungsweise
 JSON still weg. Deshalb endet jeder Weg mit einem inhaltlichen Vergleich, JSON
 normalisiert, und dem Ergebnis "n von n gleich".
 
-Nie `themePublish`, nie `theme publish`: Veröffentlichen ist ein Mensch.
+Nie `themePublish`, nie `theme publish`: veröffentlicht wird nur im geführten Launch (`theme.launch`).
 
 CLI:
     python3 -m theme.upload create --zip <zip> --name <name>

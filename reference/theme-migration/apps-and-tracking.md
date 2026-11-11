@@ -76,6 +76,32 @@ Absender ist ein Befund.**
 Eine App, die deinstalliert wird, entfernt nur den Code aus ihrer Theme App Extension. Code, den sie
 per Asset-API ins Theme geschrieben hat, bleibt liegen.
 
+## Custom Pixels sichern
+
+Der Code eines Custom Pixels steht nur im Admin (Einstellungen, Kundenereignisse), nicht im Theme und
+nicht in `webPixelsConfigList`; dort stehen nur Kennung und Typ `CUSTOM`. Ein gelöschtes Pixel ist
+danach weg. Deshalb wird jedes Custom Pixel beim Inventar gesichert, spätestens bevor es entfernt oder
+ersetzt wird:
+
+- `migration/inventory/pixels/<name>.js`: der Code, unverändert aus dem Admin kopiert
+- `migration/inventory/pixels/<name>.md`: eine kurze Notiz mit festen Zeilen
+
+```
+# <Name des Pixels>
+
+- Pixel-ID: <id aus webPixelsConfigList>
+- Sendet: <Ereignisse, etwa purchase mit Wert und Transaktions-ID>
+- Wo: <Seiten, Kasse oder beides>
+- An: <Messziele, etwa GA4 G-…, Google Ads AW-…/Label>
+- Gesichert: <JJJJ-MM-TT>, gelesen von <Name>
+```
+
+`<name>` ist der Name des Pixels in kebab-case. Gesichert heißt: der Code liegt nicht leer daneben;
+gelesen heißt: Sendet, Wo und An sind ausgefüllt. Der Launch-Check liest die Ablage
+(`theme.web_pixels`): ein Custom Pixel mit der Entscheidung `drop` oder `replace` ohne gesicherte,
+gelesene Datei ist ein Befund und blockiert den Go (`custom-pixel-backup`), und jede GA4-Property und
+Google-Ads-Conversion im gesicherten Code ist nach dem Launch ein eigenes Ziel der Testbestellung.
+
 ## Regeln, die aus Fehlern kommen
 
 - **Tracking je Ziel aufnehmen, nicht je App.** Die Frage "was sendet diese App?" zeigt nicht, dass ein
@@ -111,6 +137,18 @@ per Asset-API ins Theme geschrieben hat, bleibt liegen.
   nicht zeigen. Vor dem Launch deshalb auch mit Einwilligung über den Kaufpfad (Produkt, In den
   Warenkorb, Warenkorb, Zur Kasse) mitschneiden und je Werbekonto jedes Conversion-Label und
   Remarketing-Ereignis von alt gegen neu halten.
+- **Ein Custom Pixel, das nur in der Kasse sendet, sieht kein Mitschnitt der Seiten.** "Der Tag
+  Manager lädt doppelt" ist kein Grund zum Löschen, bevor feststeht, wo das Pixel sendet und an wen.
+  Erst sichern und lesen (Abschnitt "Custom Pixels sichern"), dann entscheiden. Nach dem Löschen fehlten
+  in einem Fall Käufe in einer von mehreren GA4-Properties und in der Google-Ads-Kauf-Conversion
+  (11.11.2026).
+- **Eine App kann sich beim Veröffentlichen wieder ins Live-Theme eintragen**, mit einer Zeile in
+  `layout/theme.liquid` und einem App-Embed, auch wenn sie im Entwurf gestrichen war. Abschalten in der
+  App entfernt die Zeile nicht. Der Launch-Check vergleicht deshalb Layout und Embeds nach dem
+  Veröffentlichen mit dem hochgeladenen Stand (`app-injections-after`).
+- **Ein Dienst zählt über den Host-Katalog, nie über einen Hostnamen.** Microsoft Advertising sendet an
+  `bat.bing.com` und an `bat.bing.net`; eine Messung, die nur einen Host prüft, übersieht Aufrufe vor der
+  Einwilligung.
 
 ## Neu-Anbindung im Ziel-Theme
 
@@ -130,7 +168,9 @@ per Asset-API ins Theme geschrieben hat, bleibt liegen.
   weg, Consent in beiden Zuständen, keine doppelten Events. Ein HTTP-Abruf ohne Browser taugt nicht:
   die Vorschau greift über Cookie und Weiterleitung, sonst liefert der Abruf den Live-Shop.
 - **Am Launch-Tag:** derselbe Mitschnitt gegen das veröffentlichte Theme, dazu ein Testkauf nach
-  Freigabe für Pixel, Checkout und Dankeseite.
+  Freigabe für Pixel, Checkout und Dankeseite. Die Pixel-Liste des Shops (`webPixelsConfigList`) gegen
+  den Stand vor dem Launch, und der Kauf je GA4-Property und je Google-Ads-Kauf-Conversion, die der
+  Shop vorher bediente.
 - **Danach:** Abgleich der Datensätze in GA4 und Werbekonten gegen die Bestellungen.
 
 ## Quellen

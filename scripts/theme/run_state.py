@@ -56,6 +56,13 @@ die Sitzung an, bis das Plugin aktualisiert ist; sonst schriebe die ältere Fass
 weiter. `version` liest nur: kein `migration.json`, keine Sperre, damit der Arbeitsbaum vor dem `git pull`
 sauber bleibt.
 
+Seit 11.11.2026 verlangt G4 zusätzlich einen vollständigen Bildvergleich alt gegen neu (Modul
+`visual_compare`): jede Beispielseite aus `migration/inventory/pages.json` am Rechner (1440) und am Handy (390),
+links das veröffentlichte Theme, rechts der Entwurf, jede Aufnahme mit Theme-Nachweis. Dazu hält G4 an, solange
+ein Testpunkt der Abnahme ohne Bilder vom Entwurf erledigt ist. Bei einem Shop, der auf Horizon umzog, fielen
+Layoutfehler erst nach dem Launch auf: die Abnahme hatte Testpunkte einzeln geprüft, mehrere standen ohne Bild
+auf erledigt, und einen Bildvergleich über alle Seiten gab es vor G4 nicht.
+
 Seit 0.3.17 gibt `cockpit` die Eingabe für das Werkzeug `report_migration` des Cockpits aus: Marke, Store, Lauf
 und `migration.json`, wie sie im Lauf liegt. Damit gibt das Claude des Teams den Stand selbst ins Cockpit, nach
 jedem Push und am Ende jeder Sitzung. Bis dahin kam `migration.json` nur mit `publish` des Betreibers in den
@@ -71,7 +78,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from theme import ConfigError, load_config
-from theme import handover, open_items, questions, ruled, steps
+from theme import handover, open_items, questions, ruled, steps, visual_compare
 
 PHASES = (
     "0-setup", "1-snapshot", "2-inventory", "3-mapping", "4-build", "5-upload",
@@ -90,9 +97,11 @@ GATES = {
     "G5-go-live": "10-aftercare",
 }
 
-# Werte, die neben Phasen und Gates im Stand stehen dürfen.
+# Werte, die neben Phasen und Gates im Stand stehen dürfen. `rollback_theme_id` und `launch_approved_by` schreibt
+# seit 10.11.2026 der geführte Launch (`theme.launch publish`): das alte Theme und wer "Jetzt Launch
+# durchführen?" mit Ja beantwortet hat.
 KEYS = ("live_theme_id", "draft_theme_id", "snapshot", "last_sync", "published_at", "policies_version",
-        "policies_applied_at")
+        "policies_applied_at", "rollback_theme_id", "launch_approved_by")
 #: Werte vor 0.3.11, die `upgrade` entfernt: es gibt keinen Änderungsstopp mehr.
 DROPPED_KEYS = ("freeze_from", "freeze_until")
 
@@ -193,7 +202,7 @@ class MigrationState:
                                  f"({_short([q['id'] for q in pending])}). Antworten aus dem Cockpit mit "
                                  "questions import übernehmen oder in der Sitzung mit questions answer eintragen.")
         if gate in open_items.GATE_READS:
-            check_open_items(self.workspace, gate=gate)
+            check_open_items(self.workspace, gate=gate, values=self._data.get("values"))
         stamp = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
         self._data["gates"][gate] = {"decided_by": decided_by, "decided_at": stamp, "note": note}
 
@@ -300,8 +309,13 @@ def _short(items: list, limit: int = 8) -> str:
     return text + (f" und {len(items) - limit} weitere" if len(items) > limit else "")
 
 
-def check_open_items(workspace: Path, *, phase: str | None = None, gate: str | None = None) -> None:
-    """Hält eine Phase oder ein Gate an, solange die Liste offener Punkte es verlangt. Fragt nie."""
+def check_open_items(workspace: Path, *, phase: str | None = None, gate: str | None = None,
+                     values: dict | None = None) -> None:
+    """Hält eine Phase oder ein Gate an, solange die Liste offener Punkte es verlangt. Fragt nie.
+
+    G4 verlangt außerdem den vollständigen Bildvergleich (`visual_compare`) und Bilder an jedem erledigten
+    Testpunkt. `values` sind die Werte des Laufs; `draft_theme_id` gilt von dort, wenn die Config sie nicht hat.
+    """
     try:
         items = open_items.load(workspace)
     except open_items.OpenItemsError as error:
@@ -349,6 +363,13 @@ def check_open_items(workspace: Path, *, phase: str | None = None, gate: str | N
                             + "; übernehmen mit open_items import")
         if result["gaps"]:
             problems.append("Quelle fehlt oder ist nicht lesbar: " + "; ".join(result["gaps"]))
+        if gate == "G4-acceptance":
+            unproven = [i["id"] for i in items.done_without_images()]
+            if unproven:
+                problems.append(f"Testpunkte erledigt ohne Bilder vom Entwurf: {_short(unproven)}; nachreichen mit "
+                                "open_items done --id <id> --evidence <text> --desktop-image <bild> "
+                                "--mobile-image <bild>")
+            problems += visual_compare.gate_problems(workspace, config, values)
         if problems:
             raise StateError(f"Gate {gate} hält an. " + " | ".join(problems))
 

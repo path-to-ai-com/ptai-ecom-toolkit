@@ -290,6 +290,8 @@ def parse_web_pixels(html: str) -> list[dict] | None:
         pixels.append({
             "id": str(item.get("id") or ""),
             "type": str(item.get("type") or ""),
+            # Custom Pixels tragen hier ihren Namen aus dem Admin, wenn Shopify ihn ausliefert.
+            "name": str(item.get("name") or "") or None,
             "api_client_id": str(item.get("apiClientId") or "") or None,
             "runtime_context": item.get("runtimeContext"),
             "privacy_purposes": item.get("privacyPurposes") or [],
@@ -594,7 +596,8 @@ def read_html(inv: Inventory, html_dir: Path | None, app_names: dict) -> None:
         else:
             sid = f"pixel:{client or pixel_id}"
         row = inv.add(f"web_pixel:{pixel_id}", sid, "web_pixel_custom" if custom else "web_pixel_app",
-                      {"pixel_id": pixel_id, "pixel_type": pixel["type"], "runtime_context": pixel["runtime_context"]},
+                      {"pixel_id": pixel_id, "pixel_type": pixel["type"], "runtime_context": pixel["runtime_context"],
+                       "pixel_name": pixel["name"]},
                       "active", "html", {"source": "web_pixels", "detail": "webPixelsConfigList, verbunden"})
         row["api_client_id"] = client
         row["app_id"] = f"gid://shopify/App/{client}" if client and not custom else None

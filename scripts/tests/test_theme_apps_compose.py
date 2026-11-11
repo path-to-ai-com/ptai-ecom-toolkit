@@ -40,8 +40,9 @@ class TestVergleichsseite(unittest.TestCase):
 
     def test_relative_pfade_von_der_seite_zu_den_bildern(self):
         page = self.render(Path("/kunde/bilder/2026-01-01"), Path("/kunde"))
-        self.assertIn('src="bilder/2026-01-01/start/desktop-a-fold.png"', page)
-        self.assertIn('href="bilder/2026-01-01/start/desktop-a.png"', page)
+        # Gezeigt wird die ganze Seite, die Erstansicht ist verlinkt.
+        self.assertIn('src="bilder/2026-01-01/start/desktop-a.png"', page)
+        self.assertIn('href="bilder/2026-01-01/start/desktop-a-fold.png"', page)
         self.assertEqual(compose.relative_src("start/x.png", Path("/kunde/bilder"), Path("/kunde/bilder")), "start/x.png")
 
     def test_falsches_theme_und_fehler_sind_markiert_und_escaped(self):
@@ -51,7 +52,8 @@ class TestVergleichsseite(unittest.TestCase):
         self.assertIn("Zeitlimit &lt;60s&gt;", page)
         self.assertIn("kein Bild", page)
         self.assertIn("abgeschnitten", page)
-        self.assertIn("iPhone (WebKit)", page)
+        self.assertIn("Handy, 390 px (WebKit, iPhone)", page)
+        self.assertIn("Rechner, 1440 px (Chromium)", page)
         self.assertEqual(page.count("<section>"), 1)
 
     def test_seite_ist_ein_vollstaendiges_dokument(self):
@@ -72,7 +74,33 @@ class TestVergleichsseite(unittest.TestCase):
                 code = compose.main(["--pairs", str(pairs_dir), "--out", str(out)])
             self.assertEqual(code, 1)
             self.assertEqual(json.loads(buffer.getvalue())["invalid_images"], 2)
-            self.assertIn('src="bilder/start/desktop-a-fold.png"', out.read_text(encoding="utf-8"))
+            self.assertIn('src="bilder/start/desktop-a.png"', out.read_text(encoding="utf-8"))
+
+    def test_referenz_und_abdeckung_stehen_oben(self):
+        data = {**PAIRS, "reference": {"ok": False, "published": False, "theme_id": "000000000000",
+                                       "problems": ["links steht Theme 000000000000 mit Rolle unpublished"],
+                                       "warnings": []},
+                "coverage": {"expected": 4, "valid": 1, "pages": 1, "missing": [
+                    {"page_id": "start", "device": "mobile", "side": "b", "reason": "error: Zeitlimit"}]}}
+        page = compose.render(data, Path("/kunde/bilder"), Path("/kunde/bilder"))
+        self.assertIn("Referenz falsch", page)
+        self.assertIn("1 von 4 Aufnahmen gültig", page)
+        self.assertIn("A · Referenz nicht belegt", page)
+        published = compose.render({**data, "reference": {"ok": True, "published": True, "theme_id": "1"}},
+                                   Path("/kunde/bilder"), Path("/kunde/bilder"))
+        self.assertIn("A · veröffentlicht", published)
+        self.assertIn("B · Entwurf", published)
+
+    def test_cli_exit_1_bei_falscher_referenz(self):
+        data = {**PAIRS, "pairs": PAIRS["pairs"][:1], "reference": {"ok": False, "problems": ["x"]}}
+        data["pairs"] = [{**data["pairs"][0], "b": data["pairs"][0]["a"]}]
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "pairs.json").write_text(json.dumps(data), encoding="utf-8")
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = compose.main(["--pairs", tmp, "--out", str(Path(tmp) / "compare.html")])
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(buffer.getvalue())["invalid_images"], 0)
 
     def test_ohne_pairs_json_ist_es_ein_fehler(self):
         with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()):

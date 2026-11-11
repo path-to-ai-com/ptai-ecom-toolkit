@@ -56,8 +56,18 @@ def write(workspace, now: str, after: str = "", operator_tasks: list | None = No
     if not now:
         raise HandoverError("--now fehlt: der Name des Schritts, an dem die Migration jetzt steht.")
     tasks = [str(t).strip() for t in (operator_tasks or []) if str(t or "").strip()]
+    written_at = (at or datetime.now(timezone.utc)).isoformat(timespec="seconds")
     data = {"now": now, "after": str(after or "").strip(), "operator_tasks": tasks, "step": step,
-            "written_at": (at or datetime.now(timezone.utc)).isoformat(timespec="seconds")}
+            "written_at": written_at}
+    if tasks:
+        # Seit wann Path to AI dran ist: bleibt über weitere Sitzungen stehen, solange es Aufgaben gibt, damit
+        # das Cockpit die Wartezeit zeigt und nicht jede Sitzung sie auf null setzt (Learning 1 vom 23.10.2026).
+        try:
+            previous = load(workspace)
+        except HandoverError:
+            previous = None
+        since = previous.get("operator_since") if previous and previous.get("operator_tasks") else None
+        data["operator_since"] = since if isinstance(since, str) and since else written_at
     target = path(workspace)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.parent / (target.name + ".tmp")
@@ -67,12 +77,16 @@ def write(workspace, now: str, after: str = "", operator_tasks: list | None = No
 
 
 def resolve(workspace, current_step: int, step_name: str) -> dict:
-    """`now`, `after` und `operator_tasks` für `migration.json`, mit Rückfall auf den aktuellen Schritt."""
+    """`now`, `after`, `operator_tasks` und `operator_since` für `migration.json`, mit Rückfall auf den aktuellen
+    Schritt. `operator_since` ist der Zeitpunkt, seit dem Path to AI Aufgaben hat; ältere Übergaben ohne das Feld
+    nehmen den Zeitpunkt der Übergabe."""
     data = load(workspace)
     if data is None or (isinstance(data.get("step"), int) and data["step"] != current_step):
-        return {"now": step_name, "after": "", "operator_tasks": []}
+        return {"now": step_name, "after": "", "operator_tasks": [], "operator_since": None}
+    tasks = [t.strip() for t in data.get("operator_tasks") or [] if isinstance(t, str) and t.strip()]
+    since = data.get("operator_since") or data.get("written_at")
     return {"now": data["now"].strip() or step_name, "after": (data.get("after") or "").strip(),
-            "operator_tasks": [t.strip() for t in data.get("operator_tasks") or [] if isinstance(t, str) and t.strip()]}
+            "operator_tasks": tasks, "operator_since": since if tasks and isinstance(since, str) else None}
 
 
 def current_step(workspace) -> int | None:

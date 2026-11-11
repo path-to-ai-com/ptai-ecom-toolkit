@@ -11,8 +11,9 @@ Drei Regeln, jede vor jedem einzelnen Schreibvorgang, nicht einmal pro Lauf:
    `updatedAt` oder wechselt das Live-Theme, bricht der Lauf ab und meldet es:
    dann arbeitet jemand parallel am Shop, und der Abgleich ist hinfällig.
 
-Veröffentlichen gibt es in diesem Paket nicht; `themePublish` wird nirgends
-aufgerufen.
+Veröffentlichen gibt es nur im geführten Launch (`theme.launch`, seit 10.11.2026),
+über `shopify theme publish` nach dem Ja der Person der Marke; `themePublish`
+wird nirgends aufgerufen.
 """
 from theme.files import get_theme, list_themes, live_theme
 from theme.shopify import ShopifyError, numeric_id, theme_gid

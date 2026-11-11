@@ -43,6 +43,17 @@ In einer Theme-Migration gibt es eine Liste offener Punkte, `migration/open-item
    ```
 
 2. Erledigt, verschoben oder wieder offen wird ein Punkt in der Liste (`open_items done`, `defer`, `reopen`), mit Beleg oder mit Person und Datum. Eine `resolution` allein erledigt nichts.
+   - **Ein Testpunkt wird nur mit Bildern vom Entwurf erledigt**, je eins am Rechner und am Handy, als Datei im Workspace oder im Kundenordner. Ohne beide verweigert `done`:
+
+     ```bash
+     "${CLAUDE_PLUGIN_ROOT}/bin/theme" open_items done --id <id> --evidence "<was geprüft, wo, Datum>" \
+       --desktop-image <bild-rechner> --mobile-image <bild-handy>
+     ```
+
+   - Die Bilder zeigen die betroffene Stelle im Entwurf, am besten aus dem Bildvergleich (`compare-themes --compare`, Seite B) oder als Ausschnitt davon. Ein Punkt "bleibt wie heute" braucht dieselben Bilder.
+   - Ein Testpunkt, den `test.json` schon als `done` führt, kommt ohne Bilder offen in die Liste (`held_open` in der Ausgabe von `import`).
+   - Gate G4 hält an, solange ein Testpunkt ohne Bilder erledigt ist. Für einen älteren Punkt die Bilder mit demselben `done`-Aufruf nachreichen.
+   - Anlass: Bei einem Umzug auf Horizon standen mehrere Testpunkte ohne Bild vom Entwurf auf erledigt, und die Layoutfehler fielen erst nach dem Launch auf.
 3. Danach den Stand der Liste in die Abnahme zurückschreiben, damit das Portal dasselbe zeigt, und erst dann veröffentlichen:
 
    ```bash
@@ -53,7 +64,7 @@ In einer Theme-Migration gibt es eine Liste offener Punkte, `migration/open-item
 
 ## Umsetzungsstand
 
-Jeder Punkt mit offener Arbeit bekommt `status`. Das Portal zeigt den Fortschritt auf dem Überblick als eigenen Balken neben den Maßnahmen. In einer Migration kommt `done` aus der Liste offener Punkte (`sync-test-round`), nicht von Hand.
+Jeder Punkt mit offener Arbeit bekommt `status`. Das Portal zeigt den Fortschritt auf dem Überblick als eigenen Balken neben den Maßnahmen. In einer Migration kommt `done` aus der Liste offener Punkte (`sync-test-round`), nicht von Hand, und nur mit Bildern vom Entwurf am Rechner und am Handy.
 
 | `status` | Wann |
 |---|---|

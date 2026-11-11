@@ -35,6 +35,18 @@ Die Regeln, jede aus einem belegten Fehler im Feld:
 8. Ausgabe nur in ein Testverzeichnis, nie direkt ins Ziel-Repo; der Report
    vergleicht sie mit dem Stand im Ziel-Repo, damit Editor-Änderungen nicht
    still überschrieben werden.
+9. Layout wird übersetzt, nicht nur Inhalt: Breite, Ausrichtung, Textgröße,
+   Abstände, Overlay-Deckkraft und Höhe laufen über die `layout`-Operationen
+   je Section (`theme.layout`), die Typografie über `typography`. Ohne sie fällt
+   das Ziel auf seine Standardwerte zurück (Launch im November 2026: Text schmal
+   links, H1 72 statt 38 px, deckende Overlays).
+10. Pflicht-Sections je Template (`required_sections`, etwa `search-header`
+    auf der Suchseite) kommen aus dem Template des Ziel-Repos; fehlen sie dort
+    auch, ist es ein `build`-Fall.
+11. Eine Section, die an ist, deren Blöcke aber alle aus sind, wird im Ziel
+    ausgeschaltet. Broadcast blendet sie dann aus, Horizon zeigt eine leere
+    Fläche (nach einem Abgleich im November 2026: dunkle leere Leiste statt
+    Ankündigungsleiste).
 
 Exit-Code 0 ohne Befund, 1 mit Befunden (`build`, verworfene Einstellungen,
 Limits, Mapping-Fehler gegen die Schemas), 2 bei Fehlern.
@@ -48,6 +60,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from theme import layout as layout_module
 from theme import schema as schema_module
 from theme import transforms
 
@@ -76,12 +89,21 @@ APP_ENTRY = "@app"
 MAX_DIFF_PATHS = 20
 
 #: Bekannte Felder je Ebene. Ein anderes Feld wird nicht beachtet und gemeldet.
-TOP_FIELDS = {"source", "target", "sections", "settings_data", "templates", "section_groups"}
+TOP_FIELDS = {"source", "target", "sections", "settings_data", "templates", "section_groups", "layout",
+              "typography"}
 RULE_FIELDS = {"to", "transform", "values", "key", "replace", "variant", "block", "block_id", "note", "notes"}
-SECTION_FIELDS = {"action", "target", "settings", "set", "blocks", "custom_css", "reason", "notes", "note"}
-BLOCK_FIELDS = SECTION_FIELDS - {"custom_css"} | {"static", "static_id", "parent"}
+SECTION_FIELDS = {"action", "target", "settings", "set", "blocks", "custom_css", "layout", "reason", "notes", "note"}
+BLOCK_FIELDS = SECTION_FIELDS - {"custom_css", "layout"} | {"static", "static_id", "parent"}
 NAMED_FIELDS = {"action", "target", "reason", "notes", "note"}
 GROUP_FIELDS = NAMED_FIELDS | {"position"}
+TEMPLATE_FIELDS = NAMED_FIELDS | {"required_sections"}
+TYPOGRAPHY_FIELDS = {"scale", "roles", "css_variable", "copy", "set", "notes", "note"}
+
+
+def hidden_by_blocks(data: dict) -> bool:
+    """Regel 11: Section ist an, hat Blöcke, und jeder davon ist ausgeschaltet."""
+    blocks = [b for b in (data.get("blocks") or {}).values() if isinstance(b, dict)]
+    return bool(blocks) and not data.get("disabled") and all(b.get("disabled") for b in blocks)
 
 
 def valid_block_id(value: str) -> bool:
@@ -138,6 +160,19 @@ def merge_mapping(base: dict, overrides: dict | None) -> dict:
                     sections[section_type] = copy.deepcopy(entry)
         elif key in ("settings_data", "templates", "section_groups") and isinstance(value, dict):
             merged[key] = {**(merged.get(key) or {}), **copy.deepcopy(value)}
+        elif key in ("layout", "typography") and isinstance(value, dict) and isinstance(merged.get(key), dict):
+            # Tabellen je Eintrag: ein Shop mit eigener Seitenbreite überschreibt nur `widths.page.wrapper`.
+            combined = merged[key]
+            for name, part in value.items():
+                if isinstance(part, dict) and isinstance(combined.get(name), dict):
+                    inner = combined[name]
+                    for inner_key, inner_value in part.items():
+                        if isinstance(inner_value, dict) and isinstance(inner.get(inner_key), dict):
+                            inner[inner_key] = {**inner[inner_key], **copy.deepcopy(inner_value)}
+                        else:
+                            inner[inner_key] = copy.deepcopy(inner_value)
+                else:
+                    combined[name] = copy.deepcopy(part)
         else:
             merged[key] = copy.deepcopy(value)
     return merged
@@ -224,9 +259,13 @@ def validate_mapping(mapping) -> list[str]:
                 errors.append(f"{where}: `static` ist true oder false")
             if "parent" in value and not (isinstance(value["parent"], str) and value["parent"]):
                 errors.append(f"{where}: `parent` muss ein Blocktyp sein")
+        if not is_block:
+            errors.extend(layout_module.validate_operations(where, value.get("layout"), mapping.get("layout")))
         for block_type, block in (value.get("blocks") or {}).items():
             entry(f"{where}.blocks.{block_type}", block, True)
 
+    errors.extend(layout_module.validate_tables(mapping.get("layout")))
+    errors.extend(validate_typography(mapping.get("typography")))
     for section_type, value in (mapping.get("sections") or {}).items():
         entry(f"sections.{section_type}", value, False)
     rules("settings_data", mapping.get("settings_data"), "settings_data")
@@ -236,6 +275,49 @@ def validate_mapping(mapping) -> list[str]:
                 errors.append(f"{kind}.{name}: `action` muss configure, build oder drop sein")
             elif value.get("position", "end") not in POSITIONS:
                 errors.append(f"{kind}.{name}: `position` ist start oder end")
+            elif "required_sections" in value and not (
+                    kind == "templates" and isinstance(value["required_sections"], list)
+                    and all(isinstance(t, str) and t for t in value["required_sections"])):
+                errors.append(f"{kind}.{name}: `required_sections` ist eine Liste von Section-Typen (nur Templates)")
+    return errors
+
+
+def validate_typography(typography) -> list[str]:
+    """Aufbau von `typography`: Rollen mit Größen je Breakpoint, Preset und Skala."""
+    if typography is None:
+        return []
+    if not isinstance(typography, dict):
+        return ["typography: muss ein Objekt sein"]
+    errors = []
+    scales = typography.get("scale") or {}
+    if not isinstance(scales, dict):
+        errors.append("typography.scale: Objekt aus Skalenname und Einstellung der Quelle (Prozent)")
+        scales = {}
+    roles = typography.get("roles")
+    if not isinstance(roles, dict) or not roles:
+        errors.append("typography.roles: Objekt je Textrolle (h1 bis h6, paragraph)")
+        roles = {}
+    lengths = set()
+    for role, value in roles.items():
+        at = f"typography.roles.{role}"
+        if not isinstance(value, dict):
+            errors.append(f"{at}: muss ein Objekt sein")
+            continue
+        sizes = value.get("sizes")
+        if not (isinstance(sizes, list) and sizes and all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in sizes)):
+            errors.append(f"{at}: `sizes` ist eine Liste von Pixelgrößen, kleinste Breite zuerst")
+        else:
+            lengths.add(len(sizes))
+        if not (isinstance(value.get("preset"), str) and value["preset"]):
+            errors.append(f"{at}: `preset` nennt die Einstellung des Ziels (etwa type_size_h1)")
+        if "scale" in value and value["scale"] not in scales:
+            errors.append(f"{at}: Skala {value['scale']!r} fehlt unter typography.scale")
+    if len(lengths) > 1:
+        errors.append("typography.roles: alle Rollen brauchen gleich viele Größen")
+    for field in ("copy", "set"):
+        if field in typography and not isinstance(typography[field], dict):
+            errors.append(f"typography.{field}: muss ein Objekt sein")
     return errors
 
 
@@ -264,7 +346,9 @@ def unknown_fields(mapping: dict) -> list[dict]:
     for key, rule in (mapping.get("settings_data") or {}).items():
         if isinstance(rule, dict):
             note(f"settings_data.{key}", rule, RULE_FIELDS)
-    for kind, known in (("templates", NAMED_FIELDS), ("section_groups", GROUP_FIELDS)):
+    if isinstance(mapping.get("typography"), dict):
+        note("typography", mapping["typography"], TYPOGRAPHY_FIELDS)
+    for kind, known in (("templates", TEMPLATE_FIELDS), ("section_groups", GROUP_FIELDS)):
         for name, value in (mapping.get(kind) or {}).items():
             if isinstance(value, dict):
                 note(f"{kind}.{name}", value, known)
@@ -305,10 +389,37 @@ def check_mapping_against_schemas(mapping: dict, source: dict, target: dict) -> 
                 findings.append({"where": where, "key": key, "to": target_key,
                                  "reason": "color_to_palette braucht eine Einstellung vom Typ color_palette"})
 
+    def check_layout(where, operations, src_view, tgt_view):
+        """Schlüssel der Section, die eine Layout-Operation liest oder schreibt."""
+        for index, operation in enumerate(operations or []):
+            if not isinstance(operation, dict):
+                continue
+            at = f"{where}.layout[{index}]"
+            reads_section = operation.get("scope", "section") == "section" or operation.get("op") in (
+                "page_width", "set_by_value", "copy_to_blocks", "text_blocks")
+            if src_view is not None and reads_section:
+                for field in ("from", "alignment_from", "color_from", "opacity_from"):
+                    key = operation.get(field)
+                    if key and key not in src_view["settings"]:
+                        findings.append({"where": at, "key": key, "reason": "Schlüssel steht nicht im Schema der Quelle"})
+            if tgt_view is None:
+                continue
+            written = []
+            if operation.get("op") == "gap" or (operation.get("op") == "overlay_opacity"
+                                                and operation.get("scope", "section") == "section"):
+                written = [operation.get("to"), operation.get("toggle")]
+            if operation.get("op") == "set_by_value":
+                written = [k for row in (operation.get("values") or {}).values() if isinstance(row, dict)
+                           for k in (row.get("set") or {})]
+            for key in written:
+                if key and key not in tgt_view["settings"]:
+                    findings.append({"where": at, "key": key, "reason": "Ziel-Schlüssel steht nicht im Schema des Ziels"})
+
     def check_entry(where, entry, src_view, tgt_view):
         if entry.get("action", "configure") != "configure":
             return
         check_rules(where, entry.get("settings"), src_view, tgt_view)
+        check_layout(where, entry.get("layout"), src_view, tgt_view)
         for key in (entry.get("set") or {}):
             if tgt_view is not None and key not in tgt_view["settings"]:
                 findings.append({"where": where, "key": key, "reason": "`set` nennt einen Schlüssel außerhalb des Ziel-Schemas"})
@@ -420,7 +531,9 @@ class Generator:
             "renamed_section_ids": [], "merged_groups": [], "skipped": [], "app_items": [], "app_embeds": [],
             "limit_violations": [], "mapping_findings": [],
             "schema_errors": self.source["errors"] + self.target["errors"], "files": [],
+            "layout": [], "added_sections": [], "typography": {}, "disabled_sections": [],
         }
+        self.layout = layout_module.LayoutPass(self, self.mapping.get("layout"))
         self.documents: dict[str, object] = {}
         self.file = ""
 
@@ -798,12 +911,38 @@ class Generator:
             self.build_case(path, "missing_source_schema",
                             f"Section {section_type!r} hat in der Quelle kein Schema, Standardwerte unbekannt")
         node = self.build_node(path, target_type, source_view, data, entry, target_view)
+        if hidden_by_blocks(data):
+            node["disabled"] = True
+            self.report["disabled_sections"].append({"file": self.file, "path": path, "type": section_type,
+                                                     "reason": "alle Blöcke der Quelle aus"})
+        layout_css = self.layout.apply(path, entry.get("layout") or [], data, source_view, node, target_view)
         for key, value in (instance.get("set") or {}).items():
             self.put(node["settings"], target_view, key, copy.deepcopy(value), f"{path}.settings.{key}", key)
-        css = self.custom_css(path, entry, data)
+        css = self.with_layout_css(path, self.custom_css(path, entry, data) or [], layout_css)
         if css:
             node["custom_css"] = css
         return node
+
+    def with_layout_css(self, path: str, rules: list, layout_css: list) -> list:
+        """CSS aus dem Mapping zuerst, dann die Layout-Regeln, solange die 500 Zeichen reichen.
+
+        Die Operationen stehen im Mapping nach Wichtigkeit (Breite vor Textgröße). Was nicht mehr
+        passt, wird ein `build`-Fall mit den Regeln, damit es in die eigene CSS-Datei des Shops geht.
+        """
+        result = list(rules)
+        left_out = []
+        for rule in dict.fromkeys(layout_css):
+            if rule in result:
+                continue
+            if custom_css_length(result + [rule]) <= CUSTOM_CSS_MAX and not left_out:
+                result.append(rule)
+            else:
+                left_out.append(rule)
+        if left_out:
+            self.build_case(path, "layout_css_too_long",
+                            f"{len(left_out)} Layout-Regeln passen nicht mehr in {CUSTOM_CSS_MAX} Zeichen eigenes CSS; "
+                            "in die eigene CSS-Datei des Shops legen", rules=left_out)
+        return result
 
     def custom_css(self, path: str, entry: dict, data: dict) -> list | None:
         """Regel 4: eigenes CSS je Section höchstens 500 Zeichen."""
@@ -888,7 +1027,51 @@ class Generator:
                 self.dropped(key, key, "unbekanntes Attribut im Template")
         document.setdefault("sections", {})
         document.setdefault("order", [])
+        self.add_required_sections(rel, entry, document)
         self.documents[rel] = document
+
+    def add_required_sections(self, rel: str, entry: dict, document: dict) -> None:
+        """Regel 10: Sections, ohne die das Template im Ziel nicht funktioniert.
+
+        Beispiel: Horizon zeigt das Suchfeld der Suchseite in `search-header`. Broadcast hat dafür
+        keine eigene Section, also erzeugt das Mapping keine, und die Suchseite startete nach einem
+        Launch ohne Eingabefeld. Die Section kommt aus dem Template des Ziel-Repos an der Stelle,
+        die sie dort hat.
+        """
+        required = entry.get("required_sections") or []
+        if not required:
+            return
+        present = {section.get("type") for section in document["sections"].values()}
+        base_path = self.target_dir / rel
+        base = schema_module.read_json_file(base_path) if base_path.is_file() else {}
+        base_sections = base.get("sections") or {}
+        base_order = [sid for sid in base.get("order") or [] if sid in base_sections]
+        for section_type in required:
+            if section_type in present:
+                continue
+            found = [(sid, data) for sid, data in base_sections.items() if data.get("type") == section_type]
+            if not found:
+                self.build_case("", "required_section_missing",
+                                f"Section {section_type!r} fehlt im Template und im Template des Ziel-Repos; "
+                                "aus dem Original-Theme übernehmen", type=section_type)
+                continue
+            section_id, data = found[0]
+            new_id = section_id
+            counter = 2
+            while new_id in document["sections"]:
+                new_id, counter = f"{section_id}_{counter}", counter + 1
+            document["sections"][new_id] = copy.deepcopy(data)
+            # Position wie im Ziel: vor der ersten Section, die dort danach kommt und hier vorhanden ist.
+            following = base_order[base_order.index(section_id) + 1:] if section_id in base_order else []
+            following_types = [base_sections[sid].get("type") for sid in following]
+            position = len(document["order"])
+            for index, sid in enumerate(document["order"]):
+                if document["sections"][sid].get("type") in following_types:
+                    position = index
+                    break
+            document["order"].insert(position, new_id)
+            self.report["added_sections"].append({"file": rel, "id": new_id, "type": section_type,
+                                                  "from": base_path.relative_to(self.target_dir).as_posix()})
 
     def generate_groups(self) -> None:
         """Section-Groups der Quelle auf Gruppen des Ziels, mehrere Quellen auch in eine Gruppe.
@@ -988,9 +1171,99 @@ class Generator:
         presets = {}
         if existing_path.is_file():
             presets = schema_module.read_json_file(existing_path).get("presets") or {}
+        self.apply_typography(mapped, source_settings, rules)
         if carried:
             mapped["blocks"] = carried
         self.documents[rel] = {"current": mapped, "presets": presets}
+
+    def apply_typography(self, mapped: dict, source_settings: dict, rules: dict) -> None:
+        """Regel 9, Typografie: Größen der Quelle auf die Presets des Ziels, Schriften je Rolle.
+
+        Broadcast skaliert Überschriften und Fließtext je Breakpoint und über einen Prozentwert,
+        Horizon hat feste Presets (h1 bis h6, paragraph) mit wenigen Stufen und skaliert unter
+        48 px nicht. Der Generator setzt je Rolle das Preset mit der nächsten Größe zur Desktop-Größe
+        der Quelle (bei Gleichstand die größere) und meldet die genauen Größen je Breakpoint als CSS
+        für die eigene Datei des Shops. Ohne diesen Schritt blieben die Presets auf dem Standard des
+        Ziels (H1 72 px, Absatz 14 px).
+        """
+        typography = self.mapping.get("typography")
+        if not typography:
+            return
+        settings_view = self.target["settings_schema"]
+        defaults = self.source["settings_schema"]["defaults"]
+        path = "current"
+
+        def source(key):
+            return source_settings.get(key, defaults.get(key))
+
+        result = {"roles": {}, "css": ""}
+        breakpoints = (self.mapping.get("layout") or {}).get("breakpoints") or []
+        exact_by_step: list[dict] = []
+        differs = False
+        for role, spec in (typography.get("roles") or {}).items():
+            factor = 1.0
+            scale_key = (typography.get("scale") or {}).get(spec.get("scale")) if spec.get("scale") else None
+            if scale_key:
+                try:
+                    factor = float(source(scale_key)) / 100
+                except (TypeError, ValueError):
+                    factor = 1.0
+            exact = [round(size * factor) for size in spec["sizes"]]
+            setting = settings_view["settings"].get(spec["preset"])
+            preset = None
+            if setting is not None:
+                options = []
+                for option in setting.get("options") or []:
+                    try:
+                        options.append((float(option.get("value")), option.get("value")))
+                    except (TypeError, ValueError):
+                        continue
+                if options:
+                    wanted = exact[-1]
+                    preset = min(options, key=lambda item: (abs(item[0] - wanted), -item[0]))[1]
+            if preset is None or not self.put(mapped, settings_view, spec["preset"], preset,
+                                              f"{path}.{spec['preset']}", f"typography:{role}"):
+                preset = None
+            result["roles"][role] = {"source_px": exact, "preset": preset}
+            if preset is None or any(float(preset) != value for value in exact):
+                differs = True
+            for index, value in enumerate(exact):
+                while len(exact_by_step) <= index:
+                    exact_by_step.append({})
+                exact_by_step[index][role] = value
+        for target_key, source_key in (typography.get("copy") or {}).items():
+            value = source(source_key)
+            if value is None:
+                continue
+            rule = dict(rules.get(source_key) or {})
+            if rule.get("transform") in ("drop", "color_to_palette"):
+                rule = {}
+            rule["to"] = target_key
+            try:
+                value = transforms.apply(rule, value, {"scope": "settings_data"})
+            except transforms.TransformError as exc:
+                self.build_case(f"{path}.{target_key}", "transform", str(exc), value=value)
+                continue
+            if value is not transforms.DROP:
+                self.put(mapped, settings_view, target_key, value, f"{path}.{target_key}", f"typography:{source_key}")
+        for key, value in (typography.get("set") or {}).items():
+            self.put(mapped, settings_view, key, copy.deepcopy(value), f"{path}.{key}", "typography")
+        variable = typography.get("css_variable")
+        if variable and exact_by_step:
+            blocks = []
+            for index, step in enumerate(exact_by_step):
+                body = ";".join(f"{variable.format(role=role)}:{value}px" for role, value in step.items())
+                if index == 0:
+                    blocks.append(f":root{{{body}}}")
+                elif index - 1 < len(breakpoints):
+                    blocks.append(f"@media screen and (min-width:{breakpoints[index - 1]}px){{:root{{{body}}}}}")
+            result["css"] = "\n".join(blocks)
+        self.report["typography"] = result
+        if differs and result["css"]:
+            self.build_case(path, "type_scale_css",
+                            "Die Presets des Ziels runden die Schriftgrößen der Quelle; genaue Größen je Breakpoint "
+                            "als CSS in die eigene Datei des Shops legen (report.typography.css)",
+                            css=result["css"])
 
     def embed_decision(self, block_type: str, block_id: str) -> str | None:
         """Entscheidung aus G1 für ein App-Embed, über Integration und Dienst in `apps.json`.

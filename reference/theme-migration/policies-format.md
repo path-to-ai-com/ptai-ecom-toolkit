@@ -68,8 +68,10 @@ Ein Store braucht dafür weder den Ordner der Marke noch ein anderes Repo.
    `decided_by` aus der Datei und `replaces` mit den früheren Entscheidungen zu diesem Dienst.
 3. Dieselbe Entscheidung in `migration/inventory/apps.json`, damit der Generator sie beim nächsten Neubau
    liest (`--apps`).
-4. Ein Dienst in `keep`, der im Inventar fehlt, wird ein Punkt `blocker` in der Liste offener Punkte: er
-   muss vor der Abnahme eingebaut sein.
+4. Ein Dienst in `keep`, der im Inventar fehlt, wird ein Punkt `before_launch` in der Liste offener Punkte
+   (seit 0.3.28, vorher `blocker`). Er hält die Abnahme nicht an: Was der Store heute hat, bekommt er mit
+   derselben App wie der Referenz-Store; was er heute nicht hat, kommt nicht dazu. Ob der Store die Funktion
+   heute mit einer anderen Lösung hat, klärt die Skill einmal je Store mit dem Team.
 5. Im Migrationslauf `policies_version` und `policies_applied_at`; Schritt 3 steht danach auf
    nacharbeiten, bis neu gebaut ist.
 
@@ -216,7 +218,8 @@ Eingabe, je beantworteter Frage ein Eintrag aus `key`, `cockpit_answer` und, emp
 - `options[0]` heißt `may_differ`, `options[1]` `same_as_reference` mit `target` "wie im Referenz-Store", wenn die
   Regel noch kein Ziel hat. Nennt die Frage eine App (`app:<handle>`), behält die angeglichene Regel sie unter
   beiden Schreibweisen der Inventare: `keep: [["app:<handle>", "<handle>"]]`. `apply` legt dann in jedem Store,
-  dessen Inventar die App nicht kennt, einen Punkt `blocker` zum Einbauen an. Eine `app` ohne `app:` wird
+  dessen Inventar die App nicht kennt, einen Punkt `before_launch` an, keinen `blocker`: Was der Store heute hat,
+  bekommt er mit derselben App; was er heute nicht hat, kommt nicht dazu. Die Skill fragt das Team je Store einmal. Eine `app` ohne `app:` wird
   übersprungen. Ohne `options` gelten die Knöpfe des Cockpits: "Abweichung erlauben" und "An …
   angleichen". Eine andere Antwort wird übersprungen.
 - Fehlt die Regel, legt `import` sie an (`subject` aus der Eingabe, sonst `key`); sonst ändert es sie. Wechselt

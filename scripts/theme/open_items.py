@@ -41,12 +41,23 @@ dass einer sie als `id` führt. Beides steht als `ambiguous` in der Ausgabe. Die
 Kennung bleibt als Herkunft in `source_ids`. Trägt ein Punkt nur mehrdeutige
 Kennungen, bekommt er eine eigene aus Quelle und Titel.
 
+Seit dem 11.11.2026 wird ein Testpunkt der Abnahme (aus `test.json`, Kennung
+`<JJJJ-MM-TT>-test:TP-..`) nur mit Bildern vom Entwurf am Rechner und am Handy
+erledigt (`done --desktop-image <bild> --mobile-image <bild>`), gespeichert als
+`images` am Punkt. Bei einem Shop, der danach live ging, standen mehrere
+Testpunkte auf "erledigt" ohne ein Bild vom Entwurf, und die Layoutfehler fielen
+erst nach dem Launch auf. Ein Testpunkt, den `test.json` schon als `done` führt,
+kommt ohne Bilder offen in die Liste (`held_open`); `close-covered` erledigt keinen
+Testpunkt. Andere Punkte brauchen keine Bilder. Gate G4 hält zusätzlich an,
+solange ein Testpunkt ohne Bilder erledigt ist oder der vollständige Bildvergleich
+fehlt (`theme.visual_compare`); `gate --gate G4-acceptance` zeigt beides.
+
 Aufruf (aus dem Workspace):
     python3 -m theme.open_items init [--project <name>]
     python3 -m theme.open_items add --title <text> [--id <id>] [--description <text>]
         [--severity blocker|before_launch|after_launch] [--gate <gate>] [--owner <name>]
         [--source <text>] [--source-id <id> ...] [--link <url> ...]
-    python3 -m theme.open_items done --id <id> --evidence <text>
+    python3 -m theme.open_items done --id <id> --evidence <text> [--desktop-image <bild> --mobile-image <bild>]
     python3 -m theme.open_items defer --id <id> --by <name> --at <YYYY-MM-DD> [--reason <text>]
     python3 -m theme.open_items reopen --id <id> --reason <text>
     python3 -m theme.open_items import --kind checklist|report|findings|test-round --path <file> [--gate <gate>]
@@ -71,7 +82,7 @@ from datetime import date
 from pathlib import Path
 
 from theme import EXIT_ERROR, EXIT_FINDINGS, EXIT_OK, ConfigError, emit, load_config, migration_config
-from theme import launch_findings
+from theme import launch_findings, visual_compare
 
 SCHEMA_VERSION = 1
 KIND = "open-items"
@@ -99,6 +110,12 @@ TEST_OPEN = ("open", "in_progress", "decision")
 #: keine, eine einzelne Ziffer ohne Bindestrich auch nicht: "Zweite H1" oder "GA4" sind Text, keine Kennung.
 LOCAL_ID = re.compile(r"(?<![\w-])([A-Z][A-Z0-9]{0,5}(?:-\d+(?:\.\d+)?|\d{2,}))(?![\w-])")
 GERMAN_DATE = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$")
+#: Herkunft eines Testpunkts der Abnahme: Kennung `<lauf>-test:TP-01` oder Quelle "Abnahme <lauf> (test.json)".
+TEST_POINT_KEY = re.compile(r"-test:\S")
+TEST_POINT_SOURCE = re.compile(r"^Abnahme \S+ \(test\.json\)$")
+#: Beleg eines erledigten Testpunkts: je ein Bild vom Entwurf am Rechner und am Handy.
+IMAGE_DEVICES = ("desktop", "mobile")
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 
 class OpenItemsError(Exception):
@@ -146,6 +163,17 @@ def link_urls(links) -> list:
         if isinstance(url, str) and url.strip() and url not in out:
             out.append(url.strip())
     return out
+
+
+def is_test_point(item: dict) -> bool:
+    """Ein Testpunkt der Abnahme (`test.json`), erkannt an Kennung oder Quelle, nicht an der ID."""
+    return any(TEST_POINT_KEY.search(str(k)) for k in item.get("source_ids") or []) \
+        or bool(TEST_POINT_SOURCE.match(str(item.get("source") or "")))
+
+
+def has_images(item: dict) -> bool:
+    images = item.get("images") if isinstance(item.get("images"), dict) else {}
+    return all(str(images.get(d) or "").strip() for d in IMAGE_DEVICES)
 
 
 def clip(text, limit: int) -> str:
@@ -198,6 +226,9 @@ def validate(data) -> list:
         for key in ("description", "owner", "source", "evidence", "deferred_by"):
             if key in item and not isinstance(item[key], str):
                 errors.append(f"{where}: {key} ist kein Text")
+        images = item.get("images", {})
+        if not isinstance(images, dict) or not all(isinstance(v, str) for v in images.values()):
+            errors.append(f"{where}: images ist kein Objekt mit Bildpfaden")
         if item.get("status") == "done" and not str(item.get("evidence") or "").strip():
             errors.append(f"{where}: erledigt ohne Beleg (evidence)")
         if item.get("status") == "deferred":
@@ -270,7 +301,7 @@ class OpenItems:
     def add(self, *, title: str, ident: str = "", description: str = "", severity: str = "before_launch",
             gate: str = "", owner: str = "", source: str = "", source_ids: list | None = None,
             links: list | None = None, status: str = "open", evidence: str = "", deferred_by: str = "",
-            deferred_at: str = "", today: str | None = None) -> dict:
+            deferred_at: str = "", today: str | None = None, images: dict | None = None) -> dict:
         """Legt einen Punkt an; `ident` muss frei sein, sonst Fehler (zum Ändern gibt es done, defer, reopen)."""
         if not str(title).strip():
             raise OpenItemsError("ein Punkt braucht einen Titel")
@@ -290,7 +321,10 @@ class OpenItems:
                 "gate": gate, "status": "open", "owner": owner or "", "evidence": "", "source": source or "",
                 "source_ids": source_ids, "links": link_urls(links), "created_at": today, "updated_at": today}
         if status == "done":
+            checked = self.evidence_images(item, images)
             self._close(item, evidence, today)
+            if checked:
+                item["images"] = checked
         elif status == "deferred":
             self._defer(item, deferred_by, deferred_at, evidence, today)
         self.items.append(item)
@@ -310,12 +344,51 @@ class OpenItems:
         if not str(by or "").strip() or not when:
             raise OpenItemsError(f"{item['id']}: verschoben nur mit Person (--by) und Datum JJJJ-MM-TT (--at)")
         item.update(status="deferred", deferred_by=str(by).strip(), deferred_at=when, updated_at=today)
+        item.pop("images", None)
         if reason:
             item["evidence"] = str(reason).strip()
 
-    def set_done(self, ident: str, evidence: str, today: str | None = None) -> dict:
+    def evidence_images(self, item: dict, images: dict | None) -> dict:
+        """Die Bilder als Beleg, geprüft; für einen Testpunkt Pflicht, für andere Punkte freiwillig.
+
+        Ein Testpunkt braucht je ein Bild vom Entwurf am Rechner und am Handy, zwei verschiedene Dateien,
+        die es gibt (Pfad absolut oder relativ zum Workspace). Ob ein Bild den Entwurf zeigt, prüft das
+        nicht; das Bild muss aber da sein, damit es jemand ansehen kann.
+        """
+        images = {d: str(p).strip() for d, p in (images or {}).items() if p and str(p).strip()}
+        unknown = [d for d in images if d not in IMAGE_DEVICES]
+        if unknown:
+            raise OpenItemsError(f"{item['id']}: Bilder nur für {', '.join(IMAGE_DEVICES)}, "
+                                 f"nicht {', '.join(unknown)}")
+        if is_test_point(item):
+            lacking = [d for d in IMAGE_DEVICES if d not in images]
+            if lacking:
+                raise OpenItemsError(
+                    f"{item['id']} ist ein Testpunkt der Abnahme: erledigt nur mit Bildern vom Entwurf am Rechner "
+                    "und am Handy (--desktop-image <bild> --mobile-image <bild>); es fehlt "
+                    + " und ".join({"desktop": "das Bild am Rechner", "mobile": "das Bild am Handy"}[d]
+                                   for d in lacking))
+            if len({images[d] for d in IMAGE_DEVICES}) < len(IMAGE_DEVICES):
+                raise OpenItemsError(f"{item['id']}: Rechner und Handy brauchen zwei verschiedene Bilder")
+        for path in images.values():
+            file = Path(path).expanduser()
+            file = file if file.is_absolute() else self.workspace / file
+            if file.suffix.lower() not in IMAGE_SUFFIXES:
+                raise OpenItemsError(f"{item['id']}: {path} ist kein Bild ({', '.join(IMAGE_SUFFIXES)})")
+            if not file.is_file():
+                raise OpenItemsError(f"{item['id']}: Bild {path} nicht gefunden")
+        return images
+
+    def set_done(self, ident: str, evidence: str, today: str | None = None, images: dict | None = None) -> dict:
+        """Erledigt einen Punkt mit Beleg; ein Testpunkt zusätzlich mit Bildern (`evidence_images`).
+
+        Auch für einen schon erledigten Punkt: so lassen sich Bilder nachreichen.
+        """
         item = self.get(ident)
+        checked = self.evidence_images(item, images)
         self._close(item, evidence, today or date.today().isoformat())
+        if checked:
+            item["images"] = checked
         return item
 
     def defer(self, ident: str, by: str, at: str, reason: str = "", today: str | None = None) -> dict:
@@ -331,6 +404,7 @@ class OpenItems:
                     updated_at=today or date.today().isoformat())
         item.pop("deferred_by", None)
         item.pop("deferred_at", None)
+        item.pop("images", None)
         return item
 
     def blocking(self, gate: str) -> list:
@@ -338,6 +412,10 @@ class OpenItems:
         if gate not in GATE_READS:
             raise OpenItemsError(f"unbekanntes Gate: {gate!r}, erlaubt sind {GATES}")
         return [i for i in self.items if i["status"] == "open" and i["gate"] in GATE_READS[gate]]
+
+    def done_without_images(self) -> list:
+        """Erledigte Testpunkte ohne Bilder vom Entwurf, etwa von vor dem 11.11.2026 oder von Hand gesetzt."""
+        return [i for i in self.items if i["status"] == "done" and is_test_point(i) and not has_images(i)]
 
     def counts(self) -> dict:
         out = {s: sum(1 for i in self.items if i["status"] == s) for s in STATUSES}
@@ -348,7 +426,7 @@ class OpenItems:
     def merge(self, candidates: list, today: str | None = None, gate: str = "") -> dict:
         """Kandidaten aus einer Quelle übernehmen. Neue Punkte anlegen, bekannte nur um Kennungen ergänzen."""
         today = today or date.today().isoformat()
-        created, known, drift = [], [], []
+        created, known, drift, held_open = [], [], [], []
         candidates, ambiguous = resolve_keys(candidates)
         for cand in candidates:
             conflicts = []
@@ -367,17 +445,26 @@ class OpenItems:
                     drift.append({"id": item["id"], "list": item["status"], "source": cand["state"],
                                   "where": cand["source"]})
                 continue
+            source_ids = [k for k in cand["keys"] + cand["shared_keys"] if k != cand["preferred_id"]]
+            state = cand["state"]
+            # Ein Testpunkt, den die Quelle schon erledigt nennt, kommt ohne Bilder vom Entwurf offen hinein.
+            if state == "done" and is_test_point({"source": cand["source"], "source_ids": source_ids}):
+                state = "open"
+                held_open.append(cand["preferred_id"])
             item = self.add(
                 title=cand["title"], ident=self.free_id(cand["preferred_id"]), description=cand.get("description", ""),
                 severity=cand["severity"], gate=gate or cand.get("gate") or "", owner=cand.get("owner", ""),
-                source=cand["source"],
-                source_ids=[k for k in cand["keys"] + cand["shared_keys"] if k != cand["preferred_id"]],
-                links=cand.get("links"), status=cand["state"], evidence=cand.get("evidence", ""),
-                deferred_by=cand.get("deferred_by", ""), deferred_at=cand.get("deferred_at", ""), today=today)
+                source=cand["source"], source_ids=source_ids, links=cand.get("links"), status=state,
+                evidence=cand.get("evidence", ""), deferred_by=cand.get("deferred_by", ""),
+                deferred_at=cand.get("deferred_at", ""), today=today)
+            if state != cand["state"]:
+                item["evidence"] = (f"laut {cand['source']} erledigt, Bilder vom Entwurf fehlen: "
+                                    f"{cand.get('evidence', '')}")
             if cand["preferred_id"] != item["id"] and cand["preferred_id"] not in item["source_ids"]:
                 item["source_ids"].insert(0, cand["preferred_id"])
             created.append(item["id"])
-        return {"created": created, "known": len(known), "drift": drift, "ambiguous": ambiguous}
+        return {"created": created, "known": len(known), "drift": drift, "ambiguous": ambiguous,
+                "held_open": held_open}
 
     def unimported(self, candidates: list) -> list:
         """Kandidaten, die in der Quelle nicht erledigt sind und in der Liste fehlen."""
@@ -687,7 +774,8 @@ def close_covered(items: OpenItems, report: dict, where: str, today: str | None 
     stamp = str(report.get("checked_at") or "")[:10]
     closed = []
     for item in items.items:
-        if item["status"] != "open":
+        # Ein Testpunkt braucht Bilder vom Entwurf; eine bestandene Prüfung ersetzt sie nicht.
+        if item["status"] != "open" or is_test_point(item):
             continue
         checks = launch_findings.checks_for(f"{item['title']} {item.get('description', '')}")
         if checks and all(statuses.get(c) == "ok" for c in checks):
@@ -756,6 +844,10 @@ def render(data: dict) -> str:
             status = item.get("status")
             if status == "done":
                 state = f"erledigt: {item.get('evidence', '')}"
+                if has_images(item):
+                    state += " (Bilder Rechner und Handy)"
+                elif is_test_point(item):
+                    state += " (ohne Bilder vom Entwurf)"
             elif status == "deferred":
                 state = f"verschoben von {item.get('deferred_by')} am {item.get('deferred_at')}"
                 state += f": {item['evidence']}" if item.get("evidence") else ""
@@ -794,6 +886,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-id", action="append", default=[])
     parser.add_argument("--link", action="append", default=[])
     parser.add_argument("--evidence", default="")
+    parser.add_argument("--desktop-image", default="", help="Bild vom Entwurf am Rechner, Pflicht für Testpunkte")
+    parser.add_argument("--mobile-image", default="", help="Bild vom Entwurf am Handy, Pflicht für Testpunkte")
     parser.add_argument("--by", default="")
     parser.add_argument("--at", default="")
     parser.add_argument("--reason", default="")
@@ -824,7 +918,8 @@ def main(argv: list[str] | None = None) -> int:
             items.save()
             result = {"ok": True, "item": brief(item)}
         elif args.command == "done":
-            item = items.set_done(args.id, args.evidence)
+            item = items.set_done(args.id, args.evidence,
+                                  images={"desktop": args.desktop_image, "mobile": args.mobile_image})
             items.save()
             result = {"ok": True, "item": brief(item)}
         elif args.command == "defer":
@@ -853,6 +948,18 @@ def main(argv: list[str] | None = None) -> int:
             blocking = items.blocking(args.gate)
             result = {"ok": True, "gate": args.gate, "open": len(blocking), "items": [brief(i) for i in blocking]}
             code = EXIT_FINDINGS if blocking else EXIT_OK
+            if args.gate == "G4-acceptance":
+                # Dieselben Bedingungen, an denen run_state gate G4 anhält, vor dem Gespräch über die Abnahme.
+                try:
+                    config = load_config(workspace)
+                except ConfigError:
+                    config = {}
+                compare = visual_compare.evaluate(workspace, config)
+                unproven = items.done_without_images()
+                result["visual_compare"] = {k: compare.get(k) for k in ("ok", "problems", "records")}
+                result["done_without_images"] = [brief(i) for i in unproven]
+                if not compare["ok"] or unproven:
+                    code = EXIT_FINDINGS
         elif args.command == "sources":
             config = load_config(workspace)
             gaps = source_gaps(items, workspace, config, migration=True)

@@ -118,7 +118,7 @@ Vier Dateien, jede über den vollen Pfad. Nie das Verzeichnis `reporting/data/<r
     - `summary.hit_url_limit: true`: der Crawl hat an seiner Obergrenze aufgehört, die Ursache kann die Grenze sein. Dann kein Befund, sondern `not_measurable`.
     - Hat keine Seite hreflang, entfällt die Frage.
 
-## Kriterienliste, Version 2026-09-27
+## Kriterienliste, Version 2026-11-06
 
 Kernfragen legen fest, was untersucht wird; Kriterien legen fest, was **in jedem Lauf** im Ergebnis steht. Ein Kriterium erzeugt auch dann eine Ergebniszeile, wenn alles in Ordnung ist, und verhindert so, dass Befundthemen zwischen zwei Läufen ohne Spur wegfallen, selbst innerhalb der Kernfragen.
 
@@ -132,6 +132,8 @@ Kernfragen legen fest, was untersucht wird; Kriterien legen fest, was **in jedem
 | `not_applicable` | der Shop hat den Gegenstand nicht (keine Sprachversionen, keine paginierten Listen) | `reason` in einem Satz |
 
 Alte Snapshots:
+
+- **Kriterien ab Version 2026-11-06** (in der Tabelle mit „seit 06.11.2026“ markiert): Läufe davor haben sie nicht. Ein Folgelauf führt sie als neue Zeile, nie als Verschlechterung.
 
 - **Vor dem 27.09.2026**: ohne die Index-Blöcke ab `canonical_pages`, ohne `summary.hit_url_limit`, und `catalog.json` ohne `products_sold_out`. Die betroffenen Kriterien sind `not_measurable`, nie `passed`.
 - **Vor dem 02.10.2026** (`collected_at`): ohne Folgeseiten einer Liste, weil der Crawl `?page=2` mit jeder anderen Query verwarf. Dann:
@@ -156,7 +158,7 @@ Zahlen:
 | `tec.orphans` | 2 | Seiten aus der Sitemap ohne interne Verlinkung | `findings_index.orphans` | `summary.hit_url_limit` auf `true`: `not_measurable` |
 | `tec.redirect-chains` | 2 | längste Weiterleitungskette | `summary.longest_redirect_chain` | mehr als ein Sprung ist ein Befund, `gering` |
 | `tec.status-codes` | 3 | 4xx und 5xx, getrennt nach intern verlinkt und nur aus der Sitemap | `findings_index.errors`, `summary.throttled_pages`, `summary.bot_challenge_pages` | 429 und Bot-Challenge sind kein Zustand des Shops, sondern Datenlage |
-| `tec.sold-out-handling` | 3 | ausverkaufte Produkte: Statuscode, `indexable` und Weiterleitung ihrer Produktseite, gezielt je Handle in `pages[]` | `catalog.json > products_sold_out`, `crawl.json > pages[]` | ausverkauft allein ist kein Befund (Regel 7); ein Befund entsteht erst bei einer technischen Folge, etwa 404 oder `noindex` auf einer Produktseite |
+| `tec.sold-out-handling` | 3 | ausverkaufte Produkte: Statuscode, `indexable` und Weiterleitung ihrer Produktseite, gezielt je Handle in `pages[]`; eingestellte Produkte getrennt davon: 404 oder 410 auf einer Produktadresse, die in `gsc.json > top_pages` Impressionen trägt oder intern verlinkt ist | `catalog.json > products_sold_out`, `crawl.json > pages[]`, `findings_index.errors`, `gsc.json > top_pages` | ausverkauft allein ist kein Befund (Regel 7); ein Befund entsteht erst bei einer technischen Folge, etwa 404 oder `noindex` auf einer Produktseite. Seit 06.11.2026: eine eingestellte Produktadresse mit Historie gehört per 301 auf Nachfolger oder Kategorie, ein 404 dort ist ein Befund |
 | `tec.duplicate-titles` | 4 | Gruppen gleicher Titles über kanonische Seiten | `findings_index.titles.duplicate_groups` | |
 | `tec.multiple-canonicals` | 4 | mehr als ein Canonical-Tag auf einer Seite | `findings_index.multiple_canonicals` | |
 | `tec.canonical-mismatch` | 5 | Canonical zeigt ohne fachlichen Grund auf eine andere Adresse | `findings_index.canonical_mismatch` | Produktadressen im Collection-Kontext mit Canonical auf die Produktadresse sind gewollt; sie zählen unter `tec.internal-canonical-links`, nicht hier. Folgeseiten mit Canonical auf Seite 1 zählen unter `tec.pagination`, nicht hier |
@@ -165,8 +167,15 @@ Zahlen:
 | `tec.parameter-urls` | 7 | indexierbare Parameter-URLs ohne Canonical auf die parameterfreie Variante | `findings_index.parameter_urls` | |
 | `tec.pagination` | 7 | paginierte Kategorieseiten: eigenes Canonical je Seite, keine Folgeseite mit Canonical auf Seite 1 | `findings_index.pagination`, dazu `orphans` und `path_prefixes` | Canonical auf Seite 1 ist ein Befund. Null paginierte Adressen bei vielen verwaisten Produktseiten deutet auf "Mehr laden" per JavaScript ohne Links: `hypothesis`, nie mehr |
 | `tec.product-schema-coverage` | 8 | Produktseiten ohne `Product`-Auszeichnung | `findings_index.schema_types`, `findings_index.path_prefixes` | `confirmed` erst nach `tec.rendered-check` |
-| `tec.product-markup-fields` | 8 | Product-Auszeichnung vollständig: `offers` mit Preis, Währung und Verfügbarkeit, Marke, Kennung (GTIN, MPN oder SKU), Bild, Versand und Rückgabe; mehrere Product-Knoten auf einer Seite | `findings_index.product_markup`, `findings_index.organization_markup` | Versand oder Rückgabe fehlen am Angebot, stehen aber global an der Organization (`with_shipping_service`, `with_return_policy`): erfüllt |
+| `tec.product-markup-fields` | 8 | Product-Auszeichnung vollständig: `offers` mit Preis, Währung und Verfügbarkeit, Marke, Kennung (GTIN, MPN oder SKU), Bild, Versand und Rückgabe; mehrere Product-Knoten auf einer Seite. Seit 06.11.2026 zusätzlich die Regeln für Merchant Listings an drei bis fünf Produktseiten: `Offer` statt `AggregateOffer`, `price` größer null, `priceCurrency` zu jedem Preis, Aktionspreis nur mit `validFrom` und `validThrough` | `findings_index.product_markup`, `findings_index.organization_markup`, JSON-LD der Stichprobe aus dem rohen HTML | Versand oder Rückgabe fehlen am Angebot, stehen aber global an der Organization (`with_shipping_service`, `with_return_policy`): erfüllt. `AggregateOffer` bei Mengenstaffeln ist für Produkt-Snippets zulässig, schließt die Seite aber aus den Merchant Listings aus: `gering`, mit diesem Hinweis |
 | `tec.rendered-check` | 8 | gerenderte Gegenprobe an drei bis fünf Seiten je betroffenem Seitentyp, bevor fehlende Auszeichnung als Befund gilt (Aufruf unten) | Ausgabe von `render_check.py` | `only_rendered`: die Auszeichnung hängt an JavaScript, der Befund "fehlt" entfällt, ein Hinweis `gering` bleibt. Ohne Gegenprobe trägt kein Befund über fehlende Auszeichnung `confirmed`. Gibt es nichts gegenzuprüfen, `not_applicable` |
+| `tec.variant-urls` | 7 | Varianten: Adressen mit `?variant=` oder gleichwertigem Parameter kanonisieren auf die Produktadresse; Varianten als `ProductGroup` mit `hasVariant` statt mehrerer Product-Knoten je SKU; eine Variante mit eigener Adresse braucht eigenen Inhalt. Seit 06.11.2026 | `findings_index.parameter_urls`, `findings_index.product_markup` (`multiple_nodes`) | keine Varianten im Katalog: `not_applicable` |
+| `tec.facet-rules` | 7 | Filter- und Sortier-Adressen: nie robots.txt-Sperre und `noindex` auf derselben Adresse; indexierbar nur eine Facette mit eigener Nachfrage, eigenem Sortiment und eigenem Text. Seit 06.11.2026 | `robots.disallow_rules`, `findings_index.parameter_urls` | Sperre plus `noindex` ist ein Befund, weil Google das `noindex` dann nie liest |
+| `tec.category-markup` | 8 | Kategorieseiten: `CollectionPage` oder `ItemList` passend zur ersten Listenseite, kein `Product` mit `Offer` je Kachel im Raster. Seit 06.11.2026 | `findings_index.schema_types`, `findings_index.path_prefixes` | fehlende Kategorie-Auszeichnung ist `gering`; Product-Knoten je Kachel `mittel`, weil sie Produkt-Snippets auf der Kategorie auslösen können |
+| `tec.server-html-content` | 8 | Kerninhalt im rohen HTML, nicht nur die strukturierten Daten: Preis als Text und H1 auf drei bis fünf Produktseiten, Produktlinks der ersten Listenseite und Kategorietext auf drei Kategorieseiten. Seit 06.11.2026 | `crawl.json > pages[]` (H1, interne Links), rohes HTML der Stichprobe, Ausgabe von `render_check.py` | AI-Crawler führen kein JavaScript aus: was nur gerendert erscheint, ist für sie nicht da. `only_rendered` beim Preis oder bei den Produktlinks ist ein Befund `mittel` |
+| `tec.price-consistency` | 8 | Preis und Verfügbarkeit stimmen überein zwischen sichtbarer Seite, Auszeichnung und, wo vorhanden, Produktfeed, an drei bis fünf Produktseiten. Seit 06.11.2026 | rohes HTML der Stichprobe, `findings_index.product_markup`; Feed nur, wenn der Kunde ihn bereitstellt | Abweichung zwischen Seite und Auszeichnung ist `hoch`, weil Google dafür Produkte sperrt; ohne Feed wird nur Seite gegen Auszeichnung geprüft und das in `value` gesagt |
+| `tec.shopify-probes` | 7 | nur Shopify: `/collections/all` indexierbar, Tag-Kombinationen `/collections/<x>/<a>+<b>`, `?filter.` und `?sort_by=` indexierbar, eine eigene `robots.txt.liquid` ohne die Standardgruppen, hreflang doppelt aus Theme und Shopify. Seit 06.11.2026 | `crawl.json > pages[]`, `robots.disallow_rules`, `findings_index.hreflang` | anderes Shopsystem: `not_applicable` |
+| `tec.crawl-stats` | 7 | Crawl-Statistik der Search Console oder Server-Logs: Anteil der Googlebot-Abrufe auf Filter-, Sortier- und Parameter-Adressen. Seit 06.11.2026 | Export aus der Search Console oder Logs, nur wenn der Kunde sie bereitstellt | ohne Export `not_measurable`, nie `passed` |
 | `tec.core-web-vitals` | 9 | LCP, INP und CLS im Feld je Seitentyp, Labor nur als Ersatz ohne Felddaten | `cwv.json` | Schwellen aus `reference/metrics.md` |
 | `tec.h1` | 10 | genau eine H1 je kanonischer Seite, "mehrere" und "keine" getrennt | `findings_index.h1` | `gering`, solange keine Wirkung gemessen ist |
 | `tec.title-length` | 10 | fehlende und zu lange Titles (Grenze in `titles.too_long.max_chars`) | `findings_index.titles` | `gering` |
@@ -241,7 +250,7 @@ Fünf Felder je Befund, ohne Beleg kein Befund:
   "run_id": "<run-id>",
   "generated_at": "2026-10-01T09:00:00+00:00",
   "blocked_questions": [],
-  "criteria_version": "2026-09-27",
+  "criteria_version": "2026-11-06",
   "criteria": [
     {"id": "tec.h1", "result": "violated", "value": "<Zahl mit Grundgesamtheit>",
      "finding_id": "TEC-03"},

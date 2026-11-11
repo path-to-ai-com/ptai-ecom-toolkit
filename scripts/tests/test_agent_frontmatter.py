@@ -97,7 +97,7 @@ class TestAgentFrontmatter(unittest.TestCase):
                 self.assertIn("blocked_questions", text)
 
     def test_criteria_lists_have_unique_ids_with_the_module_prefix(self):
-        """Kriterienliste vom 27.09.2026: die IDs sind die Adresse jeder
+        """Kriterienliste vom 27.09.2026, Version 2026-11-06: die IDs sind die Adresse jeder
         Ergebniszeile. Eine doppelte oder falsch präfixierte ID macht die
         Vollständigkeitsprüfung in audit.evidence blind."""
         import sys
@@ -110,7 +110,7 @@ class TestAgentFrontmatter(unittest.TestCase):
                 self.assertEqual(len(ids), len(set(ids)), f"{name}: doppelte ID")
                 self.assertTrue(all(i.startswith(prefix + ".") for i in ids), ids)
                 text = (AGENTS / f"{name}.md").read_text(encoding="utf-8")
-                self.assertIn('"criteria_version": "2026-09-27"', text)
+                self.assertIn('"criteria_version": "2026-11-06"', text)
 
     def test_every_agent_file_is_registered_here(self):
         """Ein neuer Agent, den niemand einträgt, wird von keinem Test geprüft."""

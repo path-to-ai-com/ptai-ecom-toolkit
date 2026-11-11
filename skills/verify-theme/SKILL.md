@@ -75,7 +75,8 @@ Referenzen in `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/`:
      mit dem Auftrag, jede Zeile des eigenen Prüfers mit Ergebnis in `findings.md` zu führen
    - die Eingabedateien (`seo.json`, `design.json`, `functions.json`, `apps.json`, `tracking.json`,
      `translations.json`, `templates.json`, je nach Prüfer)
-   - die Werkzeuge: `crawl-site` für SEO, `compare-themes --compare` für Gestaltung,
+   - die Werkzeuge: `crawl-site` für SEO, `compare-themes --compare` für Gestaltung (alle Beispielseiten,
+     Rechner 1440 und Handy 390, links das veröffentlichte Theme),
      `scripts/browser/capture_network.py` für Apps und Tracking, Lighthouse dreimal mit Median für
      Performance, axe und Lighthouse für Barrierefreiheit, `shopify theme check` und `theme.limits` für
      Struktur
@@ -150,7 +151,8 @@ entspricht.
 5. **Für das Handy "Hide bar" vorgeben**, sonst verdeckt die Vorschauleiste Buttons in App-Fenstern.
 6. **Testpunkte in die Liste offener Punkte**, wie in `test-round` beschrieben: `open_items import
    --kind test-round --path reporting/runs/<date>-test/test.json`. Jeder Punkt mit `status` liest Gate
-   G4. Ein Testpunkt zu einem Befund, der schon in der Liste steht, wird dort ein eigener Punkt; er
+   G4. Erledigt wird ein Testpunkt nur mit Bildern vom Entwurf am Rechner und am Handy (`open_items done
+   --desktop-image <bild> --mobile-image <bild>`). Ein Testpunkt zu einem Befund, der schon in der Liste steht, wird dort ein eigener Punkt; er
    wird zusammen mit dem Befund erledigt, mit Verweis auf dessen `id` im Beleg.
 7. Veröffentlichen erst nach ausdrücklichem Go des Betreibers, wie in `test-round` beschrieben.
 
@@ -161,6 +163,11 @@ entspricht.
    nächsten Termin.
 3. Korrekturen wie in Schritt 6 an der Ursache beheben.
 4. Die Auflösung am Testpunkt enthält Bildpaar und Linkpaar.
+
+**Vor Gate G4: vollständiger Bildvergleich.** Nach der letzten Korrektur `compare-themes --compare` über
+alle Beispielseiten, am Rechner und am Handy, links das veröffentlichte Theme, rechts der Entwurf. Jedes
+Paar als ganze Seite ansehen, nicht stichprobenartig und nicht nur die Erstansicht. Ohne diesen Vergleich
+hält `run_state gate --gate G4-acceptance` an; `visual_compare check` zeigt, was fehlt.
 
 ## Ergebnis
 
@@ -181,6 +188,12 @@ Den Migrationsstand schreibt `theme-migration`, weder diese Skill noch ein Prüf
 - **Funktionsliste nicht abgehakt:** der Funktionsprüfer arbeitet `functions.json` Zeile für Zeile ab.
 - **Nur Chromium:** manche Fehler zeigt nur WebKit. WebKit im iPhone-Format ist Pflicht.
 - **Befund nur aus Stil- oder HTML-Messung:** Unsichtbares und Layoutfehler zeigt nur das Bildpaar.
+- **Abnahme als Stichprobe:** Testpunkte einzeln geprüft, kein Bildvergleich aller Seiten. So gingen bei
+  einem Umzug auf Horizon schmale Inhaltsseiten, falsche Typografie, eine Suchseite ohne Suchfeld und ein
+  zu hoher Newsletter live. Vollständiger Bildvergleich vor G4, Testpunkte nur mit Bildern erledigt.
+- **Ganzseiten-Bild in Horizon nur fensterhoch, Footer leer:** Horizon scrollt in `.page-wrapper`, der
+  Footer nutzt `content-visibility: auto`. `shoot_pair` berücksichtigt beides; ein Bild mit Status
+  `incomplete` nachholen.
 - **Nur Bildpaare ganzer Seiten:** ein Element, das vorhanden, aber anders gesetzt ist (Menüschrift,
   Preisgröße, Variantenauswahl), fällt darin nicht auf. `storefront-parity.md` je Zeile abarbeiten; eine
   Zeile ohne Ergebnis in `findings.md` heißt, der Prüfer ist nicht fertig.

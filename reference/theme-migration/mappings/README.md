@@ -67,6 +67,16 @@ statischer Block der Section und steht nicht in deren Blockliste), `settings`, `
 **`set`** setzt feste Werte im Ziel, die keine Quell-Einstellung trägt, etwa
 `recommendation_type: complementary` oder `media_type_1: video`.
 
+**Layout und Typografie** (seit 11.11.2026). Eine Bibliothek trägt auch, wie die Gestaltung der Quelle
+im Ziel aussieht: auf oberster Ebene `layout` (Breakpoints, Breiten wie Broadcast `wrapper`, Größenstufen
+je Breakpoint) und `typography` (Größen der Überschriften und des Absatzes, Presets und Schriften je
+Rolle), je Section eine Liste `layout` mit Operationen und je Template `required_sections`. Ohne sie
+überträgt der Generator Inhalte, das Ziel fällt bei Breite, Ausrichtung, Textgröße, Abständen,
+Overlay-Deckkraft und Höhe aber auf seine Standardwerte zurück. Format und Operationen:
+`../mapping-format.md`, Abschnitte `layout`, `typography` und `required_sections`. Die Werte in
+`broadcast-5__horizon-4.json` stammen aus dem CSS von Broadcast (`.wrapper`, `--font-N` je Breakpoint)
+und sind an einem Shop nach dem Launch im Bildpaar alt gegen neu abgeglichen.
+
 ## Transformationen
 
 Die Liste ist fest. Was keine davon abbildet, wird `build` mit Begründung, nie stilles Raten.

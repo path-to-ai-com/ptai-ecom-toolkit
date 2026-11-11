@@ -264,6 +264,109 @@ class TestBildpaare(unittest.TestCase):
         self.assertEqual([(p["page_id"], p["device"]) for p in data["pairs"]], [("home", "desktop"), ("home", "mobile")])
         self.assertEqual(data["pairs"][0]["b"]["state"], "wrong_theme")
         self.assertEqual(data["pairs"][1]["a"], {"state": "error", "error": "Zeitlimit"})
+        self.assertEqual([p["width"] for p in data["pairs"]], [1440, 390])
+
+    def test_index_traegt_referenz_abdeckung_und_warnung_zum_entwurf(self):
+        shots = {"state": "ok", "file": "x.png", "viewport": {"width": 1440, "height": 900},
+                 "theme_check": {"found": "000000000004", "found_role": "main"}}
+        data = {"themes": {"a": "000000000004", "b": "000000000003"}, "captured_at": "2026-11-11T09:00:00+00:00",
+                "pairs": [{"page_id": "home", "device": "desktop", "a": shots,
+                           "b": {**shots, "theme_check": {"found": "000000000003", "found_role": "unpublished"}}}]}
+        config = {"theme_migration": {"live_theme_id": "000000000004", "draft_theme_id": "000000000002"}}
+        out = shoot_pair.finish(data, ["home"], config)
+        self.assertTrue(out["reference"]["published"])
+        self.assertEqual((out["coverage"]["expected"], out["coverage"]["valid"]), (4, 2))
+        self.assertIn("draft_theme_id der Config ist 000000000002", out["reference"]["warnings"][0])
+        self.assertEqual(out["pairs"][0]["captured_at"], "2026-11-11T09:00:00+00:00")
+
+    def test_eintrag_im_workspace_ergaenzt_am_selben_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            first = {"themes": {"a": "1", "b": "2"}, "captured_at": "2026-11-11T08:00:00+00:00",
+                     "pairs": [{"page_id": "home", "device": "desktop"}, {"page_id": "home", "device": "mobile"}]}
+            second = {"themes": {"a": "1", "b": "2"}, "captured_at": "2026-11-11T10:00:00+00:00",
+                      "pairs": [{"page_id": "home", "device": "mobile"}]}
+            shoot_pair.write_record(ws, first, Path("/kunde/bilder"))
+            path = shoot_pair.write_record(ws, second, Path("/kunde/bilder"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(path.parent.parent, ws / "migration" / "verify")
+            self.assertEqual([(p["device"], p["captured_at"][11:13]) for p in data["pairs"]],
+                             [("desktop", "08"), ("mobile", "10")])
+            self.assertEqual(data["images_dir"], str(Path("/kunde/bilder")))
+
+
+def metrics(doc=900, height=900, width=1440, scroll_y=0, scrollers=()):
+    return {"doc_height": doc, "viewport_height": height, "viewport_width": width, "scroll_y": scroll_y,
+            "scrollers": [{"index": i, "tag": "div", "id": None, **s} for i, s in enumerate(scrollers)]}
+
+
+WRAPPER = {"class_name": "page-wrapper", "client_height": 900, "client_width": 1440, "scroll_height": 7000,
+           "scroll_top": 0}
+
+
+class TestGanzeSeite(unittest.TestCase):
+    """Höhe und Scrollstand, auch wenn wie in Horizon ein Container statt des Dokuments scrollt."""
+
+    def test_normale_seite_traegt_ihre_hoehe_im_dokument(self):
+        extent = common.page_extent(metrics(doc=5000))
+        self.assertEqual((extent["height"], extent["scroller"], extent["at_end"]), (5000, None, False))
+
+    def test_horizon_scrollt_in_page_wrapper_das_dokument_bleibt_fensterhoch(self):
+        extent = common.page_extent(metrics(scrollers=[WRAPPER]))
+        self.assertEqual(extent["height"], 7000)
+        self.assertEqual(common.scroller_label(extent["scroller"]), "div.page-wrapper")
+
+    def test_kopf_ausserhalb_des_containers_zaehlt_mit(self):
+        wrapper = {**WRAPPER, "client_height": 820, "scroll_height": 6900}
+        self.assertEqual(common.page_extent(metrics(scrollers=[wrapper]))["height"], 900 + 6900 - 820)
+
+    def test_kleine_scrollende_elemente_tragen_die_seite_nicht(self):
+        dropdown = {"class_name": "menu", "client_height": 300, "client_width": 300, "scroll_height": 2000,
+                    "scroll_top": 0}
+        self.assertIsNone(common.main_scroller(metrics(doc=5000, scrollers=[dropdown])))
+        self.assertEqual(common.main_scroller(metrics(scrollers=[dropdown, WRAPPER]))["class_name"], "page-wrapper")
+
+    def test_ende_erst_wenn_auch_der_container_unten_ist(self):
+        self.assertFalse(common.page_extent(metrics(scrollers=[{**WRAPPER, "scroll_top": 5000}]))["at_end"])
+        bottom = common.page_extent(metrics(scrollers=[{**WRAPPER, "scroll_top": 6100}]))
+        self.assertTrue(bottom["at_end"])
+        self.assertEqual(bottom["position"], 6100)
+
+    def test_fertig_erst_wenn_die_seite_am_ende_nicht_mehr_waechst(self):
+        bottom = common.page_extent(metrics(doc=3000, scroll_y=2100))
+        self.assertFalse(common.scroll_done(bottom, None))
+        self.assertFalse(common.scroll_done(bottom, 2500), "Seite ist beim Scrollen gewachsen")
+        self.assertTrue(common.scroll_done(bottom, 3000))
+
+    def test_mausrad_ohne_wirkung_wechselt_auf_skript(self):
+        # Vor 11.11.2026 brach das Scrollen in Horizon nach einem Schritt ab: das Dokument war "am Ende".
+        extent = common.page_extent(metrics(scrollers=[WRAPPER]))
+        self.assertFalse(extent["at_end"])
+        self.assertTrue(common.wheel_stuck(extent, 0))
+        self.assertFalse(common.wheel_stuck(extent, None))
+        moved = common.page_extent(metrics(scrollers=[{**WRAPPER, "scroll_top": 720}]))
+        self.assertFalse(common.wheel_stuck(moved, 0))
+
+    def test_aufnahme_ist_gedeckelt(self):
+        self.assertEqual(common.capture_height(7000, 16000), (7000, None))
+        self.assertEqual(common.capture_height(20000, 16000), (16000, 16000))
+
+    def test_freigabe_gilt_nur_wenn_das_dokument_die_hoehe_traegt(self):
+        before = {"height": 7000}
+        self.assertEqual(common.release_method(before, {"height": 6900, "scroller": None}), "released")
+        self.assertEqual(common.release_method(before, {"height": 900, "scroller": None}), "resized")
+        self.assertEqual(common.release_method(before, {"height": 7000, "scroller": {"index": 0}}), "resized")
+
+    def test_theme_nachweis_traegt_die_rolle(self):
+        check = common.check_theme({"id": "000000000004", "role": "main"}, "000000000004")
+        self.assertEqual(check["found_role"], "main")
+
+    def test_breiten_1440_und_390(self):
+        class FakePlaywright:
+            devices = {"iPhone 13": {"viewport": {"width": 375, "height": 664}, "default_browser_type": "webkit"}}
+        self.assertEqual(common.context_options(FakePlaywright, "desktop")["viewport"]["width"], 1440)
+        self.assertEqual(common.context_options(FakePlaywright, "mobile")["viewport"],
+                         {"width": 390, "height": 664})
 
 
 if __name__ == "__main__":

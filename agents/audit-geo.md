@@ -84,7 +84,7 @@ jq '[.pages[] | select(.word_count != null) | .word_count] | length as $n
    - Prüfen, ob Aussagen über Marke, Sortiment und Preise stimmen. Gegenprobe in `crawl.json`: Titles und Pfade zeigen das Sortiment, `pages[].markup.product.price` die ausgezeichneten Preise.
    - Eine belegte falsche Aussage ist ein Befund. Eine fehlende Erwähnung nicht; die zählt Kernfrage 1.
 
-## Kriterienliste, Version 2026-09-27
+## Kriterienliste, Version 2026-11-06
 
 **Jedes Kriterium der Tabelle ergibt genau einen Eintrag in `criteria`** (Schema unter Ausgabe), mit einem dieser vier Ergebnisse:
 
@@ -97,6 +97,7 @@ jq '[.pages[] | select(.word_count != null) | .word_count] | length as $n
 
 - Eine Ergebniszeile je Kriterium verhindert, dass ein Befundthema im nächsten Lauf ohne Spur wegfällt; Kernfragen allein leisten das nicht.
 - **Snapshot von vor dem 27.09.2026**: ohne die neuen Felder (Spalte Quelle). Die betroffenen Kriterien sind `not_measurable`, nie `passed`.
+- **Kriterien ab Version 2026-11-06** (in der Tabelle mit „seit 06.11.2026“ markiert): Läufe davor haben sie nicht. Ein Folgelauf führt sie als neue Zeile, nie als Verschlechterung.
 - **Legt die Tabelle eine Einordnung fest, gilt sie.** Sie steht dort, wo zwei Läufe sonst verschieden urteilen würden.
 
 | ID | Kernfrage | Prüfung | Quelle | Feste Einordnung |
@@ -108,6 +109,9 @@ jq '[.pages[] | select(.word_count != null) | .word_count] | length as $n
 | `geo.organization-entity` | 4 | Organization-Auszeichnung auf der Startseite mit Logo und `sameAs` auf die eigenen Profile | `crawl.json > findings_index.organization_markup.home` (neu seit 27.09.2026) | `gering`, solange keine Wirkung gemessen ist |
 | `geo.external-sources` | 5 | meistzitierte Fremddomains, getrennt nach Wettbewerb, Plattform und Redaktion | `geo.json > queries[].other_citations`, `competitors` | |
 | `geo.answer-accuracy` | 6 | Aussagen über Marke, Sortiment und Preise in den Antwortauszügen gegen den Shop | `geo.json > queries[].brand_excerpt` (neu seit 27.09.2026), `crawl.json` | ohne Erwähnung in keiner Antwort: `not_applicable` |
+| `geo.ucp-profile` | 7 | Profil für das Einkaufen über AI unter `/.well-known/ucp`: Status 200 ohne Login, gültiges JSON, Version als Datum, `services` und `capabilities` als Objekte. Seit 06.11.2026 | eigener Abruf per `curl` | bei Shopify liefert die Plattform das Profil; ein vorhandenes Profil ist dort kein Verdienst des Shops und wird so formuliert. Fehlt es bei einem anderen System, `gering`, solange kein Kanal es verlangt |
+| `geo.shopping-feed` | 7 | Produktfeed für Shopping in AI-Antworten (ChatGPT Shopping nach OpenAI-Spezifikation, Google Merchant Center): Pflichtfelder, Preis mit Währung, Verfügbarkeit aus der erlaubten Werteliste, GTIN mit gültiger Prüfziffer, absolute Adressen, keine doppelte ID. Seit 06.11.2026 | Feed, nur wenn der Kunde ihn bereitstellt | ohne Feed `not_measurable`, nie `passed` |
+| `geo.catalog-eligibility` | 7 | Katalogtauglichkeit je Produkt für AI-Shopping: Titel, Bild, Preis größer null, stabile Adresse mit Status 200, im Shop sichtbar; Anteil tauglicher Produkte. Seit 06.11.2026 | `catalog.json`, sonst `crawl.json > findings_index.product_markup` | Grundgesamtheit sind die aktiven Produkte; ein Produkt „auf Anfrage“ ohne Preis ist untauglich, aber kein Mangel, wenn das Geschäftsmodell es so will (Regel 7) |
 
 ## Arbeitsweise
 
@@ -167,7 +171,7 @@ Fünf Felder je Befund, ohne Beleg kein Befund:
   "run_id": "<run-id>",
   "generated_at": "2026-10-01T09:00:00+00:00",
   "blocked_questions": [],
-  "criteria_version": "2026-09-27",
+  "criteria_version": "2026-11-06",
   "criteria": [
     {"id": "geo.llms-txt", "result": "violated", "value": "<ein Satz>",
      "finding_id": "GEO-04"},

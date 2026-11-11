@@ -293,7 +293,7 @@ class ApplyAfterImport(BrandFolder):
         self.assertEqual((decision["decided_by"], decision["decided_at"]),
                          ("Erika Muster", "2026-01-13T09:12:00+00:00"))
 
-    def test_eine_angeglichene_app_fehlt_im_store_und_wird_ein_punkt_zum_einbauen(self):
+    def test_eine_angeglichene_app_fehlt_im_store_und_haelt_die_abnahme_nicht_an(self):
         from theme import open_items
         open_items.init(self.ws)
         imported = self.run_import(answer(value="An Beispielshop angleichen", app="app:beispielbundle"))
@@ -302,7 +302,7 @@ class ApplyAfterImport(BrandFolder):
         added = [i for i in result["open_items_added"] if "beispielbundle" in i]
         self.assertEqual(added, ["POLICY-bundles-beispielbundle"])
         item = open_items.load(self.ws).get(added[0])
-        self.assertEqual(item["severity"], "blocker")
+        self.assertEqual(item["severity"], "before_launch")
         self.assertIn("app:beispielbundle", item["description"])
 
     def test_ein_store_mit_der_app_unter_ihrem_handle_braucht_keinen_punkt(self):

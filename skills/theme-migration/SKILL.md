@@ -1,6 +1,6 @@
 ---
 name: theme-migration
-description: Führt das Team einer Marke durch eine Shopify-Theme-Migration bis zum Launch und zur Kontrolle danach, von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Abnahme, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), gibt den Stand nach jedem Push selbst ins Cockpit (report_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als entschieden mit Herkunft fest, übernimmt beim Start die Vorgaben der Marke mit ihren Bausteinen aus dem Cockpit (get_policies, policies sync) und wendet sie an, ohne nachzufragen, baut Bausteine mit Präfix und Werten des eigenen Stores ein und holt nie Code aus einem anderen Store-Repo, fragt nie nach Änderungsstopp oder Portal und nach dem Termin erst, wenn der Entwurf bereit für den Launch ist; Path to AI begleitet und bekommt nur Aufgaben im Cockpit oder eine ausformulierte Frage. Veröffentlicht nie, den Klick macht ein Mensch. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit). Liest reporting/config.json im Kunden-Workspace.
+description: Führt das Team einer Marke durch eine Shopify-Theme-Migration bis zum Launch und zur Kontrolle danach, von einem bestehenden Theme (Vintage oder Online Store 2.0) auf ein aktuelles 2.0-Theme wie Horizon, ohne Verlust eines zugewiesenen Templates, einer Funktion, einer App-Einbindung, des Trackings, der SEO-Ausgabe oder einer Live-Änderung. Neun feste Schritte (Shop gesichert, Abstimmung, Neubau, Entwurf hochgeladen, Kontrolle des Entwurfs, Abnahme, Abgleich vor dem Launch, Launch, Kontrolle nach dem Launch) über die Skills snapshot-theme, inventory-theme, inventory-apps, compare-themes, map-theme, build-theme, upload-theme, verify-theme, sync-live-theme und test-round. Hält den Stand in reporting/runs/<date>-migration/state.json und migration.json, führt alle offenen Punkte in einer Liste (migration/open-items.json) und die Fragen an das Team in migration/questions.json, holt deren Antworten beim Start aus dem Cockpit (get_migration), gibt den Stand nach jedem Push selbst ins Cockpit (report_migration), fragt nur bei echtem Zielkonflikt und hält alles andere als entschieden mit Herkunft fest, übernimmt beim Start die Vorgaben der Marke mit ihren Bausteinen aus dem Cockpit (get_policies, policies sync) und wendet sie an, ohne nachzufragen, baut Bausteine mit Präfix und Werten des eigenen Stores ein und holt nie Code aus einem anderen Store-Repo, fragt nie nach Änderungsstopp oder Portal und nach dem Termin erst, wenn der Entwurf bereit für den Launch ist; Path to AI begleitet und bekommt nur Aufgaben im Cockpit oder eine ausformulierte Frage. Führt den Launch selbst: zeigt jeden Go-Punkt als Haken-Liste, fragt nur bei allem grün "Jetzt Launch durchführen?", veröffentlicht nach dem Ja der Person der Marke mit ihrem Namen und prüft sofort danach. Nutzen bei /ptai-ecom:theme-migration, "Theme-Migration", "Theme-Wechsel", "auf Horizon umziehen", "neues Theme ohne Verlust", "wo stehen wir in der Migration", "Transkript ablegen", "Session im Repo ablegen". Nicht verwenden für ein neues Design ohne Theme-Wechsel, nicht für den Audit (ptai-ecom:audit). Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # theme-migration: die Migration führen
@@ -26,8 +26,11 @@ das Verfahren gilt für jedes Quell-Theme und jedes 2.0-Ziel-Theme.
 - **Jede Shopify-Arbeit über die Shopify-Skills des Shopify AI Toolkit:** Abfrage, Mutation, Liquid,
   Schema, CLI-Flag. Nie aus dem Gedächtnis, sonst entsteht ein Theme auf dem Stand der
   Trainingsdaten. Gilt für jede aufgerufene Skill und jeden Subagent.
-- **Veröffentlichen macht immer ein Mensch.** Keine Skill ruft `themePublish`, `shopify theme publish`,
-  `shopify theme push --live` oder `--publish` auf. Diese Skill bereitet vor und wartet.
+- **Veröffentlicht wird nur im geführten Launch (Phase 9), nach dem ausdrücklichen Ja der Person der
+  Marke.** Einziger Weg ist `bin/theme launch publish --approved-by "<Name>"`; er fragt nicht selbst,
+  sondern verweigert, solange die Haken-Liste nicht grün ist. Keine Skill ruft `themePublish`,
+  `shopify theme push --live` oder `--publish` auf, und `shopify theme publish` läuft nur in diesem
+  Modul. Seit 10.11.2026; bis dahin veröffentlichte immer ein Mensch im Admin.
 - **Schreiben nur in ein Theme mit der Rolle `UNPUBLISHED`**, nur durch `upload-theme`, mit dem Schutz
   vor jedem Schreiben. Das Live-Theme bleibt unverändert.
 - **Nie nach Termin, Änderungsstopp oder Portal fragen.** Einen Änderungsstopp gibt es nicht: das Team
@@ -238,7 +241,7 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   |---|---|
   | `phase --phase 2-inventory --status done` | die Prüfliste fehlt oder ein Punkt daraus nicht in der Liste steht |
   | `phase --phase 6-verify --status done` | ein Punkt `blocker` offen ist oder der jüngste Prüfbericht unter `migration/verify/` Offenes hält, das in der Liste fehlt |
-  | `gate --gate G4-acceptance` | ein Punkt für G4 offen ist oder eine Quelle Offenes hält, das in der Liste fehlt |
+  | `gate --gate G4-acceptance` | ein Punkt für G4 offen ist, eine Quelle Offenes hält, das in der Liste fehlt, ein Testpunkt ohne Bilder vom Entwurf erledigt ist oder der Bildvergleich unvollständig ist (`visual_compare check`) |
   | `gate --gate G5-go-live` | ein Punkt für G4 oder G5 offen ist, oder wie bei G4 eine Quelle |
 
 - **Werte** für `set`: `live_theme_id`, `draft_theme_id`, `snapshot`, `last_sync`, `published_at`, `policies_version` und `policies_applied_at` (schreibt `policies apply`).
@@ -254,6 +257,9 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   (`portal.brand`, sonst `account_slug`), `shop` (`portal.shop`), `run_id` und `migration`, den Inhalt von
   `migration.json` des Laufs. Die Ausgabe unverändert an `report_migration` geben; nichts davon von Hand
   zusammensetzen.
+- Seit 10.11.2026 trägt `migration.json` den Block `launch`: die Go-Liste aus dem jüngsten `launch check`
+  (vor und nach dem Veröffentlichen), den Ablauf des Launches und den Rückfall aus
+  `migration/rollback.json` (Modul `launch_status`).
 - Gemeldet wird nach jedem Push des Workspace: nach jeder Phase und jedem Gate, nach jeder neuen Frage, bevor
   die Skill das Team ins Cockpit schickt, beim Start nach dem Übernehmen von Antworten und Vorgaben und am
   Ende der Sitzung. Vorher `run_state show`, damit `migration.json` den Stand trägt.
@@ -353,7 +359,17 @@ Satz Beleg. Der aktuelle Schritt ist der erste, der nicht erledigt ist.
   (`rules_changed`) und geschriebene Bausteine (`modules_written`). Danach `apply`, committen und pushen.
 - `apply` trägt jede Vorgabe in `decisions.json` (`source: policy`, ersetzt ältere) und `apps.json` ein,
   damit der nächste Neubau sie liest. Ein Dienst, der beibehalten werden soll und im Inventar fehlt,
-  steht als `blocker` in der Liste offener Punkte. Dieselbe Fassung zweimal ändert nichts.
+  steht als Punkt vor dem Launch in der Liste offener Punkte, nie als Blocker der Abnahme. Dieselbe Fassung
+  zweimal ändert nichts.
+- **Apps, die der Store heute nicht hat.** Es gilt: Was der Store heute hat, bekommt er mit derselben App
+  wie der Referenz-Store; was er heute nicht hat, kommt nicht dazu. Nennt `apply` solche Punkte
+  (`open_items_added` mit `POLICY-`), fragt die Skill die Person einmal für alle zusammen, nicht je App:
+  "Diese Apps hat <Store> heute nicht: <Liste mit einem Halbsatz, was jede tut>. Sie kommen nicht dazu,
+  außer der Store bietet die Funktion heute schon anders an, etwa über eigene Felder. Trifft das auf eine
+  davon zu?" Für jede App ohne die Funktion `ruled add --source policy --text "<App> kommt in <Store>
+  nicht dazu, der Store hat die Funktion heute nicht (<Person>, <Datum>)"` und den Punkt schließen. Für
+  eine App mit Funktion bleibt der Punkt vor dem Launch, mit der Person als `--owner`, die sie installiert.
+  Die Frage hält nichts an: Antwortet niemand, bleibt der Punkt vor dem Launch stehen.
 - Hat sich die Fassung oder ein Baustein geändert (`apply_needed`), steht Schritt 3 danach auf `rework`,
   bis neu gebaut ist.
 - Eine Vorgabe mit `rule: open` hält die Vorbereitung nicht an; entschieden wird sie im Cockpit unter Setup
@@ -557,9 +573,15 @@ Bevor eine Sitzung endet, auch wenn sie an einer offenen Frage anhält:
   Skill der Person dieselbe Frage als fertige Nachricht zum Weiterleiten, in Alltagssprache, ohne
   Befehle und Dateinamen außer dem Pfad der Belege: "Schickt Yves diese Nachricht: …". Erst pushen, dann
   die Nachricht nennen, damit Path to AI im Repo sieht, was in der Nachricht steht.
-- **Ein verständlicher Halt.** Hält die Sitzung an, sagt sie der Person in einem Satz, was fehlt und wer
-  es liefert, mit Namen ("Erika Muster legt in Shopify unter Einstellungen > Apps das Recht … an. Danach die
-  Migration neu starten."). Nie nur ein Befehl, eine Fehlermeldung oder eine Datei. Die Datei trägt den aktuellen Schritt; steht der Lauf später in einem anderen
+- **Ein verständlicher Halt.** Hält die Sitzung an, sagt sie der Person in einfachen Worten drei Dinge:
+  worauf sie wartet, wer es liefert, mit Namen, und was das Team solange tun kann ("Erika Muster legt in
+  Shopify unter Einstellungen > Apps das Recht … an. Danach die Migration neu starten. Bis dahin könnt ihr
+  die zwei Fragen im Cockpit beantworten."). Gibt es nichts zu tun, sagt sie das ("Bis dahin ist für euch
+  nichts zu tun."). Wartet sie auf Path to AI, nennt sie die Aufgabe so, wie sie im Cockpit heißt, und
+  sagt, dass Path to AI sie unter Offene Aufgaben sieht; das Team muss nichts weiterleiten außer einer
+  "Frage an Path to AI". Begriffe wie in der Oberfläche des Cockpits: Abnahme ist der Test des Entwurfs
+  durch das Team, eine Maßnahme etwas aus einem Audit, eine Vorgabe eine Regel der Marke für alle Stores;
+  nie das eine für das andere. Nie nur ein Befehl, eine Fehlermeldung oder eine Datei. Die Datei trägt den aktuellen Schritt; steht der Lauf später in einem anderen
   Schritt, gilt sie nicht mehr, und das Cockpit zeigt nur den Namen des Schritts.
 - `after` in der Sprache des Kunden, mit ihr und euch, jedes Fachwort erklärt, etwa: "Beantwortet
   die zwei Fragen im Cockpit und startet die Migration danach neu. Claude baut den Entwurf dann um und
@@ -650,7 +672,12 @@ Abschluss: Sicherung vollständig und committet. Ein fehlendes Original ist ein 
 
 1. `inventory-theme`: Typ, Templates und Nutzung, Anpassungen, Funktionen, Metafelder, Übersetzungen,
    SEO-Ausgabe, Kundenkonten, `pages.json`.
-2. `inventory-apps`: jede Einbindung, Tracking je Ziel, Consent, Fristen.
+2. `inventory-apps`: jede Einbindung, Tracking je Ziel, Consent, Fristen. Jedes Custom Pixel wird mit
+   Code und Notiz (sendet was, wo, an wen) unter `migration/inventory/pixels/` gesichert
+   (`apps-and-tracking.md`, Abschnitt "Custom Pixels sichern"). Ein Custom Pixel, das entfernt oder ersetzt
+   werden soll, ohne gesicherte und gelesene Datei hält den Go an (`custom-pixel-backup`). Nach einem
+   Launch im November 2026 fehlten Käufe in einer GA4-Property, weil ein Kassen-Pixel auf eine falsche
+   Annahme hin gelöscht wurde.
 3. `compare-themes --measure <live-theme-id>`: Gestaltung des Live-Themes.
 4. Vergleichswerte: `pull-gsc`, `pull-ga4`, `pull-cwv` in den Daten-Ordner des Migrationslaufs. Sie
    sind der Ausgangsstand für die Planung. Die Vergleichsbasis für die Zeit nach dem Launch wird direkt
@@ -714,6 +741,15 @@ Verhalten nur mit einem Eingriff kann, der Updates erschwert. Sind die Fragen be
 damit die Entscheidungen aus G1 und die Vorgaben der Marke greifen, bei Horizon mit dem SEO-Grundpaket
 (`seo-parity.md`). Abschluss: Theme Check, Limits, Prüfung der Eingriffe und `theme.horizon_base check`
 ohne Befund. `phase --phase 4-build --status done`.
+
+**Layout, nicht nur Inhalt.** Der Generator übersetzt seit 11.11.2026 auch Breite, Ausrichtung,
+Textgröße, Abstände, Overlay-Deckkraft und Höhe je Section (`layout` im Mapping), setzt die
+Typo-Presets und die Schrift der Zwischenüberschriften aus dem Quell-Theme (`typography`) und ergänzt
+Pflicht-Sections je Template (`required_sections`, etwa `search-header`). Drei Fälle im Report sind
+Arbeit für diesen Neubau, nicht für später: `type_scale_css` (genaue Schriftgrößen je Breakpoint in die
+eigene CSS-Datei des Shops), `layout_css_too_long` (Regeln über 500 Zeichen dorthin) und
+`required_section_missing` (Section aus dem Original-Theme übernehmen). `disabled_sections` nennt
+Sections, die ausgeschaltet übernommen wurden, weil alle ihre Blöcke aus sind.
 
 **Bausteine der Vorgaben einbauen.** Für jede Regel mit `rule: same_as_reference` und `modules` in
 `migration/policies.json`:
@@ -779,6 +815,9 @@ einmal vor der Abnahme, damit sie gegen den aktuellen Stand läuft.
 
 1. Jede Änderung seit der letzten Sicherung entscheiden (`take`, `adapt`, `drop`).
 2. Übernommene Änderungen durch Neubau, Upload und die betroffenen Prüfer führen.
+3. `delta.json` unter `hidden_by_blocks`: eine Section, die live an ist, deren Blöcke aber alle aus sind,
+   blendet das alte Theme aus. Der Generator übernimmt sie ausgeschaltet; im Bildpaar prüfen, dass im
+   Entwurf keine leere Fläche bleibt (nach einem Abgleich im November 2026 eine dunkle leere Leiste).
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state set --key last_sync --value <date>
@@ -802,6 +841,9 @@ verweigert sonst und nennt, was fehlt. Dann `verify-theme --test-round`:
   <test.json>`
 - eine Abweichung, die die Abnahme findet, wird wie heute behoben; eine Frage für G4 (`questions ask
   --gate G4-acceptance`) nur bei echtem Zielkonflikt, mit Vergleich der beiden Seiten
+- ein Testpunkt wird nur mit Bildern vom Entwurf am Rechner und am Handy erledigt: `open_items done --id
+  <id> --evidence <text> --desktop-image <bild> --mobile-image <bild>`. Am 11.11.2026 standen mehrere
+  Testpunkte ohne Bild auf erledigt, deren Fehler erst nach dem Launch auffielen
 
 Sind alle Punkte erledigt oder mit Person und Datum verschoben und alle Fragen beantwortet, weiter mit
 Gate G4.
@@ -811,6 +853,12 @@ Gate G4.
 Zuerst `open_items sources` und `open_items gate --gate G4-acceptance`. Steht dort etwas offen, ist das
 kein Gate zum Vorlegen: die Punkte abarbeiten, mit Beleg erledigen oder mit Person und Datum verschieben.
 Offene Fragen für G4 (`questions list --status open --gate G4-acceptance`) beantwortet die Person der Marke.
+
+**Vollständiger Bildvergleich vor G4** (seit 11.11.2026): `compare-themes --compare` über alle Seiten aus
+`migration/inventory/pages.json`, am Rechner (1440) und am Handy (390), jede als ganze Seite, links das
+veröffentlichte Theme mit seiner ID im Link, rechts der Entwurf. Jedes Bildpaar selbst ansehen, nicht nur
+die Testpunkte. `open_items gate --gate G4-acceptance` zeigt unter `visual_compare`, was fehlt, und unter
+`done_without_images` jeden Testpunkt, der ohne Bilder vom Entwurf erledigt ist. Beides hält G4 an.
 
 Hält nichts mehr an, bespricht die Person der Marke die Abnahme mit Path to AI. Vorlage dafür: die Ansicht
 `migration/open-items.md` (Abschnitt Abnahme), jede entschiedene Abweichung ("wie heute" oder "anders"), jeder
@@ -828,13 +876,12 @@ dem Ja, mit beiden Namen:
 `phase --phase 9-launch --status running`. Checkliste:
 `${CLAUDE_PLUGIN_ROOT}/reference/theme-migration/launch-checklist.md`, Rückfall: `rollback.md`.
 
-**Prüflauf über `launch-check --launch-date <JJJJ-MM-TT>`:**
+Der Launch ist ein geführter Ablauf in vier Schritten: **prüfen, fragen, veröffentlichen, danach
+prüfen**. Die Sitzung arbeitet ihn in dieser Reihenfolge ab und zeigt der Person jede Haken-Liste so,
+wie der Befehl sie ausgibt. Bis 10.11.2026 stand er verteilt in dieser Phase, in `launch-check` und in der
+Checkliste, und den Klick machte ein Mensch im Admin.
 
-- geht die Checkliste Punkt für Punkt durch und liest IDs, Abgleich und Gates aus diesem Lauf
-- schreibt `reporting/runs/<date>-launch-check/launch-check.md` mit Go/No-Go-Empfehlung
-- läuft zu Beginn der Phase, nach jedem der Schritte 1 bis 5 erneut, bis kein Punkt mehr `missing` ist,
-  und mit `--after` in Schritt 8
-- der Bericht ist die Vorlage für G5
+### Vorbereitung
 
 1. **Termin vorschlagen und festlegen:** jetzt erst nach dem Termin fragen. Kein Freitag, nicht vor
    Feiertagen, nicht in der Saisonspitze und den Wochen davor, nicht während großer Kampagnen oder
@@ -847,46 +894,153 @@ dem Ja, mit beiden Namen:
    Zugang, als `--operator-task` ("Vergleichswerte vor dem Launch ziehen: GA4, Search Console") festhalten;
    das zieht Path to AI über das Cockpit, nicht über den Shop.
 4. **Go/No-Go- und Rückfallkriterien schriftlich**, mit der Person, die im Ernstfall entscheidet, und
-   der Liste dessen, was ein Rückfall nicht rückgängig macht.
-5. **Rollouts als Option vorlegen:** zeitgesteuert, prozentual oder als Experiment; nicht für Vintage;
-   Verfügbarkeit im Admin des Shops prüfen.
-
-### Gate G5: Go/No-Go
-
-Zuerst `open_items gate --gate G5-go-live`. Was `launch-check` als abgedeckt meldet, schließt
-`open_items close-covered --launch-check reporting/runs/<date>-launch-check/launch-check.json` mit
-Beleg; alles andere wird behoben oder mit Person und Datum verschoben. `show` muss
-`ready_for_launch: true` melden.
-
-Vorlage für das Gespräch der Person der Marke mit Path to AI: die Go-Kriterien aus der Checkliste, je mit
-Stand, aus dem jüngsten `launch-check.md`. Frage: "Go für das Veröffentlichen am <Datum> um <Uhrzeit>?"
-Nach dem Ja:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state gate --gate G5-go-live --decided-by "<Name>" --note "abgestimmt mit Path to AI, Rückfall-Theme <live-theme-id>"
-```
-
-6. **Schlussprüfung** durch `sync-live-theme` unmittelbar vor dem Klick: `updatedAt` des Live-Themes und
-   die Template-Zuweisungen. Jede Änderung seit dem Abgleich vor dem Launch hält den Launch an, bis ein
-   Lauf sie übernommen hat.
-7. **Veröffentlichen durch einen Menschen** im Admin oder über Rollouts. Die Skill nennt Weg und Theme
-   und wartet auf die Bestätigung, dass veröffentlicht ist.
-8. **Prüfungen am Launch-Tag** über `launch-check --after`:
-   - veröffentlichtes Theme ist das erwartete
-   - `robots.txt`, Canonicals und Statuscodes der Top-Seiten, kein `noindex`
-   - Apps und Embeds auf dem veröffentlichten Theme per Mitschnitt
-   - Tracking mit einer Testbestellung **nur nach Freigabe**
-   - jede Sprache
-   - Sitemap neu einreichen
-9. **Stand festhalten:**
+   der Liste dessen, was ein Rückfall nicht rückgängig macht. Die Kriterien legt das Team fest; die
+   Sitzung schlägt Formen aus `rollback.md` vor und trägt ein, was die Person bestätigt:
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state set --key published_at --value <timestamp>
-   "${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state set --key live_theme_id --value <new-live-theme-id>
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" launch rollback --decider "<Name>" --agreed-with "Path to AI" \
+     --criterion "Kauf auf einem Gerät oder mit einer Zahlart nicht möglich | sofort" \
+     --criterion "<wann> | <Frist>" --not-reverted "<was nur bei diesem Launch bleibt>"
    ```
 
-   In der Konfiguration `live_theme_id` auf die neue ID setzen; die alte steht als Rückfall-Theme in
-   der Notiz zu G5. `phase --phase 9-launch --status done`, committen, pushen, Stand ins Cockpit.
+   Schreibt `migration/rollback.json` (ein neuer Aufruf ersetzt die Datei ganz), committen und pushen.
+   `--not-reverted` nur für das, was diesen Launch betrifft, etwa eine App, die beim Launch deinstalliert
+   wird; was nie zurückgeht (Vorlagen-Zuweisungen, Menüs, Apps, Daten), ergänzt das Plugin selbst.
+   `launch rollback` ohne Argumente zeigt den Stand.
+5. **Rollouts nur auf Wunsch des Teams:** zeitgesteuert, prozentual oder als Experiment, nicht für
+   Vintage. Dann veröffentlicht ein Mensch im Admin (`launch-checklist.md`, Veröffentlichen), und Schritt 3
+   unten entfällt; Schlussprüfung und Prüfen danach bleiben.
+
+### 1. Prüfen
+
+Mitschnitt beider Themes wie in `launch-check` (Ablauf vor dem Launch, Schritte 2 und 3), dann:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" launch check --launch-date <JJJJ-MM-TT>
+```
+
+- Läuft den Launch-Check (`launch_check`, dieselben Argumente) und gibt jeden Go-Punkt als Haken-Liste
+  aus: ✅ erledigt, ❌ fehlt, ⏸ blockiert mit Grund, ✋ manuell zu bestätigen, darunter je eine Zeile
+  Beleg, am Ende die Summe ("8 von 8 grün") und in einer Zeile, was für diesen Launch entfällt.
+- Die Liste unverändert zeigen. Was fehlt, folgt darunter mit "Wer:"; die Sitzung erledigt ihren Teil
+  selbst (Abgleich, Neubau, Upload, Mitschnitt, offene Punkte nach "Folgeschritte" in `launch-check`)
+  und prüft erneut, bis kein Punkt mehr fehlt.
+- Fragen an das Team (`manual`) mit Name und Datum nach `reporting/launch-answers.json`, wie in
+  `launch-check` beschrieben.
+- Exit 0 heißt alles grün, Exit 1 nicht grün.
+- Seit 11.11.2026 hält der Check die Pixel-Liste des Shops in `<lauf>/web-pixels-before.json` fest,
+  prüft, ob sich im Entwurf eine App eingetragen hat, die nicht im Ziel-Repo steht (`app-injections`), ob
+  ein Dienst vor der Einwilligung sendet (`tracking-pre-consent`, Microsoft an `bat.bing.com` und
+  `bat.bing.net`) und ob jedes Custom Pixel, das entfällt, gesichert ist (`custom-pixel-backup`).
+- **Nach jedem `launch check`** den Stand ins Cockpit (`run_state show`, dann `run_state cockpit` an
+  `report_migration`, Abschnitt "Stand im Cockpit"). Das Cockpit zeigt im Blatt der Migration dieselbe
+  Go-Liste mit Summe, den Ablauf (Vorbereiten, Prüfen, Go, Veröffentlichen, Prüfen danach, Beobachten)
+  und den Rückfall; so hakt das Team dort mit ab, ohne eigene Seite daneben.
+
+**Gate G5** ist selbst ein Go-Punkt (`go-decision`). Zuerst `open_items gate --gate G5-go-live`. Was
+`launch-check` als abgedeckt meldet, schließt `open_items close-covered --launch-check
+reporting/runs/<date>-launch-check/launch-check.json` mit Beleg; alles andere wird behoben oder mit Person
+und Datum verschoben. `show` muss `ready_for_launch: true` melden. Steht danach nur noch G5 offen,
+bespricht die Person der Marke die Liste mit Path to AI (Vorlage `launch-check.md`). Frage: "Go für den
+Launch am <Datum> um <Uhrzeit>?" Nach dem Ja:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" run_state gate --gate G5-go-live --decided-by "<Name>" --note "abgestimmt mit Path to AI am <Datum>"
+```
+
+Dann `launch check` erneut, am Launch-Tag direkt vor dem Termin.
+
+### 2. Fragen
+
+Nur wenn `launch check` mit Exit 0 endet, steht unter der Liste:
+
+```
+Jetzt Launch durchführen?
+   Neues Theme: <neue ID> "<Name>", wird live
+   Bisher live: <alte ID> "<Name>"
+   Rückfall-Theme: <alte ID> "<Name>", bleibt als Entwurf in der Theme-Bibliothek
+```
+
+- Genau diese Frage an die Person der Marke stellen, mit Ja und Nein. Theme-IDs stehen hier ausnahmsweise
+  in der Frage: es geht um genau diese zwei Themes.
+- Ist nicht alles grün, gibt es keine Frage. Die Sitzung zeigt, was fehlt und wer es erledigt, und
+  arbeitet weiter. Auch auf Wunsch wird nicht gefragt und nicht veröffentlicht.
+- Ein Nein oder keine Antwort: nichts tun, im Journal festhalten (`run_state log --kind answer`).
+
+### 3. Veröffentlichen nach dem Ja
+
+Nur nach einem ausdrücklichen Ja der Person der Marke, mit ihrem Namen:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" launch publish --approved-by "<Name>"
+```
+
+- Verweigert ohne grünen Launch-Check von heute (höchstens zwölf Stunden alt), ohne G5, mit einem
+  Sammelnamen oder einem Namen außerhalb von `theme_migration.people`.
+- **Schlussprüfung** von `sync-live-theme` direkt davor (`sync --final`): `updatedAt` des Live-Themes und
+  die Template-Zuweisungen gegen den Abgleich vor dem Launch. Jede Änderung hält an, es wird nicht
+  veröffentlicht; dann `sync-live-theme` für die geänderten Teile, `launch check` und erneut fragen.
+- **Veröffentlichen** mit `shopify theme publish --store <shop> --theme <neue ID> --path <ziel-repo>
+  --force --no-input` (Flags über `shopify-plugin:shopify-use-shopify-cli` geprüft, CLI 4.9.4). Anmeldung
+  wie beim Upload über `cli-theme`.
+- **Sicherung des Entwurfs** direkt vor dem Veröffentlichen: `layout/theme.liquid` und
+  `config/settings_data.json` nach `<lauf>/published-draft/`. Gegen diesen Stand prüft `launch check
+  --after`, ob sich eine App beim Veröffentlichen eingetragen hat.
+- **Zurücklesen:** das neue Theme hat die Rolle `MAIN`. Erst das zählt; die Meldung der CLI nicht.
+- **Stand:** `published_at`, `live_theme_id` (neu), `rollback_theme_id` (alt) und `launch_approved_by`
+  im Migrationslauf, `live_theme_id` in der Config, alles in `reporting/runs/<date>-launch-check/launch.json`.
+- Exit 0 heißt veröffentlicht und bestätigt. Exit 1 mit "Nicht bestätigt": nicht erneut veröffentlichen,
+  erst in der Theme-Bibliothek klären, was live ist.
+
+### 4. Prüfen danach
+
+Der Befehl endet mit "Jetzt kommt der Launch-Check After." Die Sitzung sagt genau das und macht sofort
+weiter, ohne zu fragen:
+
+1. Mitschnitt des veröffentlichten Themes und, mit Freigabe, mit Einwilligung (`launch-check`, Abschnitt
+   "Nach dem Veröffentlichen", Schritte 1 und 2).
+2. Testbestellung **nur nach Freigabe**: `walk_checkout.py --approved-by "<Name>"` geht die Kasse bis zur
+   Zahlung durch, die Person aus dem Team setzt die Bestellung im geöffneten Fenster ab.
+3. Dann:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/bin/theme" launch check --after
+   ```
+
+   Dieselbe Haken-Liste für die Prüfungen nach dem Veröffentlichen: erwartetes Theme live,
+   Rückfall-Theme als Entwurf, `robots.txt`, Statuscodes, `noindex` und Canonicals, SEO-Ausgabe, Apps und
+   Tracking, Tracking nach Einwilligung, die Testbestellung je Ziel, jede Sprache, Sitemap, Stand
+   festgehalten. Dazu seit 11.11.2026: jede App, die sich beim Veröffentlichen eingetragen hat
+   (`app-injections-after`, Zeilen in `layout/theme.liquid` und App-Embeds gegen `published-draft/`),
+   jedes fehlende Pixel gegen die Liste von vorher (`web-pixels-after`), jeder neue Werbe- oder
+   Analyseaufruf vor der Einwilligung, und der Kauf in **jeder** GA4-Property und jeder
+   Google-Ads-Kauf-Conversion, die der Shop vorher bediente (`purchase-ga4-<g-id>`,
+   `purchase-google-ads-<id>-<label>`); läuft der Kauf über den Server, bestätigt ihn ein Mensch im
+   Echtzeitbericht jeder Property, nicht nur in einem Tracking-Werkzeug. Altes und neues Theme kommen aus dem Stand (`rollback_theme_id`), nicht von Hand. Am Ende
+   der festgehaltene Stand: `published_at` mit dem Namen, neue `live_theme_id`, Rückfall-Theme.
+4. Was offen bleibt, abarbeiten und `launch check --after` wiederholen. Storno und Erstattung der
+   Testbestellung fragt die Liste beim Team ab; steht GA4 noch auf `blocked`, am Folgetag erneut prüfen.
+5. Sitemap in der Search Console neu einreichen (Frage in der Liste).
+
+### 5. Fixes nach dem Launch
+
+Fällt nach dem Veröffentlichen etwas auf, gilt der Ablauf aus `post-launch.md`, Abschnitt "Fixes nach dem
+Launch". Kurz:
+
+1. **Duplikat** des Live-Themes als Arbeitsstand, im selben Moment `snapshot --theme live` als Referenz;
+   das Duplikat wird `draft_theme_id`. Am Live-Theme wird nie direkt gearbeitet.
+2. **Getrennte Bereiche** mit getrennten Dateien, parallel möglich; gemeinsame Dateien
+   (`settings_data.json`, `layout/theme.liquid`, eigene CSS-Datei, `locales/*`) ändert genau ein Bereich.
+   Je Befund Ursache belegt und Bildpaar Rückfall-Theme gegen Duplikat in 1440 und 390 px.
+3. **Chargen:** eine feste Dateiliste geht live nach dem ausdrücklichen Go der verantwortlichen Person, je
+   Charge zuerst die **Drift-Prüfung** (`sync --last <referenz>`; keine Datei der Charge darf seitdem live
+   geändert sein), dann `shopify theme push --only … --nodelete` ins Live-Theme, dann **Zurücklesen**
+   (`upload verify`) und Ansehen live.
+4. Je Befund ein Punkt `after_launch` in der Liste, erledigt mit Bildbeleg; Ursachen aus Generator oder
+   Mapping gehen als Regel ins Plugin oder in die Overrides.
+
+`phase --phase 9-launch --status done`, committen, pushen, Stand ins Cockpit. Auch `launch check --after`
+meldet seinen Stand nach jedem Lauf ins Cockpit wie oben.
 
 ## Phase 10: Kontrolle nach dem Launch
 
@@ -975,5 +1129,12 @@ Punkt in der Liste.
 - **Live-Theme während eines Uploads geändert:** `upload-theme` bricht ab; erst klären, dann fortsetzen.
 - **Korrektur nur in einer erzeugten Datei:** an die Ursache zurückführen, sonst macht der nächste Lauf
   sie rückgängig.
-- **Jemand bittet um Veröffentlichen:** die Skill veröffentlicht nicht, auch nicht auf Wunsch. Sie nennt
-  den Weg im Admin.
+- **Jemand bittet um Veröffentlichen, obwohl die Haken-Liste nicht grün ist:** die Skill veröffentlicht
+  nicht, auch nicht auf Wunsch. Sie zeigt, was fehlt und wer es erledigt. `launch publish` verweigert
+  ohnehin.
+- **`launch publish` hält mit "die Schlussprüfung hält den Launch an":** das Live-Theme oder eine
+  Template-Zuweisung hat sich seit dem Abgleich vor dem Launch geändert. `sync-live-theme` für die
+  geänderten Teile, `launch check`, dann erneut fragen.
+- **`launch publish` meldet einen fehlenden Theme-Ordner:** `theme_migration.target_repo` zeigt nicht auf
+  das Ziel-Repo. Pfad in der Config setzen oder `--theme-dir` übergeben; `shopify theme publish` läuft nur
+  in einem Ordner mit Theme-Struktur.

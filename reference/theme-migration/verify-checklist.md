@@ -1,6 +1,6 @@
 # Prüfung des Entwurfs
 
-Stand 08.10.2026. Gilt für Phase 6 und für die Vorbereitung der Abnahme in Phase 8. Ein Umzug, der
+Stand 11.11.2026. Gilt für Phase 6 und für die Vorbereitung der Abnahme in Phase 8. Ein Umzug, der
 nur den Code betrachtet, sieht erfolgreich aus und ist es nicht: mehrere Risiken eines Theme-Wechsels
 fallen ohne jede Fehlermeldung aus. Deshalb prüfen mehrere Prüfer je Disziplin, gegen das Live-Theme
 und gegen die Bestandsaufnahme.
@@ -68,6 +68,16 @@ erzeugten Datei. Danach laufen Neubau, Upload und die betroffenen Prüfer erneut
   Differenz kein Beweis. Unsichtbares (eine berechnete, aber nicht sichtbare Abdunklung) zeigt nur
   das Bild.
 - Jedes lebende Template einmal gerendert neben live, nicht nur die beanstandeten.
+- **Vollständiger Bildvergleich vor G4.** Jede Seite aus `pages.json` am Rechner (1440 px, Chromium) und
+  am Handy (390 px, WebKit), als ganze Seite, links das veröffentlichte Theme (Theme-Nachweis mit Rolle
+  `main`), rechts der aktuelle Entwurf. `run_state gate --gate G4-acceptance` hält an, solange eine Aufnahme
+  fehlt oder nicht zählt (`visual_compare check`). Bei einem Umzug auf Horizon fielen Layoutfehler erst
+  nach dem Launch auf, weil die Abnahme nur Stichproben und Einzelpunkte prüfte.
+- **Horizon:** am Rechner scrollt `.page-wrapper`, nicht das Dokument, und der Footer rendert wegen
+  `content-visibility: auto` erst, wenn er im Bild war. Ein Ganzseiten-Bild, das nur fensterhoch ist oder
+  einen leeren Footer zeigt, ist kein Ergebnis. `shoot_pair` scrollt im Container, erzwingt die
+  Sichtbarkeit und meldet ein unvollständiges Bild als `incomplete`.
+- Ein Testpunkt der Abnahme ist erst erledigt mit Bildern vom Entwurf am Rechner und am Handy.
 - "Wie heute" gilt für das ganze Element: Maße, Schrift, Abstände jedes Teils messen.
 - **Zusätzlich je Element `storefront-parity.md`, Zeile für Zeile.** Das Bildpaar einer ganzen Seite
   übersieht ein einzelnes Element, das vorhanden, aber anders gesetzt ist. Bei der ersten Migration kamen

@@ -52,6 +52,10 @@ SECOND_LEVEL_TEXTS = (
 #: accepted`); jede Aufnahme ohne diese Freigabe lehnt ab.
 ACCEPT_SELECTORS = [
     "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",  # Cookiebot
+    # Pandectes (Shopify-App): "Das ist O.K." steht in keinem Zustimmen-Text, deshalb meldete der
+    # Mitschnitt am 15.10.2026 no_dialog. Gemessen am 10.11.2026: der Klick setzt
+    # Shopify.customerPrivacy auf "yes" für marketing, analytics und preferences.
+    ".cc-btn.cc-allow",
     "#onetrust-accept-btn-handler",                     # OneTrust
     "button[data-testid='uc-accept-all-button']",       # Usercentrics
     ".cmplz-accept",                                    # Complianz
@@ -145,12 +149,27 @@ def decline(page, wait_ms: int = 6000, before_click=None) -> tuple[str, str | No
     return STUCK, None
 
 
+#: Zustimmen über die JavaScript-API eines Tools, wenn kein Knopf sichtbar ist: Name, Prüfung, Aufruf.
+#: CookieFirst (Vorgabe mehrerer Marken für den Cookie-Banner) bietet `acceptAllCategories()`.
+#: Gemessen am 10.11.2026: Knopf und API setzen alle Kategorien und Shopify.customerPrivacy auf "yes".
+ACCEPT_APIS = [
+    ("CookieFirst.acceptAllCategories()",
+     "window.CookieFirst && typeof window.CookieFirst.acceptAllCategories === 'function'",
+     "window.CookieFirst.acceptAllCategories()"),
+]
+
+
 def accept(page, wait_ms: int = 6000, before_click=None) -> tuple[str, str | None]:
     """Stimmt dem Cookie-Dialog zu, das Gegenstück zu `decline`.
 
     Nur für einen Mitschnitt mit Einwilligung, den das Team freigegeben hat.
     Rückgabe wie bei `decline`: `("accepted", "<Selektor oder Text>")`,
     `("no_dialog", None)` oder `("stuck", None)`.
+
+    Reihenfolge: bekannte Knöpfe, dann die API eines Tools, dann ein Knopf mit
+    üblichem Zustimmen-Text. Die API greift auch, wenn der Banner später oder
+    gar nicht erscheint; ein Zustand "zugestimmt" ohne Zustimmung entsteht so
+    nicht, weil das Tool selbst die Einwilligung setzt.
     """
     try:
         page.wait_for_selector(", ".join(ACCEPT_SELECTORS), state="visible", timeout=wait_ms)
@@ -165,6 +184,17 @@ def accept(page, wait_ms: int = 6000, before_click=None) -> tuple[str, str | Non
                 button.click(timeout=5000)
                 page.wait_for_timeout(1200)
                 return ACCEPTED, selector
+        except Exception:
+            continue
+    for label, available, call in ACCEPT_APIS:
+        try:
+            if not page.evaluate(f"() => Boolean({available})"):
+                continue
+            if before_click:
+                before_click()
+            page.evaluate(f"() => {{ {call}; }}")
+            page.wait_for_timeout(1200)
+            return ACCEPTED, label
         except Exception:
             continue
     if not dialog_open(page):

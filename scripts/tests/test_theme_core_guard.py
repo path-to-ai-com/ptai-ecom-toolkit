@@ -78,19 +78,45 @@ class TestLiveTheme(unittest.TestCase):
 
 
 class TestNieVeroeffentlichen(unittest.TestCase):
-    def test_kein_modul_ruft_theme_publish_auf(self):
-        """Jede Zeichenkette im Code außer Docstrings: keine Operation `themePublish`, kein `publish`-Befehl."""
+    """Seit 10.11.2026 veröffentlicht der geführte Launch (`theme.launch`) nach dem Ja der Person der Marke.
+    Kein anderes Modul veröffentlicht, und die Mutation `themePublish` ruft keines auf."""
+
+    #: Module, die einen Befehl zum Veröffentlichen enthalten dürfen.
+    ALLOWED = {"launch.py"}
+
+    @staticmethod
+    def strings(path):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                      if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and node.body
+                      and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)}
+        return [node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings]
+
+    def test_nur_der_gefuehrte_launch_veroeffentlicht(self):
+        """Jede Zeichenkette im Code außer Docstrings: `themePublish` nirgends, `publish` nur in `launch.py`."""
         hits = []
         for path in sorted((ROOT / "scripts" / "theme").glob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            docstrings = {id(node.body[0].value) for node in ast.walk(tree)
-                          if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and node.body
-                          and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)}
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
-                    if re.search(r"themePublish|\bpublish\b", node.value):
-                        hits.append(f"{path.name}: {node.value[:60]}")
+            for value in self.strings(path):
+                if re.search(r"themePublish", value) or (re.search(r"\bpublish\b", value)
+                                                          and path.name not in self.ALLOWED):
+                    hits.append(f"{path.name}: {value[:60]}")
         self.assertEqual(hits, [])
+
+    def test_der_befehl_entsteht_nur_beim_veroeffentlichen_nach_der_pruefung(self):
+        """`publish_command` wird nur in `publish` aufgerufen, und dort erst nach `readiness` und der
+        Schlussprüfung `final_check`."""
+        tree = ast.parse((ROOT / "scripts" / "theme" / "launch.py").read_text(encoding="utf-8"))
+        callers = {}
+        for func in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            for node in ast.walk(func):
+                if isinstance(node, ast.Call):
+                    name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                    callers.setdefault(name, []).append((func.name, node.lineno))
+        self.assertEqual([c for c, _ in callers["publish_command"]], ["publish"])
+        command_line = callers["publish_command"][0][1]
+        self.assertLess(dict(callers["readiness"])["publish"], command_line)
+        self.assertLess(dict(callers["final_check"])["publish"], command_line)
 
 
 if __name__ == "__main__":

@@ -86,6 +86,8 @@ Die acht Prüfpunkte der Linse in ihrer Reihenfolge. Hier steht nur, was **diese
    - Ein falscher Befund "kein Impressum auffindbar" behauptet einen Mangel, den es nicht gibt, in einem Dokument, das der Kunde seinem Anwalt zeigt.
    - **Bei gekapptem Crawl ist eine nicht gefundene Pflichtseite eine `blocked_question`, kein Befund.** Stattdessen gezielt prüfen: der Shop führt sie fast immer unter einem der üblichen Pfade, ein einzelner Abruf klärt die Frage.
 
+9. **Risiko einer Sperre im Merchant Center wegen Misrepresentation.** Nur wenn der Shop Google Shopping oder kostenlose Produkteinträge nutzt. Vier Gruppen gegen Crawl und Screenshots: Identität (Firmenname, Adresse, Kontakt sichtbar und gleich), Richtlinienseiten (Versand, Rückgabe, Zahlung erreichbar), Preisangaben (Streichpreise mit belegtem Vorpreis), Versprechen (Siegel, Garantien, Lieferzeiten, die der Shop nicht belegt). Ein Treffer ist ein Hinweis auf ein Sperrrisiko, kein Urteil über eine tatsächliche Sperre. Seit 06.11.2026, Quelle: Richtlinie „Falsche Darstellung“ im Merchant Center.
+
 ## Arbeitsweise
 
 - Jede Datei einzeln lesen, nichts annehmen.

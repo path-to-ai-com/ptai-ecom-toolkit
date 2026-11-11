@@ -87,6 +87,23 @@ git -C <target-repo> show <ref>:config/settings_schema.json
 - Block-IDs stabil und gültig erzeugen.
 - Eigenes CSS je Section höchstens 500 Zeichen, sonst in eine eigene Datei.
 - Limits vor dem Schreiben prüfen.
+- **Layout übersetzen, nicht nur Inhalt** (seit 11.11.2026, nach einem Launch mit schmalen Inhaltsseiten,
+  H1 in 72 statt 38 px und verdeckten Hero-Bildern). Die `layout`-Operationen je Section setzen Breite
+  (`wrapper` als Seitenbreite), Ausrichtung und Breite der Textblöcke, Größenstufen als CSS je Breakpoint,
+  Abstand zwischen den Blöcken, Overlay-Deckkraft als Alphawert, Höhe und entfernen leere Platzhalter;
+  `typography` setzt die Presets h1 bis h6 und Absatz auf die nächste Stufe, die Schrift der
+  Zwischenüberschriften und die Schriften je Rolle. Format: `mapping-format.md`, Abschnitte `layout` und
+  `typography`. Im Report:
+  - `type_scale_css`: Horizon rundet auf seine Presets und skaliert unter 48 px nicht. Das CSS aus
+    `report.typography.css` in die eigene CSS-Datei des Shops (Präfix) übernehmen.
+  - `layout_css_too_long`: Layout-Regeln, die nicht mehr in die 500 Zeichen der Section passen, stehen
+    unter `rules`; ebenfalls in die eigene CSS-Datei.
+  - `layout`: jede angewendete Operation je Section, zum Nachsehen im Bildpaar.
+- **Pflicht-Sections** je Template (`required_sections`) kommen aus dem Template des Ziel-Repos
+  (`added_sections`). Fehlen sie auch dort, ist es `required_section_missing`: die Section aus dem
+  Original-Theme übernehmen. Beispiel: ohne `search-header` hat die Suchseite kein Suchfeld.
+- **Section an, alle Blöcke aus** wird ausgeschaltet übernommen (`disabled_sections`); das alte Theme blendet
+  sie aus, das neue zeigte sonst eine leere Fläche.
 
 ### 3. Diffen, dann ersetzen
 

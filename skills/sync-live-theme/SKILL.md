@@ -1,6 +1,6 @@
 ---
 name: sync-live-theme
-description: Ermittelt, was sich im Live-Theme und auf Shop-Ebene seit der letzten Sicherung geändert hat und was davon in den Entwurf muss: Dateien je Manifest über Zeitstempel und SHA-256 (JSON normalisiert), Template-Zuweisungen, App-Embeds, Pixel, Skript-Tags, Hosts und Theme-Übersetzungen, je Änderung die betroffene Generator-Quelle und die Entscheidung take, adapt oder drop. Läuft in einer Migration vor der Abnahme, beliebig oft, und direkt vor dem Veröffentlichen, dazu eine Schlussprüfung unmittelbar vor dem Klick; ohne Migration als Wachposten. Es gibt keinen Änderungsstopp. Nutzen bei "was hat sich im Live-Theme geändert", "Abgleich mit dem Live-Stand", "Delta seit dem Snapshot", "letzter Abgleich vor dem Launch", in Phase 7 und Phase 9 einer Theme-Migration. Nicht verwenden für die erste Sicherung (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
+description: Ermittelt, was sich im Live-Theme und auf Shop-Ebene seit der letzten Sicherung geändert hat und was davon in den Entwurf muss: Dateien je Manifest über Zeitstempel und SHA-256 (JSON normalisiert), Template-Zuweisungen, App-Embeds, Pixel, Skript-Tags, Hosts und Theme-Übersetzungen, je Änderung die betroffene Generator-Quelle und die Entscheidung take, adapt oder drop. Läuft in einer Migration vor der Abnahme, beliebig oft, und direkt vor dem Veröffentlichen, dazu eine Schlussprüfung unmittelbar vor dem Veröffentlichen (sync --final, im geführten Launch von launch publish aufgerufen); ohne Migration als Wachposten. Es gibt keinen Änderungsstopp. Nutzen bei "was hat sich im Live-Theme geändert", "Abgleich mit dem Live-Stand", "Delta seit dem Snapshot", "letzter Abgleich vor dem Launch", in Phase 7 und Phase 9 einer Theme-Migration. Nicht verwenden für die erste Sicherung (ptai-ecom:snapshot-theme). Schreibt nichts in den Shop. Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # sync-live-theme: Abgleich mit dem Live-Stand
@@ -48,6 +48,9 @@ den lesenden Abfragen dieses Abgleichs.
    - vergleicht jede Datei mit dem Manifest (`updated_at`, SHA-256, JSON normalisiert)
    - holt geänderte und neue Dateien mit Inhalt und legt sie als neue datierte Sicherung ab
    - schreibt `delta.json` mit geänderten, neuen und gelöschten Dateien
+   - meldet unter `hidden_by_blocks` jede Section in geänderten oder neuen Templates und Section-Groups,
+     die an ist, deren Blöcke aber alle aus sind. Das alte Theme blendet sie aus; übernommen wird sie
+     **ausgeschaltet** (der Generator tut das selbst, Regel 11), nie aktiv mit abgeschalteten Blöcken
    - lässt die frühere Sicherung unverändert
 
    Zwei Manifeste direkt vergleichen:
@@ -100,20 +103,20 @@ jede Änderung den Launch an (`reference/theme-migration/change-freeze.md`).
 
 ## Die Schlussprüfung
 
-Unmittelbar vor dem Veröffentlichen, nach dem Go:
+Unmittelbar vor dem Veröffentlichen, nach dem Go. Im geführten Launch ruft `launch publish` sie selbst
+auf, direkt vor `shopify theme publish`; von Hand:
 
 ```bash
-PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts" PYTHONUTF8=1 python3 -c "
-import json
-from theme import guard, shopify
-config = json.load(open('reporting/config.json'))
-print(json.dumps(guard.live_fingerprint(shopify.transport_from_config(config))))
-"
+"${CLAUDE_PLUGIN_ROOT}/bin/theme" sync --final
 ```
 
-Dazu die Template-Zuweisungen gegen den Stand des Abgleichs vor dem Launch. Hat sich seitdem `updatedAt` des
-Live-Themes oder eine Zuweisung geändert, **hält der Launch an**: ein voller Lauf für die geänderten
-Teile folgt. Nie mit bekannter Lücke veröffentlichen.
+- Liest das Live-Theme frisch und vergleicht `updatedAt` mit dem jüngsten festgehaltenen Stand (Abgleich
+  unter `migration/sync/`, sonst Sicherung unter `migration/snapshots/`).
+- Liest die Template-Zuweisungen frisch und vergleicht ihre Abweichung von `templates.json` mit der beim
+  Abgleich vor dem Launch.
+- Schreibt nichts. Exit 0 heißt unverändert, Exit 1 mit `problems` heißt: **der Launch hält an**, ein voller
+  Lauf für die geänderten Teile folgt. Fehlt der Stand oder die Bestandsaufnahme der Zuweisungen, hält er
+  ebenfalls an. Nie mit bekannter Lücke veröffentlichen.
 
 ## Ergebnis
 
@@ -135,3 +138,7 @@ Teile folgt. Nie mit bekannter Lücke veröffentlichen.
   Quelle oder Mapping übernehmen.
 - **Änderung des Teams am Live-Theme:** Normalfall, ein Punkt in `delta.md`. Nach dem Abgleich vor dem
   Launch hält jede Änderung den Launch an.
+- **Section aktiv übernommen, obwohl alle Blöcke aus sind:** Broadcast blendet eine solche Section aus,
+  Horizon zeigt ihre leere Fläche mit Hintergrundfarbe. So kam nach einem Abgleich im November 2026 eine
+  abgeschaltete Ankündigungsleiste als dunkle leere Leiste live. Regel: Section an, alle Blöcke aus, wird
+  Section aus (`hidden_by_blocks` im Delta, `disabled_sections` im Report des Generators).

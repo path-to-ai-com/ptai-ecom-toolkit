@@ -49,11 +49,39 @@ Ein Migrationslauf (`run_state`) ist optional: ohne ihn kommen die Theme-IDs aus
 Antworten auf `manual`-Punkte stehen in `reporting/launch-answers.json` und
 gelten bei jedem weiteren Lauf, mit Name und Datum dessen, der geantwortet hat.
 
+**Nach dem Launch zusätzlich** (seit 10.11.2026):
+
+- *Testbestellung:* liest `<lauf>/test-order/walk.json` aus `scripts/browser/walk_checkout.py`
+  (Kasse bis zur Zahlung, die Bestellung setzt ein Mensch ab) und prüft je Ziel, ob der Kauf
+  ankommt: Bestellung in Shopify, GA4, Google Ads, Meta und die übrigen Werbe-Pixel. Lesewege
+  und ihre Grenzen stehen in `theme.test_order`. Danach Storno und Erstattung als Frage an das
+  Team, bestätigt aus der Bestellung selbst.
+- *Tracking nach Einwilligung:* Mitschnitt mit erteilter Einwilligung je Seitentyp, neu gegen
+  vorher, dazu ob die Einwilligung Shopify (`customerPrivacy`) und den Consent Mode erreicht.
+  Ein Durchlauf, in dem der Dialog nicht bedient wurde (`no_dialog`, `stuck`), zählt nie als
+  Durchlauf mit Einwilligung.
+
+**Seit 11.11.2026**, aus zwei Fehlern im Launch-Ablauf selbst:
+
+- *App-Einträge* (`app-injections`, nach dem Launch `app-injections-after`): neue Zeilen mit `render`,
+  `include` oder `script` in `layout/theme.liquid` und neue oder wieder eingeschaltete App-Embeds gegen
+  den hochgeladenen Stand. Referenz vor dem Launch ist das Ziel-Repo, danach die Sicherung des Entwurfs,
+  die `theme.launch publish` direkt vor dem Veröffentlichen anlegt (`<lauf>/published-draft/`).
+- *Vor Einwilligung* (`tracking-pre-consent`, `-after`): Werbe- und Analysedienste, die neu vor einer
+  Einwilligung senden, über den Host-Katalog (Microsoft Advertising an `bat.bing.com` und `bat.bing.net`).
+- *Pixel-Liste* (`web-pixels` vorher, `web-pixels-after` danach): `webPixelsConfigList` des Live-Shops
+  wird vor dem Launch in `<lauf>/web-pixels-before.json` festgehalten und danach verglichen; ein
+  fehlendes Pixel ist ein Befund, außer es ist bewusst entfernt und, als Custom Pixel, gesichert.
+- *Custom Pixels gesichert* (`custom-pixel-backup`): jedes, das laut Entscheidung entfällt, liegt unter
+  `migration/inventory/pixels/` mit Code und gelesener Notiz (`theme.web_pixels`).
+- *Kauf je Messziel*: jede GA4-Property und jede Google-Ads-Kauf-Conversion, die der Shop vor dem Launch
+  bediente, ist ein eigener Punkt der Testbestellung.
+
 CLI:
     python3 -m theme.launch_check [--after] [--live-theme-id <id>] [--draft-theme-id <id>]
         [--launch-date YYYY-MM-DD] [--run-id <id>] [--pages <pages.json>]
         [--network-old <network.json> ...] [--network-new <network.json> ...]
-        [--answers <file>] [--workspace .]
+        [--test-order <walk.json>] [--answers <file>] [--workspace .]
 
 Schreibt `reporting/runs/<date>-launch-check/launch-check.json` und
 `launch-check.md` (mit `--after`: `launch-check-after.*`). Exit 0 heißt Go,
@@ -61,18 +89,19 @@ Schreibt `reporting/runs/<date>-launch-check/launch-check.json` und
 """
 import argparse
 import json
+import os
 import re
 import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from theme import (EXIT_ERROR, EXIT_FINDINGS, EXIT_OK, ConfigError, emit, load_config, migration_config,
                    now_utc, write_json)
-from theme import apps, launch_findings, open_items, run_state, seo_parity
+from theme import apps, launch_findings, open_items, run_state, seo_parity, sync, test_order, tracking_ids, web_pixels
 from theme.files import fetch_by_names, list_files, list_themes
 from theme.shopify import ShopifyError, numeric_id, transport_from_config
 from theme.translations import read_resource
@@ -123,6 +152,27 @@ SEO_TOPICS = {
     "head": ("seo-head", "Title, Meta-Description und Canonical vorhanden"),
 }
 USER_AGENT = "ptai-ecom launch-check"
+#: Ein Durchlauf der Kasse gilt für diesen Launch, wenn er höchstens so alt ist.
+WALK_MAX_AGE = timedelta(days=7)
+#: Werte von Shopify.customerPrivacy, die eine erteilte Einwilligung heißen.
+PRIVACY_GRANTED = ("yes", "true")
+#: Dateien, in die sich Apps beim Veröffentlichen eintragen: eine Zeile im Layout, ein App-Embed in den Einstellungen.
+INJECTION_FILES = ("layout/theme.liquid", "config/settings_data.json")
+#: Ordner im Lauf, in den der geführte Launch diese Dateien des Entwurfs direkt vor dem Veröffentlichen sichert.
+DRAFT_BACKUP_DIR = "published-draft"
+#: Zeilen im Layout, mit denen Code eingebunden wird: Snippet, Skript, Datei aus Shopify Files oder den Assets.
+INJECTED_LINE = re.compile(r"\{%-?\s*(?:render|include)\b|<script\b|\|\s*(?:script_tag|file_url|asset_url)\b"
+                           r"|cdn\.shopify\.com/s/files|/cdn/shop/files/", re.I)
+#: Wörter, die in fast jeder Einbindung stehen und deshalb keine App erkennen lassen.
+GENERIC_WORDS = frozenset({
+    "shopify", "theme", "themes", "liquid", "layout", "render", "include", "snippet", "snippets", "section",
+    "sections", "script", "scripts", "async", "defer", "module", "https", "files", "assets", "asset", "content",
+    "header", "footer", "block", "blocks", "embed", "embeds", "settings", "config", "static", "loader", "widget",
+    "google", "consent", "cookie", "cookies", "banner", "pixel", "pixels", "tracking", "analytics", "compliance",
+    "privacy", "rules", "window", "function", "javascript", "value", "unless", "endif", "endunless", "media",
+    "stylesheet", "crossorigin", "anonymous"})
+#: Kategorien aus `hosts.json`, deren Aufrufe vor einer Einwilligung zählen.
+PRE_CONSENT_CATEGORIES = ("ads", "analytics", "session_recording")
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +376,7 @@ def load_captures(paths: list) -> dict:
         modes.add(mode)
         for run in data.get("runs") or []:
             run = dict(run, consent=run.get("consent") or mode, _dir=str(Path(path).parent),
-                       _base=data.get("base_url"))
+                       _base=data.get("base_url"), _captured_at=data.get("captured_at"))
             entry = pages.setdefault(run.get("page_id"), {"runs": [], "path": run.get("path"),
                                                           "template": run.get("template")})
             entry["runs"].append(run)
@@ -382,6 +432,23 @@ def request_key(url: str, own_hosts: set, catalog, host_map: dict | None = None)
     return host if any(host.endswith("." + h) for h in own_hosts) else registrable(host)
 
 
+def consent_result(run: dict) -> str | None:
+    """Was der Cookie-Dialog im Durchlauf ergab: accepted, declined, no_dialog, stuck; None ohne Angabe."""
+    return (run.get("consent_result") or {}).get("result")
+
+
+def consent_counts(run: dict) -> bool:
+    """Zählt ein Durchlauf im Vergleich seines Consent-Zustands?
+
+    Ein Mitschnitt "mit Einwilligung", in dem der Dialog nicht erkannt oder nicht
+    bedient wurde (`no_dialog`, `stuck`), misst den Zustand ohne Einwilligung. Am
+    15.10.2026 so geschehen: der Pandectes-Dialog wurde nicht erkannt, und ein
+    Vergleich hätte das als Tracking mit Einwilligung gezählt. Ohne Angabe (alte
+    Mitschnitte) zählt er wie bisher.
+    """
+    return run.get("consent") != "accepted" or consent_result(run) in (None, "accepted")
+
+
 def third_party_keys(runs: list, own_hosts: set, catalog, host_map: dict | None = None) -> set:
     """Dienste oder Domains, die eine Seite lädt, ohne eigene Domain und ohne Shopify selbst."""
     keys = {request_key(r.get("url") or "", own_hosts, catalog, host_map)
@@ -391,7 +458,7 @@ def third_party_keys(runs: list, own_hosts: set, catalog, host_map: dict | None 
 
 def compare_tracking(old: dict, new: dict, own_hosts: set, catalog, host_map: dict | None = None) -> dict:
     """Je Seite und Consent-Zustand: was alt lädt und neu fehlt, was neu dazukommt."""
-    result = {"missing": [], "added": [], "pages": 0, "wrong_theme": [], "unmatched": []}
+    result = {"missing": [], "added": [], "pages": 0, "wrong_theme": [], "unmatched": [], "unconfirmed": []}
     for page_id, old_entry in sorted(old["pages"].items(), key=lambda kv: str(kv[0])):
         new_entry = new["pages"].get(page_id)
         if not new_entry:
@@ -400,10 +467,15 @@ def compare_tracking(old: dict, new: dict, own_hosts: set, catalog, host_map: di
         result["wrong_theme"] += [f"{page_id} ({r.get('device')})" for r in new_entry["runs"]
                                   if r.get("state") == "wrong_theme"]
         for mode in sorted({r.get("consent") for r in old_entry["runs"]} & {r.get("consent") for r in new_entry["runs"]}):
-            before = third_party_keys([r for r in old_entry["runs"] if r.get("consent") == mode
-                                       and r.get("state") == "ok"], own_hosts, catalog, host_map)
-            after = third_party_keys([r for r in new_entry["runs"] if r.get("consent") == mode
-                                      and r.get("state") == "ok"], own_hosts, catalog, host_map)
+            old_runs = [r for r in old_entry["runs"] if r.get("consent") == mode and r.get("state") == "ok"]
+            new_runs = [r for r in new_entry["runs"] if r.get("consent") == mode and r.get("state") == "ok"]
+            # Ohne erteilte Einwilligung auf einer Seite fiele jeder Dienst nach der Einwilligung als fehlend auf.
+            if any(r for r in old_runs + new_runs if not consent_counts(r)) and not (
+                    any(consent_counts(r) for r in old_runs) and any(consent_counts(r) for r in new_runs)):
+                result["unconfirmed"].append(f"{page_id} ({mode})")
+                continue
+            before = third_party_keys([r for r in old_runs if consent_counts(r)], own_hosts, catalog, host_map)
+            after = third_party_keys([r for r in new_runs if consent_counts(r)], own_hosts, catalog, host_map)
             result["pages"] += 1
             for key in sorted(before - after):
                 result["missing"].append({"page_id": page_id, "path": old_entry.get("path"), "consent": mode,
@@ -576,6 +648,11 @@ def build_context(args, config: dict, workspace: Path, *, transport=None) -> dic
     values = (state or {}).get("values") or {}
     live_id = args.live_theme_id or values.get("live_theme_id") or block.get("live_theme_id")
     draft_id = args.draft_theme_id or values.get("draft_theme_id") or block.get("draft_theme_id")
+    if args.after and not args.live_theme_id and values.get("rollback_theme_id"):
+        # Nach dem geführten Launch (`theme.launch publish`) zeigt live_theme_id auf das neue Theme, und das
+        # alte steht als rollback_theme_id im Stand. Bis dahin musste die alte ID von Hand übergeben werden.
+        live_id = values["rollback_theme_id"]
+        draft_id = args.draft_theme_id or values.get("live_theme_id") or draft_id
     # Seit 0.3.11 kein Änderungsstopp mehr: den Termin nennt der Betreiber beim Aufruf.
     launch = args.launch_date
     launch_date = None
@@ -619,6 +696,9 @@ def build_context(args, config: dict, workspace: Path, *, transport=None) -> dic
         "report_paths": [str(p) for p in block.get("report_paths") or [] if str(p).strip()],
         "checklist": block.get("acceptance_checklist") or None,
         "open_items": open_items.exists(workspace),
+        "test_order_arg": getattr(args, "test_order", None),
+        # Erst bei Bedarf gelesen (nur --after mit Testbestellung); hier nur der Zugang, kein Abruf.
+        "ga4": (None, "nur nach dem Launch gelesen") if not args.after else test_order.ga4_from_config(config, workspace),
     }
 
 
@@ -960,20 +1040,9 @@ def check_acceptance(ctx: dict, statuses: dict | None = None) -> list:
 
 
 def last_sync_reference(ctx: dict) -> dict | None:
-    """Jüngster festgehaltener Stand des Live-Themes: Abgleich oder Sicherung."""
-    candidates = []
-    for path in (ctx["workspace"] / "migration" / "sync").glob("*/delta.json"):
-        data = read_json(path) or {}
-        if data.get("theme_updated_at_after"):
-            candidates.append({"captured_at": data.get("captured_at") or "", "updated_at": data["theme_updated_at_after"],
-                               "theme_id": data.get("live_theme_id"), "source": path})
-    for path in (ctx["workspace"] / "migration" / "snapshots").glob("*/manifest.json"):
-        data = read_json(path) or {}
-        if data.get("theme_updated_at"):
-            candidates.append({"captured_at": data.get("captured_at") or "", "updated_at": data["theme_updated_at"],
-                               "theme_id": data.get("theme_id"), "source": path})
-    candidates = [c for c in candidates if not ctx["old_id"] or str(c["theme_id"]) == ctx["old_id"]]
-    return max(candidates, key=lambda c: c["captured_at"]) if candidates else None
+    """Jüngster festgehaltener Stand des Live-Themes: Abgleich oder Sicherung (dieselbe Quelle wie die
+    Schlussprüfung in `theme.sync`)."""
+    return sync.latest_reference(ctx["workspace"], ctx["old_id"])
 
 
 def check_sync(ctx: dict) -> list:
@@ -1118,6 +1187,247 @@ def check_embeds(ctx: dict) -> list:
     return [make_check("app-embeds", group, title, MISSING if gaps else OK, evidence,
                        action="im Theme-Editor des Entwurfs einschalten oder bewusst streichen" if gaps else "",
                        owner=OPERATOR if gaps else "", links=link_pair(ctx))]
+
+
+# ---------------------------------------------------------------------------
+# App-Einträge gegen den hochgeladenen Stand
+# ---------------------------------------------------------------------------
+
+def target_repo_dir(ctx: dict) -> Path | None:
+    """Das Ziel-Repo, aus dem hochgeladen wurde (`theme_migration.target_repo`); None, wenn nicht gesetzt."""
+    raw = migration_config(ctx["config"]).get("target_repo")
+    if not raw:
+        return None
+    path = Path(os.path.expanduser(str(raw)))
+    return path if path.is_absolute() else ctx["workspace"] / path
+
+
+def read_injection_files(folder: Path) -> dict:
+    """Layout und Einstellungen aus einem Ordner mit Theme-Struktur, soweit vorhanden."""
+    files = {}
+    for name in INJECTION_FILES:
+        try:
+            files[name] = (folder / name).read_bytes()
+        except OSError:
+            continue
+    return files
+
+
+def launch_records(ctx: dict) -> list:
+    """Jedes `launch.json` eines bestätigten Launches des neuen Themes, das jüngste zuerst."""
+    found = []
+    for path in (ctx["workspace"] / "reporting" / "runs").glob("*/launch.json"):
+        record = read_json(path)
+        if isinstance(record, dict) and record.get("published") and \
+                str(record.get("new_theme_id")) == str(ctx["new_id"]):
+            found.append((str(record.get("published_at") or ""), path, record))
+    return [(path, record) for _, path, record in sorted(found, key=lambda item: item[0], reverse=True)]
+
+
+def launch_time(ctx: dict) -> datetime | None:
+    """Zeitpunkt des Veröffentlichens: aus dem Migrationslauf, sonst aus `launch.json`."""
+    values = (ctx["state"] or {}).get("values") or {}
+    stamp = test_order.parse_time(values.get("published_at"))
+    if stamp:
+        return stamp
+    for _, record in launch_records(ctx):
+        stamp = test_order.parse_time(record.get("published_at"))
+        if stamp:
+            return stamp
+    return None
+
+
+def backup_draft(transport, theme_id, run_dir: Path) -> dict:
+    """Sichert Layout und Einstellungen des Entwurfs direkt vor dem Veröffentlichen nach `<lauf>/published-draft/`.
+
+    Referenz für `app-injections-after`: was danach im Live-Theme steht und hier fehlt, hat sich beim
+    Veröffentlichen eingetragen. Liest nur. Scheitert der Abruf, steht der Grund im Ergebnis, und die
+    Prüfung danach vergleicht mit dem Ziel-Repo.
+    """
+    record = {"dir": DRAFT_BACKUP_DIR, "theme_id": str(numeric_id(theme_id)), "captured_at": now_utc()}
+    try:
+        bodies = fetch_by_names(transport, theme_id, list(INJECTION_FILES))
+    except Exception as exc:  # noqa: BLE001  ShopifyError, Netz, kaputte Antwort
+        return {**record, "files": [], "error": f"{type(exc).__name__}: {exc}"[:300]}
+    for name, data in bodies.items():
+        target = run_dir / DRAFT_BACKUP_DIR / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    return {**record, "files": sorted(bodies), "missing": sorted(set(INJECTION_FILES) - set(bodies))}
+
+
+def injection_reference(ctx: dict) -> tuple:
+    """Der hochgeladene Stand von Layout und Einstellungen: `(dateien, herkunft)` oder `(None, grund)`.
+
+    Nach dem Launch zuerst die Sicherung, die der geführte Launch direkt vor dem Veröffentlichen anlegt:
+    sie zeigt genau, was veröffentlicht wurde, auch eine Änderung im Theme-Editor nach dem Hochladen.
+    Sonst, und vor dem Launch immer, das Ziel-Repo, aus dem hochgeladen wurde.
+    """
+    if ctx["after"]:
+        for path, record in launch_records(ctx):
+            folder = path.parent / str((record.get("draft_backup") or {}).get("dir") or DRAFT_BACKUP_DIR)
+            files = read_injection_files(folder)
+            if files:
+                rel = folder.relative_to(ctx["workspace"]).as_posix()
+                return files, f"Sicherung des Entwurfs vor dem Veröffentlichen ({rel})"
+    folder = target_repo_dir(ctx)
+    if folder is None:
+        return None, "theme_migration.target_repo nicht gesetzt" + (
+            ", und keine Sicherung des Entwurfs aus dem geführten Launch" if ctx["after"] else "")
+    files = read_injection_files(folder)
+    if not files:
+        return None, f"{folder} hat weder layout/theme.liquid noch config/settings_data.json"
+    return files, f"Ziel-Repo ({migration_config(ctx['config']).get('target_repo')})"
+
+
+def layout_lines(data: bytes | None) -> list:
+    """Zeilen des Layouts, die etwas einbinden, mit vereinheitlichtem Leerraum."""
+    out = []
+    for line in (data or b"").decode("utf-8", "replace").splitlines():
+        norm = " ".join(line.split())
+        if norm and INJECTED_LINE.search(norm) and norm not in out:
+            out.append(norm)
+    return out
+
+
+def settings_embeds(data: bytes | None) -> dict | None:
+    """App-Embeds aus `settings_data.json` je `(app_handle, block)`; None, wenn die Datei kein JSON ist."""
+    if data is None:
+        return None
+    try:
+        settings = json.loads(apps.strip_comment_header(data.decode("utf-8", "replace")))
+    except ValueError:
+        return None
+    return {(e["app_handle"], e["block"]): e for e in apps.app_embeds(settings)} if isinstance(settings, dict) else None
+
+
+def distinctive_words(text) -> set:
+    """Wörter eines Namens oder einer Zeile, die eine App erkennen lassen: ab fünf Zeichen, nicht allgemein."""
+    return {w for w in re.findall(r"[a-z0-9]+", str(text or "").lower())
+            if len(w) >= 5 and not w.isdigit() and w not in GENERIC_WORDS}
+
+
+def line_keys(line: str, catalog, own: set) -> set:
+    """Schlüssel, unter denen eine eingebundene Zeile eine App treffen kann: Snippet, Datei, Host, Dienst."""
+    keys = {m.group(1).lower() for m in re.finditer(r"\{%-?\s*(?:render|include)\s+['\"]([^'\"]+)['\"]", line)}
+    keys |= {m.group(1).lower().rsplit(".", 1)[0]
+             for m in re.finditer(r"['\"]([\w.-]+)['\"]\s*\|\s*(?:file_url|asset_url)", line)}
+    for match in re.finditer(r"(?:https?:)?//([a-z0-9.-]+\.[a-z]{2,})(/[^\s'\"<>]*)?", line, re.I):
+        host, path = match.group(1).lower(), match.group(2) or ""
+        sid = catalog.service_for(host, path)
+        if host in own or catalog.is_platform(sid):
+            # Shopify Files oder die eigene Domain: der Dateiname trägt den Namen der App.
+            name = path.rsplit("/", 1)[-1].split("?")[0]
+            if name:
+                keys.add(name.lower().rsplit(".", 1)[0])
+            continue
+        keys |= {k for k in (sid, host, registrable(host)) if k}
+    keys |= {sid for sid, _, _ in catalog.code_hits(line)}
+    keys |= {catalog.service_for_handle(k) for k in list(keys)} - {None}
+    return keys
+
+
+def injection_reason(ctx: dict, keys: set, text: str) -> str | None:
+    """Beleg, wenn ein Eintrag zu einer App gehört, die laut Entscheidung entfällt (`drop` oder `replace`).
+
+    Erst genau über Dienst, Handle oder Host, dann über ein kennzeichnendes Wort: eine Zeile
+    `{% render 'beispiel-consent-rules' %}` gehört zur gestrichenen App `beispiel-consent`.
+    """
+    reason = dropped_reason(ctx, *keys)
+    if reason:
+        return reason
+    words = distinctive_words(text) | {w for k in keys for w in distinctive_words(k)}
+    return next((label for key, label in ctx["dropped"].items() if words & distinctive_words(key)), None)
+
+
+def check_injections(ctx: dict) -> dict:
+    """Hat sich eine App in Layout oder Einstellungen eingetragen, die im hochgeladenen Stand nicht stand?
+
+    Vor dem Launch: der Entwurf gegen das Ziel-Repo. Nach dem Launch: das Live-Theme gegen die Sicherung
+    des Entwurfs vom Veröffentlichen, sonst gegen das Ziel-Repo. Gemeldet werden neue Zeilen in
+    `layout/theme.liquid` mit `render`, `include` oder `script` (auch aus Shopify Files) und App-Embeds in
+    `current.blocks`, die neu sind oder wieder eingeschaltet. Gehört der Eintrag zu einer App, die laut
+    Entscheidung entfällt, ist das ein Befund; sonst eine Frage.
+
+    Seit 11.11.2026: eine Consent-App trug sich beim Veröffentlichen wieder ins Live-Theme ein, mit einer
+    Zeile im Layout und einem App-Embed, und lud ein Werbe-Tag ohne Einwilligung. Abschalten in der App
+    entfernte die Zeile nicht.
+    """
+    after = ctx["after"]
+    group = "Apps und Embeds"
+    cid = "app-injections-after" if after else "app-injections"
+    title = ("App-Einträge im Live-Theme seit dem Veröffentlichen" if after
+             else "App-Einträge im Entwurf gegen den hochgeladenen Stand")
+    which = "Live-Theme" if after else "Entwurf"
+    if not ctx["new_id"]:
+        return make_check(cid, group, title, BLOCKED, "keine ID des neuen Themes")
+    reference, origin = injection_reference(ctx)
+    if reference is None:
+        if after or ctx["state"]:
+            return make_check(cid, group, title, BLOCKED, f"kein hochgeladener Stand zum Vergleich: {origin}",
+                              action="theme_migration.target_repo setzen; der geführte Launch sichert den Entwurf "
+                                     "künftig selbst", owner=OPERATOR)
+        return make_check(cid, group, title, NA, f"ohne Migrationslauf und ohne hochgeladenen Stand ({origin})")
+    subject = {}
+    for name in INJECTION_FILES:
+        body, error = file_body(ctx, ctx["new_id"], name)
+        if error:
+            return make_check(cid, group, title, BLOCKED, f"{name} im {which} nicht lesbar: {error}")
+        subject[name] = body
+    layout, settings = INJECTION_FILES
+    items, compared, gaps = [], [], []
+    if reference.get(layout) is not None and subject.get(layout) is not None:
+        compared.append("theme.liquid")
+        before = set(layout_lines(reference[layout]))
+        own = own_hosts(ctx)
+        for line in layout_lines(subject[layout]):
+            if line not in before:
+                items.append((f"theme.liquid: {line[:120]}",
+                              injection_reason(ctx, line_keys(line, ctx["catalog"], own), line)))
+    if reference.get(settings) is not None and subject.get(settings) is not None:
+        old_embeds, new_embeds = settings_embeds(reference[settings]), settings_embeds(subject[settings])
+        if old_embeds is None or new_embeds is None:
+            gaps.append("settings_data.json kein JSON (" + ("Referenz" if old_embeds is None else which) + ")")
+        else:
+            compared.append("App-Embeds")
+            for key, embed in sorted(new_embeds.items()):
+                previous = old_embeds.get(key)
+                if embed["disabled"] or (previous is not None and not previous["disabled"]):
+                    continue
+                handle = key[0]
+                state = "wieder eingeschaltet" if previous is not None else "neu"
+                keys = {handle, ctx["catalog"].service_for_handle(handle)} - {None}
+                items.append((f"App-Embed {handle}/{key[1]} ({state})", injection_reason(ctx, keys, handle)))
+    if not compared:
+        return make_check(cid, group, title, BLOCKED,
+                          f"weder theme.liquid noch App-Embeds in beiden Ständen lesbar ({origin})"
+                          + ("; " + "; ".join(gaps) if gaps else ""), owner=OPERATOR)
+    dropped = [(text, reason) for text, reason in items if reason]
+    unknown = [text for text, reason in items if not reason]
+    evidence = f"{' und '.join(compared)} im {which} gegen {origin}"
+    if dropped:
+        evidence += "; laut Entscheidung gestrichen und trotzdem eingetragen: " + short_list(
+            [f"{text} ({reason})" for text, reason in dropped], 6)
+    if unknown:
+        evidence += "; nicht im hochgeladenen Stand: " + short_list(unknown, 6)
+    if not items:
+        evidence += ": keine neue Zeile mit render, include oder script, kein neues oder wieder eingeschaltetes App-Embed"
+    if gaps:
+        evidence += "; " + "; ".join(gaps)
+    status = MISSING if dropped else MANUAL if unknown else (BLOCKED if gaps else OK)
+    check = make_check(
+        cid, group, title, status, evidence,
+        action=(f"Zeile aus layout/theme.liquid entfernen und das Embed ausschalten, im {which}; die App selbst "
+                "abschalten oder deinstallieren, sonst trägt sie sich beim nächsten Veröffentlichen wieder ein. "
+                "Abschalten in der App entfernt eine eingetragene Zeile nicht. Danach neu prüfen")
+        if status == MISSING else "",
+        question=(f"Diese Einträge standen nicht im hochgeladenen Stand: {short_list(unknown, 3)}. Gehören sie ins "
+                  f"{which}? Wenn nicht: entfernen und die App prüfen, die sie eingetragen hat.")
+        if status == MANUAL else "",
+        owner=OPERATOR if status in (MISSING, BLOCKED) else BOTH if status == MANUAL else "", links=link_pair(ctx))
+    check["details"] = {"reference": origin, "dropped": [{"entry": t, "decision": r} for t, r in dropped],
+                        "unknown": unknown}
+    return check
 
 
 def check_translations(ctx: dict) -> list:
@@ -1393,6 +1703,9 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
         evidence += "; Durchläufe mit falschem Theme: " + short_list(result["wrong_theme"])
     if result["unmatched"]:
         evidence += "; ohne Gegenstück: " + short_list(result["unmatched"])
+    if result["unconfirmed"]:
+        evidence += ("; nicht verglichen, weil die Einwilligung im Mitschnitt nicht erteilt wurde: "
+                     + short_list(result["unconfirmed"]))
     paths = sorted({m["path"] for m in result["missing"] if m.get("path")})[:4]
     out = [make_check(check_id, group, title, status, evidence,
                       action="Einbindung im neuen Theme herstellen oder bewusst streichen (apps-and-tracking.md)"
@@ -1400,15 +1713,514 @@ def check_tracking(ctx: dict, *, after: bool = False) -> list:
                       links=[l for p in paths for l in link_pair(ctx, p)])]
     out[0]["details"] = {"missing": result["missing"], "added": result["added"], "dropped": intended}
     if not after:
-        both = ctx["old"]["modes"] & ctx["new"]["modes"]
-        if "accepted" in both:
-            out.append(make_check("tracking-consent", group, "Mitschnitt mit Einwilligung", OK,
-                                  "beide Themes mit und ohne Einwilligung mitgeschnitten"))
-        else:
-            out.append(make_check("tracking-consent", group, "Mitschnitt mit Einwilligung", MANUAL,
-                                  "nur ohne Einwilligung mitgeschnitten; App-Pixel in Consent-Regionen laden erst danach",
-                                  question="Darf ich auf beiden Themes mit Einwilligung mitschneiden?", owner=TEAM))
+        out.append(check_consent_capture(ctx))
     return out
+
+
+def accepted_runs(capture: dict) -> tuple:
+    """Durchläufe mit Einwilligung: belegt (Dialog zugestimmt) und unbelegt, mit Grund."""
+    runs = [r for e in capture["pages"].values() for r in e["runs"]
+            if r.get("consent") == "accepted" and r.get("state") == "ok"]
+    confirmed = [r for r in runs if consent_result(r) == "accepted"]
+    unconfirmed = sorted({f"{r.get('page_id')} ({consent_result(r) or 'ohne Ergebnis des Dialogs'})"
+                          for r in runs if consent_result(r) != "accepted"})
+    return confirmed, unconfirmed
+
+
+def consent_ways(runs: list) -> str:
+    return ", ".join(sorted({str((r.get("consent_result") or {}).get("how")) for r in runs})) or "unbekannt"
+
+
+def check_consent_capture(ctx: dict) -> dict:
+    """Vor dem Launch: liegt auf beiden Themes ein Mitschnitt mit erteilter Einwilligung vor?
+
+    Bis 10.11.2026 genügte ein Ordner `*-accepted`, auch wenn der Dialog darin nie
+    bedient wurde. Jetzt zählt nur ein Durchlauf, in dem der Dialog zugestimmt hat.
+    """
+    group, title = "Tracking", "Mitschnitt mit Einwilligung"
+    if not ({"accepted"} & ctx["old"]["modes"] and {"accepted"} & ctx["new"]["modes"]):
+        return make_check("tracking-consent", group, title, MANUAL,
+                          "nur ohne Einwilligung mitgeschnitten; App-Pixel in Consent-Regionen laden erst danach",
+                          question="Darf ich auf beiden Themes mit Einwilligung mitschneiden?", owner=TEAM)
+    old_ok, old_bad = accepted_runs(ctx["old"])
+    new_ok, new_bad = accepted_runs(ctx["new"])
+    if old_ok and new_ok and not (old_bad or new_bad):
+        return make_check("tracking-consent", group, title, OK,
+                          f"beide Themes mit und ohne Einwilligung mitgeschnitten; zugestimmt über {consent_ways(old_ok + new_ok)}")
+    gaps = [f"{side}: {short_list(bad)}" for side, bad in (("alt", old_bad), ("neu", new_bad)) if bad]
+    gaps += [f"{side}: kein Durchlauf mit erteilter Einwilligung" for side, ok in (("alt", old_ok), ("neu", new_ok))
+             if not ok and not dict(alt=old_bad, neu=new_bad)[side]]
+    return make_check("tracking-consent", group, title, BLOCKED,
+                      "Einwilligung im Mitschnitt nicht erteilt; " + "; ".join(gaps),
+                      action="Cookie-Dialog im Browser ansehen; kennt consent.py das Tool nicht, Knopf ergänzen, "
+                             "dann mit --consent accepted neu mitschneiden", owner=OPERATOR)
+
+
+def privacy_problems(run: dict) -> list:
+    """Erreicht die Einwilligung Shopify und den Consent Mode? Leer, wenn ja oder nicht lesbar.
+
+    `Shopify.customerPrivacy` entscheidet, ob App- und Kassen-Pixel senden; ein
+    Banner, der nur sich selbst merkt, lässt sie stumm. Im Consent Mode zählt das
+    Update nach der Zustimmung (`update`), nicht der Ausgangswert.
+    """
+    privacy = run.get("privacy") or {}
+    problems = []
+    customer = privacy.get("customer_privacy")
+    if isinstance(customer, dict):
+        denied = [f"{k}={customer.get(k)!r}" for k in ("analytics", "marketing")
+                  if str(customer.get(k)).lower() not in PRIVACY_GRANTED]
+        if denied:
+            problems.append("Shopify customerPrivacy " + ", ".join(denied))
+    google = privacy.get("google_consent")
+    if isinstance(google, dict):
+        denied = [k for k in ("analytics_storage", "ad_storage")
+                  if isinstance(google.get(k), dict) and google[k].get("update") is False]
+        if denied:
+            problems.append("Consent Mode ohne Zustimmung für " + ", ".join(denied))
+    return problems
+
+
+def check_consent_after(ctx: dict) -> dict:
+    """Nach dem Launch: Tracking mit erteilter Einwilligung je Seitentyp, neu gegen den Mitschnitt vorher.
+
+    Nie `ok` ohne Durchläufe mit erteilter Einwilligung auf beiden Seiten. Das alte
+    Theme lässt sich nach dem Launch weiter als Vorschau mitschneiden.
+    """
+    group, title = "Tracking", "Tracking nach Einwilligung je Seitentyp"
+    check_id = "tracking-consent-after"
+    old_ok, old_bad = accepted_runs(ctx["old"])
+    new_ok, new_bad = accepted_runs(ctx["new"])
+    capture_hint = "capture_network.py --consent accepted mit derselben pages.json"
+    if not ({"accepted"} & ctx["new"]["modes"]):
+        return make_check(check_id, group, title, BLOCKED,
+                          "kein Mitschnitt des veröffentlichten Themes mit Einwilligung (capture/after-accepted)",
+                          action=f"nach Freigabe des Teams {capture_hint} nach capture/after-accepted",
+                          owner=OPERATOR)
+    if not ({"accepted"} & ctx["old"]["modes"]):
+        return make_check(check_id, group, title, BLOCKED,
+                          "kein Mitschnitt des alten Themes mit Einwilligung zum Vergleich",
+                          action=f"{capture_hint} und --theme {ctx['old_id'] or '<altes Theme>'} (Vorschau) nach "
+                                 "capture/old-accepted, oder den Mitschnitt vom Tag vor dem Launch über --network-old",
+                          owner=OPERATOR)
+    hosts, catalog, host_map = own_hosts(ctx), ctx["catalog"], ctx["host_map"]
+    compared, blocked, missing, added, gated = [], [], [], set(), set()
+    for page_id, old_entry in sorted(ctx["old"]["pages"].items(), key=lambda kv: str(kv[0])):
+        before_runs = [r for r in old_entry["runs"] if r in old_ok]
+        new_entry = ctx["new"]["pages"].get(page_id) or {"runs": []}
+        after_runs = [r for r in new_entry["runs"] if r in new_ok]
+        if not any(r.get("consent") == "accepted" for r in old_entry["runs"] + new_entry["runs"]):
+            continue
+        if not (before_runs and after_runs):
+            blocked.append(f"{old_entry.get('template') or page_id} ({'alt' if not before_runs else 'neu'})")
+            continue
+        template = old_entry.get("template") or page_id
+        compared.append(str(template))
+        before = third_party_keys(before_runs, hosts, catalog, host_map)
+        after = third_party_keys(after_runs, hosts, catalog, host_map)
+        for key in sorted(before - after):
+            if not dropped_reason(ctx, key):
+                missing.append((template, catalog.describe(key)["service_name"], old_entry.get("path")))
+        added |= after - before
+        declined_runs = [r for r in new_entry["runs"] if r.get("consent") == "declined" and r.get("state") == "ok"]
+        if declined_runs:
+            declined = third_party_keys(declined_runs, hosts, catalog, host_map)
+            gated |= {catalog.describe(k)["service_name"] for k in after - declined}
+    new_privacy = sorted({p for r in new_ok for p in privacy_problems(r)})
+    old_privacy = sorted({p for r in old_ok for p in privacy_problems(r)})
+    gaps = []
+    if new_bad:
+        gaps.append("neu ohne erteilte Einwilligung: " + short_list(new_bad))
+    if old_bad:
+        gaps.append("alt ohne erteilte Einwilligung: " + short_list(old_bad))
+    if blocked:
+        gaps.append("ohne Gegenstück mit Einwilligung: " + short_list(blocked))
+    evidence = (f"{len(compared)} Seitentypen mit erteilter Einwilligung verglichen ({short_list(compared)})"
+                if compared else "kein Seitentyp mit erteilter Einwilligung auf beiden Seiten")
+    if new_ok:
+        evidence += f"; zugestimmt über {consent_ways(new_ok)}"
+    if missing:
+        by_service = {}
+        for template, name, _ in missing:
+            by_service.setdefault(name, set()).add(str(template))
+        evidence += "; fehlt nach Einwilligung im neuen Theme: " + short_list(
+            [f"{name} ({', '.join(sorted(t))})" for name, t in sorted(by_service.items())], 10)
+    if new_privacy:
+        evidence += "; Einwilligung erreicht nicht alles: " + "; ".join(new_privacy) + (
+            " (im alten Theme ebenso)" if set(new_privacy) <= set(old_privacy) and old_privacy else "")
+    elif new_ok:
+        evidence += "; Shopify customerPrivacy und Consent Mode nach Zustimmung erteilt"
+    if gated:
+        evidence += "; lädt erst nach Einwilligung: " + short_list(sorted(gated), 8)
+    if added:
+        evidence += "; nur im neuen: " + short_list(sorted(added), 6)
+    if gaps:
+        evidence += "; " + "; ".join(gaps)
+    status = MISSING if (missing or new_privacy) else (BLOCKED if (gaps or not compared) else OK)
+    action = {MISSING: "Einbindung nach Einwilligung herstellen (Pixel, Consent-Anbindung an Shopify Customer Privacy "
+                       "und Consent Mode), dann neu mitschneiden",
+              BLOCKED: "Cookie-Dialog ansehen; kennt consent.py das Tool nicht, Knopf ergänzen; fehlende Seiten mit "
+                       "--consent accepted mitschneiden"}.get(status, "")
+    paths = sorted({p for _, _, p in missing if p})[:4]
+    check = make_check(check_id, group, title, status, evidence, action=action,
+                       owner=OPERATOR if status != OK else "", links=[l for p in paths for l in link_pair(ctx, p)])
+    check["details"] = {"compared": compared, "missing": [{"template": t, "service": n} for t, n, _ in missing],
+                        "privacy": new_privacy, "unconfirmed": {"old": old_bad, "new": new_bad}, "blocked": blocked}
+    return check
+
+
+def pre_consent_senders(capture: dict, own: set, catalog, host_map: dict | None = None) -> tuple:
+    """Dienste für Werbung, Analyse und Sitzungsaufzeichnung, die vor einer Einwilligung senden oder laden.
+
+    Vor der Einwilligung heißt: jeder Durchlauf ohne Einwilligung und in einem Durchlauf mit Einwilligung
+    jede Anfrage bis zum Klick (`consent_phase: pre`). Ein Dienst zählt über den Host-Katalog, nie über
+    einen einzelnen Hostnamen: Microsoft Advertising sendet an `bat.bing.com` und an `bat.bing.net`, beide
+    stehen in `hosts.json` beim selben Dienst. Bis 11.11.2026 prüfte eine Consent-Messung nur
+    `bat.bing.com` und übersah so Aufrufe ohne Einwilligung.
+
+    Gibt `({dienst: {"sends": seiten, "loads": seiten, "hosts": hosts}}, zahl der durchläufe)` zurück.
+    """
+    found, runs = {}, 0
+    for page_id, entry in capture["pages"].items():
+        for run in entry["runs"]:
+            if run.get("state") != "ok":
+                continue
+            declined = run.get("consent") != "accepted"
+            requests = [r for r in run.get("requests") or [] if declined or r.get("consent_phase") == "pre"]
+            if declined or requests:
+                runs += 1
+            for request in requests:
+                url = request.get("url") or ""
+                key = request_key(url, own, catalog, host_map)
+                if not key or catalog.describe(key)["category"] not in PRE_CONSENT_CATEGORIES:
+                    continue
+                slot = found.setdefault(key, {"sends": set(), "loads": set(), "hosts": set()})
+                sends = tracking_ids.sends_data(request.get("method"), request.get("resource_type"), url)
+                slot["sends" if sends else "loads"].add(str(entry.get("template") or page_id))
+                slot["hosts"].add((urlparse(url).hostname or "").lower())
+    return found, runs
+
+
+def check_pre_consent(ctx: dict) -> dict:
+    """Sendet das neue Theme vor einer Einwilligung an einen Werbe- oder Analysedienst, an den das alte nicht sendete?
+
+    Verglichen wird neu gegen alt, nicht absolut: ein Consent Mode im erweiterten Modus sendet auch vor
+    der Einwilligung Pings ohne Cookies, und das war vorher schon so. Neu ist ein Befund; ein Dienst, der
+    neu nur lädt, ohne zu senden, steht als Hinweis.
+    """
+    after = ctx["after"]
+    group, cid = "Tracking", "tracking-pre-consent-after" if after else "tracking-pre-consent"
+    title = "Werbung und Analyse vor Einwilligung, neu gegen alt"
+    which = "veröffentlichten Themes (capture/after-declined)" if after else "Entwurfs (capture/new-declined)"
+    if not ctx["old"]["pages"] or not ctx["new"]["pages"]:
+        return make_check(cid, group, title, BLOCKED,
+                          f"Mitschnitt fehlt ({'alt' if not ctx['old']['pages'] else 'neu'})",
+                          action=f"beide Themes ohne Einwilligung mitschneiden, das neue als Mitschnitt des {which}",
+                          owner=OPERATOR)
+    own, catalog, host_map = own_hosts(ctx), ctx["catalog"], ctx["host_map"]
+    before, old_runs = pre_consent_senders(ctx["old"], own, catalog, host_map)
+    now, new_runs = pre_consent_senders(ctx["new"], own, catalog, host_map)
+    if not (old_runs and new_runs):
+        return make_check(cid, group, title, BLOCKED,
+                          f"kein Durchlauf ohne Einwilligung im Mitschnitt ({'alt' if not old_runs else 'neu'})",
+                          action="ohne --consent accepted mitschneiden (Standard)", owner=OPERATOR)
+
+    def describe(key: str, pages: set) -> str:
+        hosts = ", ".join(sorted(now[key]["hosts"]))
+        return f"{catalog.describe(key)['service_name']} an {hosts} ({short_list(sorted(pages), 4)})"
+
+    senders = sorted(k for k in now if now[k]["sends"] and not (before.get(k) or {}).get("sends"))
+    loaders = sorted(k for k in now if now[k]["loads"] and not now[k]["sends"] and k not in before)
+    same = sorted(k for k in now if now[k]["sends"] and (before.get(k) or {}).get("sends"))
+    evidence = f"{new_runs} Durchläufe ohne Einwilligung im neuen, {old_runs} im alten Theme"
+    if senders:
+        evidence += "; sendet neu vor der Einwilligung: " + short_list([describe(k, now[k]["sends"]) for k in senders], 6)
+    if loaders:
+        evidence += "; lädt neu vor der Einwilligung, ohne zu senden: " + short_list(
+            [describe(k, now[k]["loads"]) for k in loaders], 4)
+    if same:
+        evidence += "; sendet vor der Einwilligung wie im alten Theme: " + short_list(
+            [catalog.describe(k)["service_name"] for k in same], 6)
+    if not (senders or loaders or same):
+        evidence += "; kein Werbe- oder Analysedienst sendet vor der Einwilligung"
+    status = MISSING if senders else OK
+    check = make_check(cid, group, title, status, evidence,
+                       action="Auslöser im Browser suchen (Initiator der Anfrage, meist eine App oder ein Tag), "
+                              "abschalten oder an die Einwilligung binden, dann neu mitschneiden" if senders else "",
+                       owner=OPERATOR if senders else "", links=link_pair(ctx) if senders else [])
+    check["details"] = {"sends": {k: sorted(now[k]["sends"]) for k in senders},
+                        "loads": {k: sorted(now[k]["loads"]) for k in loaders}, "as_before": same}
+    return check
+
+
+# ---------------------------------------------------------------------------
+# Web Pixels: Liste vorher gegen nachher, Sicherung der Custom Pixels
+# ---------------------------------------------------------------------------
+
+def inventory_rows(ctx: dict) -> list | None:
+    """Zeilen aus `migration/inventory/apps.json`; None ohne Datei."""
+    data = read_json(ctx["workspace"] / "migration" / "inventory" / "apps.json")
+    if data is None:
+        return None
+    rows = data.get("integrations") if isinstance(data, dict) else data
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def capture_htmls(capture: dict, until: datetime | None = None) -> list:
+    """HTML aller Durchläufe eines Mitschnitts; mit `until` nur aus Mitschnitten, die davor entstanden.
+
+    Ein Mitschnitt ohne Zeitstempel zählt mit, ältere Mitschnitte tragen keinen.
+    """
+    out = []
+    for entry in capture["pages"].values():
+        for run in entry["runs"]:
+            captured = test_order.parse_time(run.get("_captured_at"))
+            if until and captured and captured > until:
+                continue
+            html = run_html(run)
+            if html:
+                out.append(html)
+    return out
+
+
+def live_pixels(ctx: dict) -> tuple:
+    """Die Pixel-Liste des Live-Shops jetzt: `(pixel, herkunft)` oder `(None, grund)`.
+
+    Aus dem HTML des Mitschnitts des Themes, das gerade live ist (vor dem Launch das alte, danach das neue),
+    sonst aus einem Abruf der Startseite. Die Liste gilt für den ganzen Shop; ein Abruf ohne Browser
+    genügt, weil keine Vorschau im Spiel ist.
+    """
+    if "pixels-live" not in ctx["cache"]:
+        capture = ctx["new"] if ctx["after"] else ctx["old"]
+        htmls = capture_htmls(capture)
+        pixels = web_pixels.merge(web_pixels.from_html(h) for h in htmls)
+        if pixels is not None:
+            result = (pixels, f"HTML des Mitschnitts ({len(htmls)} Seiten)")
+        else:
+            url = ctx["base_url"] + "/"
+            fetched, error = safe(ctx["fetch"], url)
+            pixels = web_pixels.from_html(fetched[2]) if fetched and fetched[0] == 200 else None
+            if pixels is not None:
+                result = (pixels, f"Abruf von {url}")
+            else:
+                result = (None, f"webPixelsConfigList weder im HTML des Mitschnitts ({len(htmls)} Seiten) noch in {url} ("
+                          + (f"Status {fetched[0]}" if fetched else f"nicht abrufbar: {error}") + ")")
+        ctx["cache"]["pixels-live"] = result
+    return ctx["cache"]["pixels-live"]
+
+
+def pixels_before(ctx: dict) -> tuple:
+    """Die Pixel-Liste von vor dem Launch: `(pixel, herkunft)` oder `(None, grund)`.
+
+    In dieser Reihenfolge: `web-pixels-before.json` aus dem Launch-Check vor dem Launch, das HTML eines
+    Mitschnitts des alten Themes, der vor dem Launch entstand, das HTML der Bestandsaufnahme. Ein
+    Mitschnitt des alten Themes nach dem Launch zeigt schon die Liste danach und zählt nicht.
+    """
+    published = launch_time(ctx)
+    candidates = []
+    for path in (ctx["workspace"] / "reporting" / "runs").glob(f"*/{web_pixels.BEFORE_FILE}"):
+        data = web_pixels.load_before(path)
+        captured = test_order.parse_time((data or {}).get("captured_at"))
+        if data and not (published and captured and captured > published):
+            candidates.append((captured or datetime.min.replace(tzinfo=timezone.utc), path, data))
+    if candidates:
+        _, path, data = max(candidates, key=lambda c: c[0])
+        return data["pixels"], (f"{path.relative_to(ctx['workspace']).as_posix()} vom "
+                                f"{str(data.get('captured_at'))[:10]}")
+    htmls = capture_htmls(ctx["old"], published)
+    pixels = web_pixels.merge(web_pixels.from_html(h) for h in htmls)
+    if pixels is not None:
+        return pixels, "HTML des Mitschnitts des alten Themes" + (
+            "" if published else "; Zeitpunkt des Launches unbekannt, gilt nur für einen Mitschnitt von vorher")
+    texts = []
+    for path in sorted((ctx["workspace"] / "migration" / "inventory" / "network").glob("*/html/*.html")):
+        try:
+            texts.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+    pixels = web_pixels.merge(web_pixels.from_html(t) for t in texts)
+    if pixels is not None:
+        return pixels, "HTML der Bestandsaufnahme (migration/inventory/network)"
+    return None, ("keine Pixel-Liste von vor dem Launch: kein web-pixels-before.json aus dem Launch-Check vorher, "
+                  "kein HTML im Mitschnitt des alten Themes und keins in der Bestandsaufnahme")
+
+
+def custom_pixels(ctx: dict, pixels: list | None) -> dict:
+    """Custom Pixels aus Pixel-Liste und Bestandsaufnahme: `{id: {"id", "name"}}`."""
+    found = {}
+    for pixel in pixels or []:
+        if web_pixels.is_custom(pixel):
+            found[str(pixel["id"])] = {"id": str(pixel["id"]), "name": pixel.get("name")}
+    for row in inventory_rows(ctx) or []:
+        sid = str(row.get("service_id") or "")
+        if row.get("integration_type") != "web_pixel_custom" and not sid.startswith("custom_pixel:"):
+            continue
+        location = row.get("location") or {}
+        pid = str(location.get("pixel_id") or sid.partition(":")[2] or "")
+        if pid:
+            entry = found.setdefault(pid, {"id": pid, "name": None})
+            entry["name"] = entry["name"] or location.get("pixel_name")
+    return found
+
+
+def custom_pixel_decision(ctx: dict, pixel: dict) -> str | None:
+    """Beleg, wenn ein Custom Pixel laut Entscheidung entfernt oder ersetzt wird."""
+    pid = pixel["id"]
+    return dropped_reason(ctx, f"custom_pixel:{pid}", f"web_pixel:{pid}", f"custom pixel {pid}", pixel.get("name"))
+
+
+def app_pixel_decision(ctx: dict, pixel: dict) -> str | None:
+    """Beleg, wenn die App eines App-Pixels laut Entscheidung entfällt: über die Zeile der Bestandsaufnahme."""
+    pid = str(pixel.get("id"))
+    row = next((r for r in inventory_rows(ctx) or [] if r.get("integration_id") == f"web_pixel:{pid}"), None)
+    keys = {f"web_pixel:{pid}"}
+    if row:
+        keys |= {str(row.get("service_id") or ""), str(row.get("app_handle") or "")}
+    else:
+        keys |= {tracking_ids.KIND_SERVICE.get(t["kind"]) or ""
+                 for t in tracking_ids.config_targets(pixel.get("configuration"))}
+    return dropped_reason(ctx, *(k for k in keys if k))
+
+
+def check_web_pixels(ctx: dict) -> list:
+    """Vor dem Launch: die Pixel-Liste des Live-Shops festhalten und die Sicherung der Custom Pixels prüfen."""
+    group, title = "Tracking", "Pixel-Liste des Live-Shops festgehalten"
+    pixels, origin = live_pixels(ctx)
+    if pixels is None:
+        out = [make_check("web-pixels", group, title, BLOCKED, origin,
+                          action="Mitschnitt des Live-Themes mit HTML ziehen (capture/old-declined); ohne die Liste "
+                                 "fällt nach dem Launch kein entferntes Pixel auf", owner=OPERATOR)]
+    else:
+        path = ctx["run_dir"] / web_pixels.BEFORE_FILE
+        web_pixels.save_before(path, pixels, origin, now_utc())
+        custom = [p for p in pixels if web_pixels.is_custom(p)]
+        evidence = (f"{len(pixels)} Pixel aus {origin}, davon {len(custom)} Custom"
+                    + (": " + short_list([web_pixels.label(p) for p in custom], 6) if custom else "")
+                    + f"; festgehalten in {path.relative_to(ctx['workspace']).as_posix()} für den Vergleich nach "
+                      "dem Launch")
+        out = [make_check("web-pixels", group, title, OK, evidence)]
+    return out + [check_pixel_backup(ctx, pixels)]
+
+
+def check_pixel_backup(ctx: dict, pixels: list | None) -> dict:
+    """Jedes Custom Pixel, das laut Entscheidung entfernt oder ersetzt wird, liegt gesichert und gelesen vor.
+
+    Gesichert und gelesen heißt: Code unter `migration/inventory/pixels/<name>.js` und eine Notiz
+    `<name>.md` mit Sendet, Wo und An (`theme.web_pixels`). Sonst ist das ein Befund und blockiert den Go:
+    ein Pixel, das nur in der Kasse sendet, sieht kein Mitschnitt, und nach dem Löschen ist sein Code weg.
+    """
+    group, cid, title = "Tracking", "custom-pixel-backup", "Custom Pixels vor dem Entfernen gesichert"
+    rows = inventory_rows(ctx)
+    if pixels is None and rows is None:
+        return make_check(cid, group, title, BLOCKED,
+                          "weder Pixel-Liste noch Bestandsaufnahme (migration/inventory/apps.json)",
+                          action="Mitschnitt des Live-Themes mit HTML ziehen oder inventory-apps laufen lassen",
+                          owner=OPERATOR)
+    custom = custom_pixels(ctx, pixels)
+    if not custom:
+        return make_check(cid, group, title, NA, "kein Custom Pixel in "
+                          + " und ".join(s for s, has in (("Pixel-Liste", pixels is not None),
+                                                         ("Bestandsaufnahme", rows is not None)) if has))
+    backups = web_pixels.load_backups(ctx["workspace"])
+    missing, saved, kept = [], [], []
+    for pixel in sorted(custom.values(), key=lambda p: p["id"]):
+        name = web_pixels.label({"type": "CUSTOM", **pixel})
+        reason = custom_pixel_decision(ctx, pixel)
+        ok, state = web_pixels.backup_state(web_pixels.find_backup(backups, pixel["id"], pixel.get("name")))
+        if not reason:
+            if not ok:
+                kept.append(name)
+            continue
+        (saved if ok else missing).append(f"{name}: {reason}; {state}")
+    evidence = f"{len(custom)} Custom Pixels"
+    if missing:
+        evidence += "; entfernt oder ersetzt ohne gesicherte, gelesene Datei: " + short_list(missing, 4)
+    if saved:
+        evidence += "; entfernt oder ersetzt und gesichert: " + short_list(saved, 4)
+    if not (missing or saved):
+        evidence += ", keines soll laut Entscheidung entfernt oder ersetzt werden"
+    if kept:
+        evidence += "; bleiben, noch ohne Sicherung: " + short_list(kept, 4)
+    check = make_check(cid, group, title, MISSING if missing else OK, evidence,
+                       action=(f"Code jedes Pixels aus dem Admin (Einstellungen, Kundenereignisse) nach "
+                               f"{web_pixels.BACKUP_DIR.as_posix()}/<name>.js, daneben <name>.md mit Pixel-ID, "
+                               "Sendet, Wo und An; erst dann entfernen") if missing else "",
+                       owner=OPERATOR if missing else "")
+    check["details"] = {"missing": missing, "saved": saved, "kept_without_backup": kept}
+    return check
+
+
+def check_web_pixels_after(ctx: dict) -> dict:
+    """Nach dem Launch: die Pixel-Liste des Live-Shops gegen die von vor dem Launch.
+
+    Pixel überleben einen Theme-Wechsel; fehlt eines danach, hat es jemand entfernt. Ein Befund, außer es
+    ist bewusst entfernt und, als Custom Pixel, gesichert. Hat ein Pixel ein Messziel verloren, ist das eine
+    Frage.
+    """
+    group, cid, title = "Tracking", "web-pixels-after", "Pixel-Liste vorher gegen nachher"
+    before, origin_before = pixels_before(ctx)
+    if before is None:
+        return make_check(cid, group, title, BLOCKED, origin_before,
+                          action="Mitschnitt des alten Themes vom Tag vor dem Launch über --network-old übergeben; "
+                                 "künftig hält der Launch-Check vor dem Launch die Liste fest", owner=OPERATOR)
+    after, origin_after = live_pixels(ctx)
+    if after is None:
+        return make_check(cid, group, title, BLOCKED, origin_after,
+                          action="Mitschnitt des veröffentlichten Themes mit HTML (capture/after-declined)",
+                          owner=OPERATOR)
+    old = {str(p.get("id")): p for p in before}
+    new = {str(p.get("id")): p for p in after}
+    backups = web_pixels.load_backups(ctx["workspace"])
+    gone_ok, gone_bad, lost, gained = [], [], [], []
+    for pid in sorted(set(old) - set(new)):
+        pixel = old[pid]
+        name = web_pixels.label(pixel)
+        sends = web_pixels.targets(pixel)
+        impact = f", Ziele {short_list(sends, 4)}" if sends else ""
+        if web_pixels.is_custom(pixel):
+            reason = custom_pixel_decision(ctx, {"id": pid, "name": pixel.get("name")})
+            ok, state = web_pixels.backup_state(web_pixels.find_backup(backups, pid, pixel.get("name")))
+            if reason and ok:
+                gone_ok.append(f"{name}: {reason}; {state}")
+            elif reason:
+                gone_bad.append(f"{name}: entfernt laut {reason}, aber nicht gesichert ({state})")
+            else:
+                gone_bad.append(f"{name}: ohne Entscheidung entfernt" + (f"; {state}" if ok else f" ({state})"))
+        else:
+            reason = app_pixel_decision(ctx, pixel)
+            (gone_ok if reason else gone_bad).append(
+                f"{name}{impact}: " + (reason if reason else "ohne Entscheidung entfernt"))
+    for pid in sorted(set(old) & set(new)):
+        before_targets, after_targets = set(web_pixels.targets(old[pid])), set(web_pixels.targets(new[pid]))
+        if before_targets - after_targets:
+            lost.append(f"{web_pixels.label(new[pid])} sendet nicht mehr an "
+                        f"{short_list(sorted(before_targets - after_targets), 4)}")
+        if after_targets - before_targets:
+            gained.append(f"{web_pixels.label(new[pid])} neu an {short_list(sorted(after_targets - before_targets), 4)}")
+    added = [web_pixels.label(new[pid]) for pid in sorted(set(new) - set(old))]
+    evidence = f"{len(old)} Pixel vorher ({origin_before}), {len(new)} jetzt ({origin_after})"
+    if gone_bad:
+        evidence += "; fehlt: " + short_list(gone_bad, 4)
+    if lost:
+        evidence += "; Messziel verloren: " + short_list(lost, 4)
+    if gone_ok:
+        evidence += "; bewusst entfernt: " + short_list(gone_ok, 4)
+    if added:
+        evidence += "; neu: " + short_list(added, 4)
+    if gained:
+        evidence += "; " + short_list(gained, 4)
+    if not (gone_bad or gone_ok or lost):
+        evidence += "; kein Pixel entfernt"
+    status = MISSING if gone_bad else MANUAL if lost else OK
+    check = make_check(
+        cid, group, title, status, evidence,
+        action=("Pixel wiederherstellen (Custom Pixel aus der Sicherung oder dem Admin-Verlauf, App-Pixel über die "
+                "App verbinden); entfällt es bewusst: Entscheidung mit Person und Grund in decisions.json, ein Custom "
+                f"Pixel vorher nach {web_pixels.BACKUP_DIR.as_posix()}/ sichern") if gone_bad else "",
+        question=("Ein Pixel sendet nach dem Launch an weniger Ziele als vorher. Ist das gewollt? Sonst die "
+                  "Verbindung in der App neu einrichten.") if status == MANUAL else "",
+        owner=OPERATOR if gone_bad else BOTH if status == MANUAL else "")
+    check["details"] = {"missing": gone_bad, "removed_on_purpose": gone_ok, "lost_targets": lost, "added": added}
+    return check
 
 
 def check_pagination(ctx: dict) -> list:
@@ -1485,6 +2297,29 @@ def check_baseline(ctx: dict) -> list:
     return [make_check("baseline-values", group, "GSC, GA4, Core Web Vitals und Crawl von heute oder gestern", status,
                        evidence, action="pull-gsc, pull-ga4, pull-cwv und crawl-site direkt vor dem Launch"
                        if status != OK else "", owner=OPERATOR if status != OK else "")]
+
+
+def check_go_decision(ctx: dict) -> list:
+    """Gate G5 als Go-Punkt, nur in einem Migrationslauf.
+
+    Seit 10.11.2026 veröffentlicht der geführte Launch (`theme.launch`) selbst und fragt nur, wenn alles grün
+    ist. G5 gehört deshalb in die Liste: solange es offen ist, ist der Lauf nicht grün, und niemand wird
+    gefragt, ob jetzt veröffentlicht werden soll.
+    """
+    if not ctx["state"]:
+        return []
+    group = "Go/No-Go und Kommunikation"
+    gate = (ctx["state"].get("gates") or {}).get("G5-go-live")
+    if gate:
+        note = f": {gate['note']}" if gate.get("note") else ""
+        return [make_check("go-decision", group, "Go/No-Go entschieden (G5)", OK,
+                           f"Go von {gate.get('decided_by')} am {str(gate.get('decided_at'))[:10]}{note}")]
+    when = f" am {ctx['launch_date'].strftime('%d.%m.%Y')}" if ctx["launch_date"] else ""
+    return [make_check("go-decision", group, "Go/No-Go entschieden (G5)", MANUAL,
+                       "G5 ist im Migrationslauf nicht eingetragen",
+                       question=f"Go für den Launch{when}? Die Person der Marke entscheidet nach Abstimmung mit "
+                                "Path to AI und trägt G5 mit ihrem Namen ein.",
+                       owner="Person der Marke mit Path to AI")]
 
 
 def check_criteria(ctx: dict) -> list:
@@ -1636,11 +2471,506 @@ def check_after_languages(ctx: dict) -> list:
                        owner=OPERATOR if problems else "")]
 
 
+# ---------------------------------------------------------------------------
+# Testbestellung nach dem Launch
+# ---------------------------------------------------------------------------
+
+TEST_ORDER_GROUP = "Testbestellung"
+
+
+def find_walk(ctx: dict) -> tuple:
+    """Der Durchlauf der Kasse: `--test-order`, sonst dieser Lauf, sonst der jüngste der letzten sieben Tage.
+
+    Der GA4-Bericht braucht bis zu 48 Stunden; der Lauf am Folgetag hat einen
+    neuen Ordner und muss den Durchlauf vom Launch-Tag finden.
+    """
+    if ctx["test_order_arg"]:
+        path = Path(ctx["test_order_arg"])
+        return path, test_order.load_walk(path)
+    own = ctx["run_dir"] / "test-order" / "walk.json"
+    if own.is_file():
+        return own, test_order.load_walk(own)
+    found = []
+    for path in (ctx["workspace"] / "reporting" / "runs").glob("*/test-order/walk.json"):
+        walk = test_order.load_walk(path)
+        started = test_order.parse_time((walk or {}).get("started_at"))
+        if started and datetime.now(timezone.utc) - started <= WALK_MAX_AGE:
+            found.append((started, path, walk))
+    if not found:
+        return None, None
+    _, path, walk = max(found, key=lambda item: item[0])
+    return path, walk
+
+
+def run_relative(ctx: dict, walk_path: Path, name: str | None) -> str | None:
+    if not name:
+        return None
+    return Path(os.path.relpath(walk_path.parent / name, ctx["run_dir"])).as_posix()
+
+
+def purchase_targets(ctx: dict) -> dict:
+    """GA4-Properties und Google-Ads-Kauf-Conversions, die der Shop vor dem Launch bediente, je mit Herkunft.
+
+    Quellen: `tracking.json` der Bestandsaufnahme, die Anfragen im Mitschnitt des alten Themes, die
+    Pixel-Liste von vor dem Launch (Konfiguration je Pixel, für Google Ads nur Ziele des Ereignisses
+    `purchase`) und jedes gesicherte Custom Pixel. Eine Property oder Conversion, die nur ein Pixel in der
+    Kasse bediente, steht allein in der Pixel-Konfiguration oder in der Sicherung; ein Mitschnitt der
+    Seiten sieht sie nie. Bewusst Gestrichenes (`decisions.json` mit der Kennung als Gegenstand) fehlt.
+
+    Gibt `{"ga4": {"G-…": [herkunft]}, "google_ads": {("AW-…", label): [herkunft]}}` zurück.
+    """
+    ga4, ads = {}, {}
+
+    def add(table: dict, key, source: str) -> None:
+        sources = table.setdefault(key, [])
+        if source not in sources:
+            sources.append(source)
+
+    tracking = read_json(ctx["workspace"] / "migration" / "inventory" / "tracking.json")
+    # Nur Kennungen mit einem lebenden Absender: ein Rest in totem Theme-Code bekommt keinen Kauf und wäre
+    # sonst ein Befund ohne Grund.
+    states = {r.get("integration_id"): r.get("state") for r in inventory_rows(ctx) or []}
+    for target in (tracking.get("targets") or []) if isinstance(tracking, dict) else []:
+        if not (isinstance(target, dict) and target.get("kind") == "ga4" and target.get("target_id")):
+            continue
+        live = [s for s in target.get("senders") or [] if isinstance(s, dict) and (
+            s.get("basis") == "network" or states.get(s.get("integration_id")) not in ("disabled", "leftover"))]
+        if live or not target.get("senders"):
+            add(ga4, str(target["target_id"]).upper(), "Bestandsaufnahme (tracking.json)")
+    for entry in ctx["old"]["pages"].values():
+        for run in entry["runs"]:
+            for request in run.get("requests") or []:
+                for target in tracking_ids.request_targets(request.get("url") or "", request.get("post_data")):
+                    if target["kind"] == "ga4":
+                        add(ga4, target["target_id"].upper(), "Mitschnitt des alten Themes")
+    pixels, _ = pixels_before(ctx) if ctx["after"] else live_pixels(ctx)
+    for pixel in pixels or []:
+        source = f"Pixel-Konfiguration ({web_pixels.label(pixel)})"
+        for target in tracking_ids.config_targets(pixel.get("configuration")):
+            if target["kind"] == "ga4":
+                add(ga4, target["target_id"].upper(), source)
+        for target in web_pixels.purchase_targets(pixel):
+            if target["kind"] == "google_ads" and target.get("label"):
+                add(ads, (target["target_id"], target["label"]), source)
+    for target, path in web_pixels.backup_targets(web_pixels.load_backups(ctx["workspace"])):
+        if target["kind"] == "ga4":
+            add(ga4, target["target_id"].upper(), f"gesichertes Custom Pixel ({path})")
+        elif target["kind"] == "google_ads" and target.get("label"):
+            add(ads, (target["target_id"], target["label"]), f"gesichertes Custom Pixel ({path})")
+    return {"ga4": {k: v for k, v in ga4.items() if not dropped_reason(ctx, k)},
+            "google_ads": {k: v for k, v in ads.items() if not dropped_reason(ctx, k[0], f"{k[0]}/{k[1]}")}}
+
+
+def purchase_destinations(ctx: dict, targets: dict | None = None) -> tuple:
+    """Ziele des Kaufs: Config, sonst Bestandsaufnahme, Mitschnitt des alten Themes und Messziele von vorher,
+    ohne Gestrichenes."""
+    configured = test_order.configured_destinations(migration_config(ctx["config"]).get("purchase_destinations"))
+    used, senders = {}, {}
+    for row in inventory_rows(ctx) or []:
+        sid = str(row.get("service_id") or "")
+        if sid in test_order.PURCHASE_SERVICES:
+            used.setdefault(sid, "Bestandsaufnahme (apps.json)")
+        if sid in test_order.SERVER_SENDERS and not dropped_reason(ctx, sid):
+            senders[sid] = test_order.SERVER_SENDERS[sid]
+    for entry in ctx["old"]["pages"].values():
+        for key in third_party_keys(entry["runs"], own_hosts(ctx), ctx["catalog"], ctx["host_map"]):
+            if key in test_order.PURCHASE_SERVICES:
+                used.setdefault(key, "Mitschnitt des alten Themes")
+            if key in test_order.SERVER_SENDERS and not dropped_reason(ctx, key):
+                senders.setdefault(key, test_order.SERVER_SENDERS[key])
+    # Eine Property oder Conversion, die nur ein Pixel in der Kasse bediente, macht ihren Dienst zum Ziel.
+    for sid, key in (("google_analytics", "ga4"), ("google_ads", "google_ads")):
+        if (targets or {}).get(key):
+            used.setdefault(sid, "Messziele vor dem Launch (" + short_list(
+                sorted({s for sources in targets[key].values() for s in sources}), 2) + ")")
+    dropped = {sid: dropped_reason(ctx, sid) for sid in test_order.PURCHASE_SERVICES if dropped_reason(ctx, sid)}
+    return test_order.derive_destinations(configured, used, dropped, senders), dropped
+
+
+def destination_id(sid: str) -> str:
+    return "purchase-" + sid.replace("_", "-")
+
+
+def property_id(g_id: str) -> str:
+    return "purchase-ga4-" + re.sub(r"[^a-z0-9]+", "-", g_id.lower()).strip("-")
+
+
+def conversion_id(key: tuple) -> str:
+    aw_id, label = key
+    return "purchase-google-ads-" + re.sub(r"[^a-z0-9]+", "-", f"{aw_id[3:]}-{label}".lower()).strip("-")
+
+
+def configured_properties(ctx: dict, targets: dict) -> dict:
+    """GA4-Properties der Testbestellung: `ids` in `purchase_destinations.google_analytics`, sonst die von vorher."""
+    configured = test_order.configured_destinations(migration_config(ctx["config"]).get("purchase_destinations"))
+    ids = ((configured or {}).get("google_analytics") or {}).get("ids")
+    if isinstance(ids, list):
+        return {str(g).upper(): ["Config (theme_migration.purchase_destinations)"] for g in ids if str(g).strip()}
+    return targets["ga4"]
+
+
+def target_checks(ctx: dict, destinations: list, targets: dict) -> dict:
+    """Je Dienst die Punkte der einzelnen Messziele: `{dienst: [(id, titel, kennung, herkunft)]}`.
+
+    Jede GA4-Property, die der Shop vor dem Launch bediente, ist ein eigenes Ziel, ebenso jede
+    Google-Ads-Kauf-Conversion mit Label. Bis 11.11.2026 genügte ein Kauf an irgendeine Property; eine
+    zweite, die nur ein Pixel in der Kasse beliefert hatte, fiel so nicht auf.
+    """
+    ids = {d["id"] for d in destinations}
+    out = {}
+    if "google_analytics" in ids:
+        out["google_analytics"] = [(property_id(g), f"Kauf kommt an: GA4-Property {g}", g, sources)
+                                   for g, sources in sorted(configured_properties(ctx, targets).items())]
+    if "google_ads" in ids:
+        out["google_ads"] = [(conversion_id(k), f"Kauf kommt an: Google-Ads-Conversion {k[0]}/{k[1]}", k, sources)
+                             for k, sources in sorted(targets["google_ads"].items())]
+    return out
+
+
+def target_purchase_check(ctx: dict, dest: dict, walk: dict, hits: list, spec: tuple) -> dict:
+    """Ein einzelnes Messziel: ein Kauf-Aufruf von der Dankeseite an genau diese Property oder Conversion."""
+    cid, title, key, sources = spec
+    sid = dest["id"]
+    if sid == "google_analytics":
+        mine = [h for h in hits if str(h.get("id") or "").upper() == key]
+        name, tool = key, f"GA4-Property {key} (Echtzeitbericht oder Bericht mit der Transaktions-ID)"
+    else:
+        aw_id, label = key
+        mine = [h for h in hits if str(h.get("id")) == aw_id[3:] and h.get("label") == label]
+        name, tool = f"{aw_id}/{label}", f"Google Ads (Conversion-Aktion mit dem Label {label})"
+    origin = f"; vor dem Launch bedient laut {short_list(sources, 3)}"
+    delivered = [h for h in mine if h["delivered"]]
+    if delivered:
+        doubled = test_order.repeated(delivered)
+        note = (f"; {', '.join(f'{c}-mal' for _, c in doubled)} für dieselbe Kennung" if doubled else "")
+        return make_check(cid, TEST_ORDER_GROUP, title, OK,
+                          f"Kauf-Aufruf an {name}: {short_list([test_order.describe_hit(h) for h in delivered], 2)}"
+                          + note + origin)
+    if mine:
+        return make_check(cid, TEST_ORDER_GROUP, title, MISSING,
+                          f"Kauf-Aufruf an {name} gescheitert: "
+                          f"{short_list([test_order.describe_hit(h) for h in mine], 2)}" + origin,
+                          action="Einbindung prüfen, dann erneut testen", owner=OPERATOR)
+    if dest.get("via"):
+        return make_check(cid, TEST_ORDER_GROUP, title, MANUAL,
+                          f"kein Kauf-Aufruf an {name} im Browser; der Kauf geht serverseitig über {dest['via']}" + origin,
+                          question=f"Zeigt {tool} den Kauf der Testbestellung ({walk.get('token')})?", owner=BOTH)
+    if not test_order.consent_given(walk):
+        result = (walk.get("consent_result") or {}).get("result") or "ohne Ergebnis"
+        return make_check(cid, TEST_ORDER_GROUP, title, BLOCKED,
+                          f"Einwilligung im Testlauf nicht erteilt ({result}); ohne sie senden Pixel in "
+                          "Consent-Regionen nicht" + origin,
+                          action="walk_checkout mit --consent accepted", owner=OPERATOR)
+    return make_check(cid, TEST_ORDER_GROUP, title, MISSING,
+                      f"kein Kauf-Aufruf an {name} von der Dankeseite" + origin,
+                      action="Absender für dieses Ziel wiederherstellen (gesichertes Custom Pixel, App oder Tag "
+                             "Manager), dann erneut testen; entfällt es bewusst, mit Person und Grund in "
+                             "decisions.json (Gegenstand: die Kennung)", owner=OPERATOR)
+
+
+def test_order_approval(ctx: dict, walk: dict | None, destinations: list, dropped: dict,
+                        per_target: dict | None = None) -> dict:
+    title = "Testbestellung freigegeben"
+    targets = ("; Ziele: " + ", ".join(test_order.LABELS[d["id"]] + (f" (über {d['via']})" if d.get("via") else "")
+                                      for d in destinations)) if destinations else (
+        "; keine Werbe- oder Analyseziele erkannt (theme_migration.purchase_destinations setzen)")
+    for sid, label in (("google_analytics", "GA4-Properties"), ("google_ads", "Google-Ads-Kauf-Conversions")):
+        specs = (per_target or {}).get(sid) or []
+        if specs:
+            targets += f"; {label}: " + short_list([s[1].rsplit(" ", 1)[-1] for s in specs], 6)
+    if dropped:
+        targets += "; bewusst entfallen: " + "; ".join(sorted(set(dropped.values())))
+    if walk:
+        return make_check("test-order", TEST_ORDER_GROUP, title, OK,
+                          f"freigegeben von {walk.get('approved_by')}, Kasse durchlaufen ab "
+                          f"{str(walk.get('started_at'))[:16]}" + (", Probelauf ohne Bestellung" if walk.get("headless")
+                                                                   else "") + targets)
+    return make_check("test-order", TEST_ORDER_GROUP, title, MANUAL,
+                      "keine Testbestellung im Workspace (test-order/walk.json); Kasse, Dankeseite und Kauf-Ereignisse "
+                      "zeigt nur eine Bestellung" + targets,
+                      question="Gebt ihr eine Testbestellung frei? Ich gehe die Kasse bis zur Zahlung durch, ihr setzt "
+                               "die Bestellung ab; danach wird sie storniert und erstattet.", owner=TEAM)
+
+
+def test_order_declined(ctx: dict) -> str | None:
+    """Beleg, wenn das Team die Testbestellung ausdrücklich abgelehnt hat (Antwort n/a mit Namen)."""
+    answer = ctx["answers"].get("test-order")
+    if isinstance(answer, dict) and answer.get("status") == NA and str(answer.get("by", "")).strip():
+        return f"Testbestellung abgelehnt von {answer['by']}" + (f" am {answer['at']}" if answer.get("at") else "")
+    return None
+
+
+def checkout_walk_check(ctx: dict, walk: dict, walk_path: Path, completed: bool) -> dict:
+    """Kasse bis zur Zahlung: Warenkorb, Steuer- und Versandhinweis, Versandarten, Zahlung."""
+    title = "Kasse bis zur Zahlung"
+    stages = {s.get("stage"): s for s in walk.get("stages") or []}
+    problems, unverified, notes = [], [], []
+    for name, label in (("product", "Produktseite"), ("add_to_cart", "In den Warenkorb"), ("cart", "Warenkorb"),
+                        ("checkout", "Kasse")):
+        entry = stages.get(name)
+        if not entry:
+            unverified.append(f"{label} nicht erreicht")
+        elif entry.get("state") == "failed":
+            problems.append(f"{label}: {entry.get('evidence')}")
+        elif name in ("add_to_cart", "cart"):
+            notes.append(f"{label}: {entry.get('evidence')}")
+    for name, label in (("cart", "Warenkorb"), ("checkout", "Kasse")):
+        entry = stages.get(name) or {}
+        if entry.get("state") != "ok":
+            continue
+        notices = entry.get("notices") or {}
+        for kind, text in (("tax", "Steuerhinweis"), ("shipping", "Versandhinweis")):
+            if notices.get(kind):
+                notes.append(f"{label}, {text}: „{notices[kind][:80]}“")
+            else:
+                problems.append(f"{label} ohne {text}")
+    for name, label in (("shipping", "Versandarten"), ("payment", "Zahlung")):
+        entry = stages.get(name) or {}
+        if entry.get("state") == "ok":
+            notes.append(f"{label}: {str(entry.get('evidence'))[:120]}")
+        elif completed:
+            notes.append(f"{label}: durch die abgesetzte Bestellung belegt")
+        elif entry.get("state") == "failed":
+            problems.append(f"{label}: {entry.get('evidence')}")
+        else:
+            unverified.append(f"{label} nicht geprüft ({entry.get('evidence') or 'Stufe nicht erreicht'})")
+    status = MISSING if problems else (BLOCKED if unverified else OK)
+    evidence = "; ".join(problems + unverified + notes)
+    links = [{"label": f"Bild {s.get('stage')}", "url": run_relative(ctx, walk_path, s.get("screenshot"))}
+             for s in walk.get("stages") or [] if s.get("screenshot")
+             and s.get("stage") in ("cart", "checkout", "shipping", "payment", "thank_you")][:5]
+    return make_check("checkout-walk", TEST_ORDER_GROUP, title, status, evidence,
+                      action={MISSING: "Ursache im Theme oder in den Kasseneinstellungen beheben, dann walk_checkout "
+                                       "erneut", BLOCKED: "walk_checkout mit --contact (Testadresse des Teams) oder die "
+                                                          "Testbestellung absetzen"}.get(status, ""),
+                      owner=OPERATOR if status != OK else "", links=links)
+
+
+def shopify_order_check(ctx: dict, walk: dict, order, error) -> dict:
+    title = f"Kauf kommt an: {test_order.LABELS['shopify']}"
+    marked = (test_order.stage(walk, "mark").get("state") == "ok")
+    if error:
+        return make_check("purchase-shopify", TEST_ORDER_GROUP, title, BLOCKED, f"Bestellungen nicht lesbar: {error}",
+                          action="Grant um read_orders erweitern", owner=OPERATOR)
+    if order:
+        amount, currency = test_order.order_amount(order)
+        url = test_order.admin_order_url(ctx["store"], order)
+        return make_check("purchase-shopify", TEST_ORDER_GROUP, title, OK,
+                          f"Bestellung {order.get('name')} vom {str(order.get('createdAt'))[:16]}, {amount} {currency}, "
+                          f"Zahlungsstatus {order.get('displayFinancialStatus')}"
+                          + (", Testmodus der Zahlung" if order.get("test") else "")
+                          + f"; gefunden über das Warenkorb-Attribut {test_order.TOKEN_KEY}={walk.get('token')}",
+                          links=[{"label": "Bestellung im Admin", "url": url}] if url else [])
+    if walk.get("headless"):
+        return make_check("purchase-shopify", TEST_ORDER_GROUP, title, BLOCKED, "Probelauf ohne Bestellung (--headless)",
+                          action="walk_checkout ohne --headless, die Bestellung setzt ein Mensch ab", owner=TEAM)
+    if not marked:
+        return make_check("purchase-shopify", TEST_ORDER_GROUP, title, BLOCKED,
+                          "Kennung im Warenkorb nicht gesetzt, die Bestellung lässt sich nicht zuordnen; "
+                          + str(test_order.stage(walk, "mark").get("evidence") or "Stufe nicht erreicht"),
+                          action="die Bestellung im Admin von Hand suchen oder walk_checkout erneut", owner=OPERATOR)
+    if (walk.get("thank_you") or {}).get("reached"):
+        return make_check("purchase-shopify", TEST_ORDER_GROUP, title, MISSING,
+                          f"Dankeseite erreicht ({(walk['thank_you'].get('order_text') or walk['thank_you'].get('url'))}), "
+                          f"aber keine Bestellung mit {test_order.TOKEN_KEY}={walk.get('token')} seit "
+                          f"{str(walk.get('started_at'))[:16]}",
+                          action="im Admin nach der Bestellung sehen; fehlt sie, die Kasse sofort prüfen", owner=OPERATOR)
+    return make_check("purchase-shopify", TEST_ORDER_GROUP, title, BLOCKED,
+                      "keine Dankeseite und keine Bestellung mit der Kennung; die Bestellung wurde nicht abgesetzt",
+                      action="walk_checkout erneut, die Bestellung im geöffneten Fenster absetzen", owner=TEAM)
+
+
+def ga4_purchase_check(ctx: dict, dest: dict, walk: dict, hits: list, order) -> dict:
+    """GA4: Bericht je Transaktions-ID, wenn es einen Zugang gibt; sonst der Aufruf im Browser."""
+    cid, title = destination_id("google_analytics"), "Kauf kommt an: GA4"
+    via = dest.get("via")
+    delivered = [h for h in hits if h["delivered"]]
+    browser = (f"im Browser: {short_list([test_order.describe_hit(h) for h in hits], 3)}" if hits
+               else "im Browser kein purchase an GA4")
+    reader, reason = ctx["ga4"]
+
+    def made(status, evidence, action="", question=""):
+        return make_check(cid, TEST_ORDER_GROUP, title, status, f"{evidence}; Ziel laut {dest['source']}",
+                          action=action, question=question, owner=OPERATOR if status != OK else "")
+
+    access = "ga4_property_id in reporting/config.json und PTAI_GOOGLE_CREDENTIALS setzen, dann erneut prüfen"
+    if reader is None:
+        if via:
+            return made(BLOCKED, f"Kauf geht serverseitig über {via} an GA4; ohne Lesezugang nicht prüfbar ({reason}); "
+                                 f"{browser}", action=access)
+        if delivered:
+            doubled = test_order.repeated(delivered)
+            if doubled:
+                return made(MISSING, f"purchase mehrfach gesendet ({', '.join(f'{c}-mal' for _, c in doubled)}); "
+                                     f"{browser}", action="doppelten Absender abschalten")
+            return made(OK, f"purchase an GA4 gesendet; {browser}; Bericht nicht geprüft ({reason})")
+        if hits:
+            return made(MISSING, f"purchase an GA4 gescheitert; {browser}", action="Einbindung prüfen")
+        if not test_order.consent_given(walk):
+            return made(BLOCKED, f"Einwilligung im Testlauf nicht erteilt; {browser}; Bericht nicht geprüft ({reason})",
+                        action=access)
+        return made(MISSING, f"kein purchase an GA4 von der Dankeseite; Bericht nicht geprüft ({reason})",
+                    action="GA4-Einbindung der Kasse prüfen (Custom Pixel, App oder Connector)")
+    candidates = test_order.order_candidates(order, hits)
+    if not candidates:
+        return made(BLOCKED, f"ohne Bestellnummer nicht im Bericht suchbar; {browser}",
+                    action="Bestellung im Admin suchen und als --test-order nachtragen")
+    placed = test_order.parse_time((order or {}).get("createdAt")) or test_order.parse_time(
+        (walk.get("thank_you") or {}).get("at")) or test_order.parse_time(walk.get("started_at"))
+    start = ((placed or datetime.now(timezone.utc)) - timedelta(days=1)).date().isoformat()
+    data, error = test_order.safe_call(reader.transactions, candidates, start)
+    if error:
+        return made(BLOCKED, f"GA4-Bericht nicht lesbar ({error}); {browser}", action=access)
+    rows = [r for r in data["rows"] if r["purchases"]]
+    if rows:
+        total = sum(r["purchases"] for r in rows)
+        found = short_list([f"{r['transaction']}: {r['purchases']}-mal, Umsatz {r['revenue']} {data.get('currency') or ''}"
+                            .strip() for r in rows])
+        if total > 1:
+            return made(MISSING, f"Bestellung im GA4-Bericht {total}-mal als Kauf gezählt ({found}), Property "
+                                 f"{reader.prop}; {browser}",
+                        action="einen Absender abschalten (Browser-Pixel oder " + (via or "Connector") + ")")
+        return made(OK, f"im GA4-Bericht: {found}, Property {reader.prop}; {browser}")
+    age = datetime.now(timezone.utc) - placed if placed else None
+    hours = int(age.total_seconds() // 3600) if age else None
+    if age and age >= timedelta(hours=test_order.GA4_REPORT_DELAY_HOURS):
+        return made(MISSING, f"nach {hours} Stunden kein Kauf mit Transaktions-ID {short_list(candidates, 4)} im Bericht "
+                             f"der Property {reader.prop}; {browser}",
+                    action="Absender prüfen" + (f" ({via})" if via else "") + "; Kasse erneut testen")
+    realtime = ""
+    minutes = int(age.total_seconds() // 60) + 1 if age else None
+    if minutes is not None and minutes <= test_order.GA4_REALTIME_MINUTES:
+        count, rt_error = test_order.safe_call(reader.realtime_purchases, minutes)
+        realtime = (f"; Echtzeit: {count} purchase in den letzten {minutes} Minuten, ohne Transaktions-ID nicht "
+                    "zuordenbar" if rt_error is None else f"; Echtzeit nicht lesbar ({rt_error})")
+    retry = ((placed or datetime.now(timezone.utc)) + timedelta(hours=24)).strftime("%d.%m.%Y")
+    return made(BLOCKED, f"noch nicht im GA4-Bericht (Verarbeitung bis {test_order.GA4_REPORT_DELAY_HOURS} Stunden, "
+                         f"Bestellung vor {hours if hours is not None else '?'} Stunden){realtime}; {browser}",
+                action=f"launch-check --after ab {retry} erneut laufen lassen; der Durchlauf wird wiedergefunden")
+
+
+def pixel_purchase_check(ctx: dict, dest: dict, walk: dict, hits: list) -> dict:
+    """Werbe-Pixel ohne Leseweg: der Kauf-Aufruf von der Dankeseite ist der Beleg."""
+    sid = dest["id"]
+    label = test_order.LABELS[sid]
+    cid, title = destination_id(sid), f"Kauf kommt an: {label}"
+    via = dest.get("via")
+    delivered = [h for h in hits if h["delivered"]]
+    source = f"; Ziel laut {dest['source']}"
+    ads_note = ("; im Konto erscheint eine Testbestellung ohne Anzeigenklick nie, geprüft ist der Aufruf"
+                if sid == "google_ads" else "")
+    if delivered:
+        doubled = test_order.repeated(delivered)
+        note = (f"; {', '.join(f'{c}-mal' for _, c in doubled)} für dieselbe Kennung, im Werkzeug auf doppelte "
+                "Zählung prüfen") if doubled else ""
+        return make_check(cid, TEST_ORDER_GROUP, title, OK,
+                          f"Kauf-Aufruf von der Dankeseite: {short_list([test_order.describe_hit(h) for h in delivered], 3)}"
+                          + note + ads_note + source)
+    if hits:
+        return make_check(cid, TEST_ORDER_GROUP, title, MISSING,
+                          f"Kauf-Aufruf gescheitert: {short_list([test_order.describe_hit(h) for h in hits], 3)}" + source,
+                          action="Einbindung prüfen, dann erneut testen", owner=OPERATOR)
+    if via:
+        return make_check(cid, TEST_ORDER_GROUP, title, MANUAL,
+                          f"Kauf geht serverseitig über {via} an {label}; dafür gibt es keinen Lesezugang" + source,
+                          question=f"Zeigt {test_order.TOOLS.get(sid, label)} den Kauf der Testbestellung "
+                                   f"({walk.get('token')})?", owner=BOTH)
+    if not test_order.consent_given(walk):
+        result = (walk.get("consent_result") or {}).get("result") or "ohne Ergebnis"
+        return make_check(cid, TEST_ORDER_GROUP, title, BLOCKED,
+                          f"Einwilligung im Testlauf nicht erteilt ({result}); ohne sie senden Werbe-Pixel in "
+                          "Consent-Regionen nicht" + source,
+                          action="walk_checkout mit --consent accepted; erkennt consent.py den Dialog nicht, Knopf "
+                                 "ergänzen", owner=OPERATOR)
+    count = sum(1 for r in walk.get("requests") or [] if r.get("stage") in test_order.PURCHASE_STAGES)
+    return make_check(cid, TEST_ORDER_GROUP, title, MISSING,
+                      f"kein Kauf-Aufruf an {label} von der Dankeseite ({count} Anfragen ab der Übergabe mitgeschnitten)"
+                      + ads_note + source,
+                      action="Pixel oder App-Einbindung der Kasse prüfen; läuft der Kauf serverseitig, in "
+                             "theme_migration.purchase_destinations mit via eintragen", owner=OPERATOR)
+
+
+def refund_check(ctx: dict, order, error, reason: str | None) -> dict:
+    title = "Testbestellung storniert und erstattet"
+    if reason:
+        return make_check("test-order-refund", TEST_ORDER_GROUP, title, BLOCKED, reason)
+    if error:
+        return make_check("test-order-refund", TEST_ORDER_GROUP, title, BLOCKED, f"Bestellungen nicht lesbar: {error}",
+                          action="Grant um read_orders erweitern", owner=OPERATOR)
+    if not order:
+        return make_check("test-order-refund", TEST_ORDER_GROUP, title, BLOCKED, "keine Testbestellung gefunden")
+    amount, currency = test_order.order_amount(order)
+    cancelled = order.get("cancelledAt")
+    financial = order.get("displayFinancialStatus")
+    url = test_order.admin_order_url(ctx["store"], order)
+    links = [{"label": "Bestellung im Admin", "url": url}] if url else []
+    if cancelled and (financial in ("REFUNDED", "VOIDED") or amount == 0):
+        return make_check("test-order-refund", TEST_ORDER_GROUP, title, OK,
+                          f"{order.get('name')} storniert am {str(cancelled)[:10]}, Zahlungsstatus {financial}", links=links)
+    return make_check("test-order-refund", TEST_ORDER_GROUP, title, MANUAL,
+                      f"{order.get('name')}: storniert {str(cancelled)[:10] if cancelled else 'nein'}, Zahlungsstatus "
+                      f"{financial}",
+                      question=f"Storniert und erstattet ihr die Testbestellung {order.get('name')} ({amount} {currency}) "
+                               "im Admin, sobald alle Ziele geprüft sind? Der nächste Lauf liest den Stand aus der "
+                               "Bestellung.", owner=TEAM, links=links)
+
+
+def check_test_order(ctx: dict) -> list:
+    """Testbestellung: Freigabe, Kasse bis zur Zahlung, Kauf je Ziel, Storno und Erstattung.
+
+    Schreibt nie in den Shop: die Bestellung setzt ein Mensch ab, Storno und
+    Erstattung macht das Team; gelesen wird die Bestellung über das
+    Warenkorb-Attribut aus dem Durchlauf.
+    """
+    walk_path, walk = find_walk(ctx)
+    targets = purchase_targets(ctx)
+    destinations, dropped = purchase_destinations(ctx, targets)
+    per_target = target_checks(ctx, destinations, targets)
+    out = [test_order_approval(ctx, walk, destinations, dropped, per_target)]
+    checks = [("checkout-walk", "Kasse bis zur Zahlung"), ("purchase-shopify", "Kauf kommt an: Shopify-Bestellung")]
+    for d in destinations:
+        checks.append((destination_id(d["id"]), f"Kauf kommt an: {test_order.LABELS[d['id']]}"))
+        checks += [(spec[0], spec[1]) for spec in per_target.get(d["id"]) or []]
+    checks += [("test-order-refund", "Testbestellung storniert und erstattet")]
+    if walk is None:
+        declined = test_order_declined(ctx)
+        status = NA if declined else BLOCKED
+        evidence = declined or "keine Testbestellung (test-order/walk.json fehlt)"
+        action = "" if declined else ("nach Freigabe walk_checkout.py --approved-by <Name>; die Bestellung setzt ein "
+                                      "Mensch im geöffneten Fenster ab")
+        return out + [make_check(cid, TEST_ORDER_GROUP, title, status, evidence, action=action,
+                                 owner=OPERATOR if action else "") for cid, title in checks]
+    since = test_order.parse_time(walk.get("started_at"))
+    since = since - timedelta(minutes=10) if since else None
+    order, error = (None, None)
+    if not walk.get("headless") and walk.get("token"):
+        order, error = shop(ctx, "test-order", test_order.find_order, walk["token"], since)
+    completed = bool(order) or bool((walk.get("thank_you") or {}).get("reached"))
+    out.append(checkout_walk_check(ctx, walk, walk_path, completed))
+    out.append(shopify_order_check(ctx, walk, order, error))
+    hits = test_order.purchase_hits(walk.get("requests"))
+    pending = ("Probelauf ohne Bestellung (--headless)" if walk.get("headless") else
+               None if completed else "Bestellung nicht abgeschlossen: keine Dankeseite und keine Bestellung mit der "
+                                      "Kennung")
+    for dest in destinations:
+        specs = per_target.get(dest["id"]) or []
+        if pending:
+            out += [make_check(cid, TEST_ORDER_GROUP, title, BLOCKED, pending,
+                               action="Testbestellung absetzen, dann erneut prüfen", owner=TEAM)
+                    for cid, title in [(destination_id(dest["id"]), f"Kauf kommt an: {test_order.LABELS[dest['id']]}")]
+                    + [(s[0], s[1]) for s in specs]]
+            continue
+        mine = [h for h in hits if h["service"] == dest["id"]]
+        out.append(ga4_purchase_check(ctx, dest, walk, mine, order) if dest["id"] == "google_analytics"
+                   else pixel_purchase_check(ctx, dest, walk, mine))
+        out += [target_purchase_check(ctx, dest, walk, mine, spec) for spec in specs]
+    out.append(refund_check(ctx, order, error, pending))
+    return out
+
+
 def check_after_rest(ctx: dict) -> list:
     group = "Abschluss"
-    out = [make_check("test-order", group, "Testbestellung", MANUAL,
-                      "Pixel, Checkout, Dankeseite und Events in GA4 und Werbekonten zeigt nur eine Bestellung",
-                      question="Gebt ihr eine Testbestellung frei? Danach wird sie storniert und erstattet.", owner=TEAM)]
+    out = []
     url = f"{ctx['base_url']}/sitemap.xml"
     fetched, error = safe(ctx["fetch"], url)
     if not fetched or fetched[0] != 200:
@@ -1653,11 +2983,15 @@ def check_after_rest(ctx: dict) -> list:
     state = ctx["state"]
     if state:
         values = state.get("values") or {}
-        done = values.get("published_at") and str(values.get("live_theme_id")) == ctx["new_id"]
-        out.append(make_check("record-after", group, "Stand festgehalten", OK if done else MISSING,
-                              f"published_at {values.get('published_at') or 'fehlt'}, live_theme_id "
-                              f"{values.get('live_theme_id') or 'fehlt'}",
-                              action="" if done else "run_state set für published_at und live_theme_id, Config nachziehen",
+        done = values.get("published_at") and str(values.get("live_theme_id")) == ctx["new_id"] \
+            and values.get("rollback_theme_id")
+        evidence = (f"published_at {values.get('published_at') or 'fehlt'}, live_theme_id "
+                    f"{values.get('live_theme_id') or 'fehlt'}, Rückfall-Theme {values.get('rollback_theme_id') or 'fehlt'}")
+        if values.get("launch_approved_by"):
+            evidence += f", veröffentlicht nach Ja von {values['launch_approved_by']}"
+        out.append(make_check("record-after", group, "Stand festgehalten", OK if done else MISSING, evidence,
+                              action="" if done else "run_state set für published_at, live_theme_id und "
+                                                     "rollback_theme_id, Config nachziehen",
                               owner="" if done else OPERATOR))
     else:
         out.append(make_check("record-after", group, "Stand festgehalten", MANUAL, "kein Migrationslauf im Workspace",
@@ -1701,9 +3035,10 @@ def recommend(checks: list) -> str:
 
 def collect(ctx: dict) -> list:
     if ctx["after"]:
-        checks = check_published(ctx) + check_after_seo(ctx) + check_seo_output(ctx, after=True) \
-            + check_tracking(ctx, after=True) + check_pagination(ctx) + check_after_languages(ctx) \
-            + check_after_rest(ctx)
+        checks = check_published(ctx) + [check_injections(ctx)] + check_after_seo(ctx) \
+            + check_seo_output(ctx, after=True) + check_tracking(ctx, after=True) + [check_consent_after(ctx)] \
+            + [check_pre_consent(ctx), check_web_pixels_after(ctx)] + check_pagination(ctx) \
+            + check_test_order(ctx) + check_after_languages(ctx) + check_after_rest(ctx)
     else:
         seo = [check_seo_robots(ctx, "SEO"), check_seo_pages(ctx, "SEO")] + check_seo_output(ctx)
         statuses = {c["id"]: c["status"] for c in seo}
@@ -1711,8 +3046,10 @@ def collect(ctx: dict) -> list:
         # Mit Liste stehen ihre Punkte dort, und check_open_items prüft sie.
         checklist = [] if ledger_mode(ctx) else [check_checklist(ctx, statuses)]
         checks = (check_timing(ctx) + check_acceptance(ctx, statuses) + checklist + check_sync(ctx) + check_draft(ctx)
-                  + check_embeds(ctx) + check_translations(ctx) + check_tracking(ctx) + check_pagination(ctx)
-                  + seo + check_baseline(ctx) + check_criteria(ctx) + check_customer_accounts(ctx)
+                  + check_embeds(ctx) + [check_injections(ctx)] + check_translations(ctx) + check_tracking(ctx)
+                  + [check_pre_consent(ctx)] + check_web_pixels(ctx) + check_pagination(ctx)
+                  + seo + check_baseline(ctx) + check_criteria(ctx) + check_go_decision(ctx)
+                  + check_customer_accounts(ctx)
                   + check_script_tags(ctx))
     apply_answers(checks, ctx["answers"])
     return checks
@@ -1783,7 +3120,7 @@ def run(ctx: dict) -> tuple:
     return report, EXIT_OK if report["recommendation"] == "go" else EXIT_FINDINGS
 
 
-def main(argv: list[str] | None = None, *, transport=None, fetch=None, sleep=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="theme.launch_check", description=__doc__.split("\n\n")[0])
     parser.add_argument("--after", action="store_true", help="Prüfungen direkt nach dem Veröffentlichen")
     parser.add_argument("--live-theme-id", help="Theme, das vor dem Launch live ist (Rückfall-Theme)")
@@ -1793,16 +3130,31 @@ def main(argv: list[str] | None = None, *, transport=None, fetch=None, sleep=Non
     parser.add_argument("--pages", help="pages.json für Links und Abrufe")
     parser.add_argument("--network-old", action="append", default=[], help="network.json des alten Themes")
     parser.add_argument("--network-new", action="append", default=[], help="network.json des neuen Themes")
+    parser.add_argument("--test-order", help="walk.json der Testbestellung; Standard <lauf>/test-order/walk.json, "
+                                             "sonst der jüngste Durchlauf der letzten sieben Tage")
     parser.add_argument("--answers", help="Antworten auf manuelle Punkte, Standard reporting/launch-answers.json")
     parser.add_argument("--workspace", default=".")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def execute(args, *, transport=None, fetch=None, sleep=None, ga4=None) -> tuple:
+    """Ein Prüflauf aus fertigen Argumenten: `(report, exit_code, ctx)`. Wirft `ConfigError`, `OSError` oder
+    `ValueError`; `main` und `theme.launch` fangen sie."""
     workspace = Path(args.workspace)
+    config = load_config(workspace)
+    ctx = build_context(args, config, workspace, transport=transport)
+    if ga4 is not None:
+        ctx["ga4"] = (ga4, None)
+    ctx["fetch"] = fetch or http_fetch
+    ctx["sleep"] = sleep or time.sleep
+    report, code = run(ctx)
+    return report, code, ctx
+
+
+def main(argv: list[str] | None = None, *, transport=None, fetch=None, sleep=None, ga4=None) -> int:
+    args = build_parser().parse_args(argv)
     try:
-        config = load_config(workspace)
-        ctx = build_context(args, config, workspace, transport=transport)
-        ctx["fetch"] = fetch or http_fetch
-        ctx["sleep"] = sleep or time.sleep
-        report, code = run(ctx)
+        report, code, ctx = execute(args, transport=transport, fetch=fetch, sleep=sleep, ga4=ga4)
     except (ConfigError, OSError, ValueError) as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         emit({"ok": False, "error": str(exc)})

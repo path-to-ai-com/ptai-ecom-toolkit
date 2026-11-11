@@ -12,6 +12,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from tests import visual_compare_support as vcs  # noqa: E402
 from theme import open_items as oi  # noqa: E402
 from theme import run_state  # noqa: E402
 
@@ -206,7 +207,10 @@ class TestImport(Workspace):
         self.assertEqual(result["created"], ["TP-02", "TP-03"], "ohne status zählt ein Punkt nicht")
         self.assertEqual(self.items.get("TP-02")["status"], "open")
         self.assertEqual(self.items.get("TP-02")["owner"], "Team")
-        self.assertEqual(self.items.get("TP-03")["evidence"], "behoben, Bildpaar im Kundenordner")
+        # Seit 11.11.2026: ein Testpunkt wird nur mit Bildern vom Entwurf erledigt, auch nicht über test.json.
+        self.assertEqual(self.items.get("TP-03")["status"], "open")
+        self.assertEqual(result["held_open"], ["TP-03"])
+        self.assertIn("behoben, Bildpaar im Kundenordner", self.items.get("TP-03")["evidence"])
         other = self.write("reporting/runs/2026-11-01-test/test.json", json.dumps(test_round([
             {"id": "TP-02", "title": "Neue Frage", "text": "", "status": "open"}])))
         result = self.items.merge(oi.from_test_round(other))
@@ -218,13 +222,109 @@ class TestImport(Workspace):
             {"id": "TP-03", "title": "Menü", "text": "", "status": "done",
              "resolution": {"text": "behoben", "links": []}}])))
         self.items.merge(oi.from_test_round(path))
-        self.items.set_done("TP-02", "entschieden im Termin: wie heute")
+        desktop = self.write("bilder/tp-02-rechner.png", "png")
+        mobile = self.write("bilder/tp-02-handy.png", "png")
+        self.items.set_done("TP-02", "entschieden im Termin: wie heute",
+                            images={"desktop": str(desktop), "mobile": str(mobile)})
+        self.items.set_done("TP-03", "behoben", images={"desktop": str(desktop), "mobile": str(mobile)})
         self.items.reopen("TP-03", "auf dem Handy wieder kaputt")
         changed = oi.sync_test_round(self.items, path)
         self.assertEqual(changed, [{"id": "TP-02", "from": "decision", "to": "done"},
                                    {"id": "TP-03", "from": "done", "to": "open"}])
         data = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual([i["status"] for i in data["groups"][0]["items"]], ["done", "open"])
+
+
+class TestBildbeleg(Workspace):
+    """Ein Testpunkt der Abnahme wird nur mit Bildern vom Entwurf am Rechner und am Handy erledigt."""
+
+    def setUp(self):
+        super().setUp()
+        path = self.write("reporting/runs/2026-11-01-test/test.json", json.dumps(test_round([
+            {"id": "TP-01", "title": "Inhaltsseite", "text": "", "status": "open"}])))
+        self.items.merge(oi.from_test_round(path))
+        self.items.add(title="Sitemap einreichen", ident="B-01", severity="before_launch")
+        self.desktop = self.write("bilder/tp-01-rechner.png", "png")
+        self.mobile = self.write("bilder/tp-01-handy.png", "png")
+
+    def test_testpunkt_wird_erkannt_andere_punkte_nicht(self):
+        self.assertTrue(oi.is_test_point(self.items.get("TP-01")))
+        self.assertFalse(oi.is_test_point(self.items.get("B-01")))
+
+    def test_ohne_bilder_kein_erledigt(self):
+        with self.assertRaises(oi.OpenItemsError) as ctx:
+            self.items.set_done("TP-01", "im Termin bestätigt")
+        self.assertIn("Testpunkt der Abnahme", str(ctx.exception))
+        self.assertEqual(self.items.get("TP-01")["status"], "open")
+
+    def test_ein_bild_allein_reicht_nicht(self):
+        with self.assertRaises(oi.OpenItemsError) as ctx:
+            self.items.set_done("TP-01", "behoben", images={"desktop": str(self.desktop)})
+        self.assertIn("das Bild am Handy", str(ctx.exception))
+
+    def test_dasselbe_bild_zweimal_oder_fehlende_datei_reicht_nicht(self):
+        with self.assertRaises(oi.OpenItemsError):
+            self.items.set_done("TP-01", "behoben", images={"desktop": str(self.desktop), "mobile": str(self.desktop)})
+        with self.assertRaises(oi.OpenItemsError) as ctx:
+            self.items.set_done("TP-01", "behoben", images={"desktop": str(self.desktop), "mobile": "fehlt/handy.png"})
+        self.assertIn("nicht gefunden", str(ctx.exception))
+        with self.assertRaises(oi.OpenItemsError):
+            self.items.set_done("TP-01", "behoben", images={"desktop": str(self.desktop), "mobile": "bericht.pdf"})
+
+    def test_mit_bildern_erledigt_relativ_zum_workspace(self):
+        item = self.items.set_done("TP-01", "behoben, Bildpaar im Kundenordner",
+                                   images={"desktop": "bilder/tp-01-rechner.png", "mobile": "bilder/tp-01-handy.png"})
+        self.assertEqual(item["status"], "done")
+        self.assertEqual(item["images"], {"desktop": "bilder/tp-01-rechner.png", "mobile": "bilder/tp-01-handy.png"})
+        self.items.save()
+        self.assertIn("Bilder Rechner und Handy", oi.view_path(self.ws).read_text(encoding="utf-8"))
+
+    def test_andere_punkte_brauchen_keine_bilder(self):
+        self.assertEqual(self.items.set_done("B-01", "eingereicht am 2026-11-11")["status"], "done")
+
+    def test_wieder_offen_nimmt_die_bilder_weg(self):
+        self.items.set_done("TP-01", "behoben", images={"desktop": str(self.desktop), "mobile": str(self.mobile)})
+        self.items.reopen("TP-01", "am Handy wieder kaputt")
+        self.assertNotIn("images", self.items.get("TP-01"))
+        self.assertTrue(oi.validate(self.items.data) == [])
+
+    def test_bilder_nachreichen_fuer_einen_alten_erledigten_testpunkt(self):
+        self.items.get("TP-01").update(status="done", evidence="behoben")
+        self.assertEqual([i["id"] for i in self.items.done_without_images()], ["TP-01"])
+        self.items.set_done("TP-01", "behoben", images={"desktop": str(self.desktop), "mobile": str(self.mobile)})
+        self.assertEqual(self.items.done_without_images(), [])
+
+    def test_bestandene_launch_pruefung_erledigt_keinen_testpunkt(self):
+        self.items.get("TP-01")["title"] = "hreflang fehlt"
+        self.items.add(title="hreflang fehlt", ident="P03")
+        closed = oi.close_covered(self.items, {"checked_at": "2026-11-11", "checks": [
+            {"id": "seo-hreflang", "status": "ok"}]}, "2026-11-11-launch-check")
+        self.assertEqual([c["id"] for c in closed], ["P03"])
+        self.assertEqual(self.items.get("TP-01")["status"], "open")
+
+    def test_cli_done_mit_bildern(self):
+        self.items.save()
+        code, out = self.cli("done", "--id", "TP-01", "--evidence", "behoben")
+        self.assertEqual(code, 2)
+        self.assertIn("--desktop-image", out["error"])
+        code, out = self.cli("done", "--id", "TP-01", "--evidence", "behoben", "--desktop-image",
+                             str(self.desktop), "--mobile-image", str(self.mobile))
+        self.assertEqual((code, out["item"]["status"]), (0, "done"))
+        self.assertIn("images", oi.load(self.ws).get("TP-01"))
+
+    def test_g4_zeigt_testpunkte_ohne_bilder(self):
+        self.items.get("TP-01").update(status="done", evidence="behoben")
+        self.items.save()
+        vcs.complete_compare(self.ws)
+        self.config({"draft_theme_id": vcs.DRAFT})
+        code, out = self.cli("gate", "--gate", "G4-acceptance")
+        self.assertEqual(code, 1)
+        self.assertEqual([i["id"] for i in out["done_without_images"]], ["TP-01"])
+        self.assertTrue(out["visual_compare"]["ok"])
+
+    def test_bilder_muessen_ein_objekt_mit_pfaden_sein(self):
+        self.items.get("B-01")["images"] = ["rechner.png"]
+        self.assertTrue(any("images" in e for e in oi.validate(self.items.data)))
 
 
 class TestUmbrellaKeys(Workspace):
@@ -363,6 +463,11 @@ class TestCli(Workspace):
         for ident in ("P02", "P03", "P04", "P05", "P06"):
             self.assertEqual(self.cli("done", "--id", ident, "--evidence", "im Entwurf geprüft")[0], 0)
         code, out = self.cli("gate", "--gate", "G4-acceptance")
+        self.assertEqual((code, out["open"]), (1, 0), "ohne Bildvergleich hält G4 an")
+        self.assertFalse(out["visual_compare"]["ok"])
+        _live, draft = vcs.complete_compare(self.ws)
+        self.config({"draft_theme_id": draft})
+        code, out = self.cli("gate", "--gate", "G4-acceptance")
         self.assertEqual((code, out["open"]), (0, 0))
         self.assertTrue(oi.view_path(self.ws).is_file())
 
@@ -407,7 +512,8 @@ class TestRunState(Workspace):
 
     def test_g4_haelt_an_solange_ein_punkt_offen_ist(self):
         self.write("checklist.md", "- [x] **P01** erledigt\n")
-        self.config({"acceptance_checklist": "checklist.md"})
+        _live, draft = vcs.complete_compare(self.ws)
+        self.config({"acceptance_checklist": "checklist.md", "draft_theme_id": draft})
         self.items.add(title="Sterne fehlen", ident="TP-02", gate="G4-acceptance")
         self.items.save()
         with self.assertRaises(run_state.StateError) as ctx:

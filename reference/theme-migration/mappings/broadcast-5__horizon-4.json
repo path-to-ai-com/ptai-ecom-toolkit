@@ -10,6 +10,206 @@
     "checked_version": "4.2.0",
     "checked_commit": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
   },
+  "layout": {
+    "notes": "Werte von Broadcast bei type_body_size und type_heading_size 100. Breiten: Broadcast .wrapper ist 1100 px breit (ab 1400 px Fenster 80 vw) mit 50 px Innenrand; Horizon zieht vom --page-width 40 px Seitenrand je Seite ab. Größenstufen: Broadcast --font-N je Breakpoint (unter 750, 750 bis 989, ab 990 px).",
+    "breakpoints": [
+      750,
+      990
+    ],
+    "widths": {
+      "page": {
+        "wrapper": "calc(max(1100px, 80vw) - 20px)",
+        "wrapper--narrow": "650px",
+        "wrapper--full-padded": "100vw"
+      },
+      "content": {
+        "wrapper": "calc(max(1100px, 80vw) - 100px)",
+        "wrapper--narrow": "650px"
+      }
+    },
+    "scale": {
+      "body": "type_body_size",
+      "heading": "type_heading_size"
+    },
+    "sizes": {
+      "body": {
+        "1": [
+          10,
+          10,
+          10
+        ],
+        "2": [
+          12,
+          13,
+          14
+        ],
+        "3": [
+          14,
+          15,
+          16
+        ],
+        "4": [
+          16,
+          18,
+          19
+        ],
+        "5": [
+          19,
+          21,
+          23
+        ],
+        "6": [
+          23,
+          25,
+          27
+        ]
+      },
+      "heading": {
+        "4": [
+          16,
+          18,
+          19
+        ],
+        "5": [
+          19,
+          21,
+          23
+        ],
+        "6": [
+          23,
+          25,
+          27
+        ],
+        "7": [
+          27,
+          29,
+          32
+        ],
+        "8": [
+          32,
+          35,
+          38
+        ],
+        "9": [
+          37,
+          41,
+          45
+        ],
+        "10": [
+          40,
+          45,
+          53
+        ],
+        "11": [
+          43,
+          48,
+          56
+        ],
+        "12": [
+          47,
+          52,
+          62
+        ],
+        "13": [
+          50,
+          50,
+          69
+        ],
+        "14": [
+          52,
+          55,
+          75
+        ]
+      }
+    }
+  },
+  "typography": {
+    "notes": "Broadcast-Tags bei 100 Prozent: Seitentitel und h2 Stufe 8, h3 Stufe 7, h4 Stufe 6, h5 Stufe 5, h6 und Absatz aus der Fließtextskala. h4 bis h6 nutzen in Broadcast die Überschriftenschrift, Zwischenüberschriften die Grundschrift; Zeilenhöhe der Überschriften 1.2.",
+    "scale": {
+      "heading": "type_heading_size",
+      "body": "type_body_size"
+    },
+    "roles": {
+      "h1": {
+        "sizes": [
+          32,
+          35,
+          38
+        ],
+        "scale": "heading",
+        "preset": "type_size_h1"
+      },
+      "h2": {
+        "sizes": [
+          32,
+          35,
+          38
+        ],
+        "scale": "heading",
+        "preset": "type_size_h2"
+      },
+      "h3": {
+        "sizes": [
+          27,
+          29,
+          32
+        ],
+        "scale": "heading",
+        "preset": "type_size_h3"
+      },
+      "h4": {
+        "sizes": [
+          23,
+          25,
+          27
+        ],
+        "scale": "heading",
+        "preset": "type_size_h4"
+      },
+      "h5": {
+        "sizes": [
+          19,
+          21,
+          23
+        ],
+        "scale": "heading",
+        "preset": "type_size_h5"
+      },
+      "h6": {
+        "sizes": [
+          16,
+          18,
+          19
+        ],
+        "scale": "heading",
+        "preset": "type_size_h6"
+      },
+      "paragraph": {
+        "sizes": [
+          14,
+          15,
+          16
+        ],
+        "scale": "body",
+        "preset": "type_size_paragraph"
+      }
+    },
+    "css_variable": "--font-size--{role}",
+    "copy": {
+      "type_subheading_font": "type_base_font"
+    },
+    "set": {
+      "type_font_h4": "heading",
+      "type_font_h5": "heading",
+      "type_font_h6": "heading",
+      "type_line_height_h1": "display-loose",
+      "type_line_height_h2": "display-loose",
+      "type_line_height_h3": "display-loose",
+      "type_line_height_h4": "display-loose",
+      "type_line_height_h5": "display-loose",
+      "type_line_height_h6": "display-loose"
+    }
+  },
   "sections": {
     "announcement": {
       "action": "configure",
@@ -584,11 +784,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -665,7 +865,13 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Kontaktformular als section mit dem Block contact-form; eigene Felder sind build."
+      "notes": "Kontaktformular als section mit dem Block contact-form; eigene Felder sind build.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "customer-account": {
       "action": "drop",
@@ -1073,7 +1279,7 @@
         "subheading_size": {
           "to": null,
           "transform": "drop",
-          "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+          "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
         },
         "show_title": {
           "to": null,
@@ -1083,7 +1289,7 @@
         "heading_size": {
           "to": null,
           "transform": "drop",
-          "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+          "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
         },
         "show_content": {
           "to": null,
@@ -1093,7 +1299,7 @@
         "text_size": {
           "to": null,
           "transform": "drop",
-          "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+          "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
         },
         "align_text": {
           "to": null,
@@ -1103,7 +1309,7 @@
         "width": {
           "to": null,
           "transform": "drop",
-          "note": "Inhaltsbreite: Block page (max_width) oder globale page_width."
+          "note": "Inhaltsbreite setzt layout (page_width) als --page-content-width."
         },
         "bg_color": {
           "to": "background_color",
@@ -1123,7 +1329,32 @@
           "transform": "identity"
         }
       },
-      "notes": "Inhaltsseite: Titel als text-Block, Inhalt als page-content."
+      "notes": "Inhaltsseite: Titel als text-Block, Inhalt als page-content.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width",
+          "widths": "content",
+          "variable": "--page-content-width"
+        },
+        {
+          "op": "text_blocks",
+          "width": null,
+          "alignment_from": "align_text",
+          "values": {
+            "text-center": "center"
+          },
+          "default": "left"
+        },
+        {
+          "op": "text_size",
+          "scope": "section",
+          "from": "text_size",
+          "sizes": "body",
+          "baseline": 3,
+          "selector": ".rte :is(p,li)"
+        }
+      ]
     },
     "password": {
       "action": "configure",
@@ -1784,11 +2015,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "padding_top": {
           "to": "padding-block-start",
@@ -1918,7 +2149,13 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Aufklapper als section mit accordion und _accordion-row-Zeilen."
+      "notes": "Aufklapper als section mit accordion und _accordion-row-Zeilen.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-accordion-group": {
       "action": "configure",
@@ -1929,11 +2166,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -1988,7 +2225,13 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Aufklapp-Gruppe als section mit accordion; jede Frage eine _accordion-row mit text-Kindblock."
+      "notes": "Aufklapp-Gruppe als section mit accordion; jede Frage eine _accordion-row mit text-Kindblock.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-anchor-logo": {
       "action": "configure",
@@ -2178,11 +2421,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -2205,7 +2448,13 @@
       "set": {
         "content_direction": "row"
       },
-      "notes": "Vorher-nachher als section mit dem Block comparison-slider."
+      "notes": "Vorher-nachher als section mit dem Block comparison-slider.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-blog": {
       "action": "configure",
@@ -2627,11 +2876,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "image_aspect_ratio": {
           "to": null,
@@ -2742,7 +2991,13 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Spalten als group-Blöcke; die Überschrift steht in Horizon in einer eigenen Zeile über den Spalten (Generator: Spalten in eine group mit content_direction row)."
+      "notes": "Spalten als group-Blöcke; die Überschrift steht in Horizon in einer eigenen Zeile über den Spalten (Generator: Spalten in eine group mit content_direction row).",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-custom-code": {
       "action": "configure",
@@ -2757,11 +3012,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -2781,7 +3036,13 @@
           "transform": "identity"
         }
       },
-      "notes": "Eigener Code. Der Inhalt ist Liquid aus dem Shop und wird in der Bestandsaufnahme geprüft."
+      "notes": "Eigener Code. Der Inhalt ist Liquid aus dem Shop und wird in der Bestandsaufnahme geprüft.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-custom-content": {
       "action": "configure",
@@ -2817,11 +3078,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "borders": {
           "to": null,
@@ -2876,7 +3137,7 @@
                 "95": true,
                 "100": true
               },
-              "note": "Deckkraft steckt in Horizon im Alphawert von overlay_color; der Generator übernimmt nur an/aus."
+              "note": "an/aus aus der Tabelle; die Deckkraft setzt layout (overlay_opacity) als Alphawert in overlay_color."
             },
             "overlay_color": {
               "to": "overlay_color",
@@ -2897,7 +3158,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "description": {
               "to": "text",
@@ -2909,7 +3170,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "flex_align": {
               "to": "horizontal_alignment_flex_direction_column",
@@ -2992,7 +3253,7 @@
             "subheading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "title": {
               "to": "text",
@@ -3004,7 +3265,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text": {
               "to": "text",
@@ -3015,7 +3276,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "button_text": {
               "to": "label",
@@ -3097,7 +3358,7 @@
             "subheading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "heading": {
               "to": "heading",
@@ -3107,7 +3368,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text": {
               "to": "text",
@@ -3118,7 +3379,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text_columns": {
               "to": null,
@@ -3223,7 +3484,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "bio_image": {
               "to": "image",
@@ -3340,7 +3601,7 @@
                 "95": true,
                 "100": true
               },
-              "note": "Deckkraft steckt in Horizon im Alphawert von overlay_color; der Generator übernimmt nur an/aus."
+              "note": "an/aus aus der Tabelle; die Deckkraft setzt layout (overlay_opacity) als Alphawert in overlay_color."
             },
             "overlay_color": {
               "to": "overlay_color",
@@ -3361,7 +3622,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "description": {
               "to": "text",
@@ -3373,7 +3634,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "flex_align": {
               "to": "horizontal_alignment_flex_direction_column",
@@ -3483,7 +3744,58 @@
       "set": {
         "content_direction": "row"
       },
-      "notes": "Freier Baukasten: genau das Prinzip von section mit group-Blöcken je Kachel."
+      "notes": "Freier Baukasten: genau das Prinzip von section mit group-Blöcken je Kachel.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        },
+        {
+          "op": "text_blocks",
+          "default": "left"
+        },
+        {
+          "op": "set_by_value",
+          "from": "height",
+          "values": {
+            "image-height": {
+              "set": {
+                "section_height": "custom",
+                "section_height_custom": 50
+              }
+            },
+            "screen-height-one-half": {
+              "set": {
+                "section_height": "custom",
+                "section_height_custom": 50
+              }
+            }
+          }
+        },
+        {
+          "op": "overlay_opacity",
+          "scope": "blocks",
+          "block_types": [
+            "image",
+            "video"
+          ],
+          "color_from": "overlay_color",
+          "opacity_from": "overlay_opacity",
+          "to": "overlay_color",
+          "toggle": "toggle_overlay"
+        },
+        {
+          "op": "text_size",
+          "scope": "blocks",
+          "block_types": [
+            "text"
+          ],
+          "from": "text_size",
+          "sizes": "body",
+          "baseline": 3,
+          "suffix": ":is(p,li)"
+        }
+      ]
     },
     "section-divider": {
       "action": "configure",
@@ -3492,18 +3804,18 @@
         "show_line": {
           "to": null,
           "transform": "drop",
-          "note": "Linie aus: statt divider einen spacer-Block oder nur Abstand setzen."
+          "note": "Linie aus setzt layout (set_by_value) als durchsichtige divider_color."
         },
         "width": {
           "to": "section_width",
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "border_color": {
           "to": "divider_color",
@@ -3522,7 +3834,24 @@
           "transform": "identity"
         }
       },
-      "notes": "Trennlinie."
+      "notes": "Trennlinie.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        },
+        {
+          "op": "set_by_value",
+          "from": "show_line",
+          "values": {
+            "false": {
+              "set": {
+                "divider_color": "rgba(0,0,0,0)"
+              }
+            }
+          }
+        }
+      ]
     },
     "section-double": {
       "action": "configure",
@@ -3566,11 +3895,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "image_1": {
           "to": "image",
@@ -3630,7 +3959,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             }
           }
         },
@@ -3645,7 +3974,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text_style": {
               "to": null,
@@ -3714,7 +4043,40 @@
           }
         }
       },
-      "notes": "Bild mit Text; Inhalt im statischen Block _content-without-appearance, Bild im statischen _media-without-appearance."
+      "notes": "Bild mit Text; Inhalt im statischen Block _content-without-appearance, Bild im statischen _media-without-appearance.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        },
+        {
+          "op": "text_blocks",
+          "max_width": "narrow",
+          "default": "left"
+        },
+        {
+          "op": "set_by_value",
+          "from": "text_alignment",
+          "values": {
+            "text-block": {
+              "css": [
+                ".text-block p{text-align:justify}"
+              ]
+            }
+          }
+        },
+        {
+          "op": "text_size",
+          "scope": "blocks",
+          "block_types": [
+            "text"
+          ],
+          "from": "text_size",
+          "sizes": "body",
+          "baseline": 3,
+          "suffix": ":is(p,li)"
+        }
+      ]
     },
     "section-hero": {
       "action": "configure",
@@ -3745,11 +4107,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "image_1": {
           "to": "image_1",
@@ -3811,7 +4173,7 @@
             "95": true,
             "100": true
           },
-          "note": "Deckkraft steckt in Horizon im Alphawert von overlay_color; der Generator übernimmt nur an/aus."
+          "note": "an/aus aus der Tabelle; die Deckkraft setzt layout (overlay_opacity) als Alphawert in overlay_color, Deckkraft 0 schaltet das Overlay aus."
         },
         "overlay_color": {
           "to": "overlay_color",
@@ -3829,7 +4191,7 @@
         "color": {
           "to": null,
           "transform": "drop",
-          "note": "Horizon leitet die Textfarbe aus der Hintergrundfarbe ab; eine eigene Textfarbe gibt es nur am Block (text_color)."
+          "note": "Textfarbe setzt layout (copy_to_blocks) an jeden text-Block."
         }
       },
       "blocks": {
@@ -3844,7 +4206,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             }
           }
         },
@@ -3859,7 +4221,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text_style": {
               "to": null,
@@ -3908,7 +4270,49 @@
           }
         }
       },
-      "notes": "Bildbanner."
+      "notes": "Bildbanner.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        },
+        {
+          "op": "drop_empty_blocks"
+        },
+        {
+          "op": "overlay_opacity",
+          "scope": "section",
+          "color_from": "overlay_color",
+          "opacity_from": "overlay_opacity",
+          "to": "overlay_color",
+          "toggle": "toggle_overlay"
+        },
+        {
+          "op": "copy_to_blocks",
+          "from": "color",
+          "block_type": "text",
+          "to": "text_color"
+        },
+        {
+          "op": "text_size",
+          "scope": "blocks",
+          "block_types": [
+            "heading"
+          ],
+          "from": "heading_size",
+          "sizes": "heading",
+          "baseline": 8,
+          "baseline_from": "tag",
+          "baselines": {
+            "h1": 8,
+            "h2": 8,
+            "h3": 7,
+            "h4": 6,
+            "h5": 5
+          },
+          "suffix": ":is(h1,h2,h3,h4,h5,h6,p)"
+        }
+      ]
     },
     "section-highlights": {
       "action": "configure",
@@ -3929,11 +4333,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "heading": {
           "to": "text",
@@ -4020,7 +4424,13 @@
       "set": {
         "content_direction": "row"
       },
-      "notes": "Kacheln als section mit verlinkten group-Blöcken."
+      "notes": "Kacheln als section mit verlinkten group-Blöcken.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-look": {
       "action": "configure",
@@ -4141,7 +4551,7 @@
         "heading_size": {
           "to": null,
           "transform": "drop",
-          "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+          "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
         },
         "align_text": {
           "to": null,
@@ -4161,11 +4571,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -4224,7 +4634,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text": {
               "to": "text",
@@ -4235,7 +4645,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "button_text": {
               "to": "label",
@@ -4333,7 +4743,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text": {
               "to": "text",
@@ -4344,7 +4754,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             }
           },
           "notes": "Spalte als group mit Kindblöcken icon und text."
@@ -4367,7 +4777,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text": {
               "to": "text",
@@ -4378,7 +4788,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text_style": {
               "to": null,
@@ -4435,7 +4845,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             }
           }
         }
@@ -4443,7 +4853,27 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Mehrspaltige Section als section mit group-Blöcken je Spalte; Überschrift in eigener Zeile darüber."
+      "notes": "Mehrspaltige Section als section mit group-Blöcken je Spalte; Überschrift in eigener Zeile darüber.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        },
+        {
+          "op": "text_size",
+          "scope": "child",
+          "block_types": [
+            "icon",
+            "image",
+            "text"
+          ],
+          "child_id": "title",
+          "from": "heading_size",
+          "sizes": "heading",
+          "suffix": "p",
+          "declarations": "font-weight:700"
+        }
+      ]
     },
     "section-newsletter": {
       "action": "configure",
@@ -4479,11 +4909,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -4861,7 +5291,13 @@
       "set": {
         "content_direction": "row"
       },
-      "notes": "Newsletter-Section als section mit group-Blöcken; die Anmeldung ist der Block email-signup."
+      "notes": "Newsletter-Section als section mit group-Blöcken; die Anmeldung ist der Block email-signup.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-press-logos": {
       "action": "configure",
@@ -5371,7 +5807,7 @@
         "text_size": {
           "to": null,
           "transform": "drop",
-          "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+          "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
         },
         "bg_color": {
           "to": "background_color",
@@ -5442,7 +5878,26 @@
       "set": {
         "content_direction": "row"
       },
-      "notes": "Kundenstimmen als section mit group-Blöcken."
+      "notes": "Kundenstimmen als section mit group-Blöcken.",
+      "layout": [
+        {
+          "op": "text_blocks",
+          "alignment_from": "text_align",
+          "values": {
+            "text-center": "center"
+          },
+          "default": "center"
+        },
+        {
+          "op": "text_size",
+          "scope": "child",
+          "child_id": "review",
+          "from": "text_size",
+          "sizes": "body",
+          "suffix": "p",
+          "declarations": "font-weight:700;line-height:1.24"
+        }
+      ]
     },
     "section-rich-text": {
       "action": "configure",
@@ -5453,18 +5908,19 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "align_text": {
           "to": "horizontal_alignment_flex_direction_column",
           "transform": "map_values",
           "values": {
             "text-left": "flex-start",
-            "text-center": "center"
+            "text-center": "center",
+            "text-justify": "flex-start"
           }
         },
         "bg_color": {
@@ -5497,7 +5953,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             }
           }
         },
@@ -5512,7 +5968,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             }
           }
         },
@@ -5526,7 +5982,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text_style": {
               "to": null,
@@ -5550,7 +6006,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text_style": {
               "to": null,
@@ -5620,7 +6076,51 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Text-Section als section mit text-, button- und _divider-Blöcken."
+      "notes": "Text-Section als section mit text-, button- und _divider-Blöcken.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        },
+        {
+          "op": "text_blocks",
+          "alignment_from": "align_text",
+          "values": {
+            "text-center": "center",
+            "text-justify": "left"
+          },
+          "default": "left"
+        },
+        {
+          "op": "gap",
+          "to": "gap",
+          "value": 28,
+          "min_blocks": 2
+        },
+        {
+          "op": "set_by_value",
+          "from": "align_text",
+          "values": {
+            "text-justify": {
+              "css": [
+                ".text-block p{text-align:justify}"
+              ]
+            }
+          }
+        },
+        {
+          "op": "text_size",
+          "scope": "blocks",
+          "block_types": [
+            "text",
+            "columns"
+          ],
+          "from": "text_size",
+          "sizes": "body",
+          "baseline": 3,
+          "suffix": ":is(p,li)"
+        }
+      ]
     },
     "section-sidebar": {
       "action": "configure",
@@ -5631,11 +6131,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -5694,7 +6194,13 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Seitenleiste mit Überschrift, Aufklappern und Text; die Lage als Seitenleiste neben anderem Inhalt gibt es in Horizon nicht, die Blöcke stehen untereinander."
+      "notes": "Seitenleiste mit Überschrift, Aufklappern und Text; die Lage als Seitenleiste neben anderem Inhalt gibt es in Horizon nicht, die Blöcke stehen untereinander.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-slideshow": {
       "action": "configure",
@@ -5730,11 +6236,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "transition": {
           "to": null,
@@ -5940,7 +6446,13 @@
           }
         }
       },
-      "notes": "Slideshow mit _slide-Blöcken; Text und Buttons als Kindblöcke des Slides."
+      "notes": "Slideshow mit _slide-Blöcken; Text und Buttons als Kindblöcke des Slides.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "section-supporting-menu": {
       "action": "configure",
@@ -6000,7 +6512,7 @@
         "heading_size": {
           "to": null,
           "transform": "drop",
-          "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+          "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
         },
         "align_text": {
           "to": null,
@@ -6010,7 +6522,7 @@
         "icon_alignment": {
           "to": null,
           "transform": "drop",
-          "note": "Symbol über oder neben dem Text: content_direction der group je Spalte."
+          "note": "Symbol neben dem Text setzt layout (set_by_value) als Raster per CSS; über dem Text ist Horizon-Standard."
         },
         "align_columns": {
           "to": "vertical_alignment",
@@ -6025,11 +6537,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "bg_color": {
           "to": "background_color",
@@ -6106,7 +6618,7 @@
             "heading_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             },
             "text": {
               "to": "text",
@@ -6117,7 +6629,7 @@
             "text_size": {
               "to": null,
               "transform": "drop",
-              "note": "Größenstufe ohne Entsprechung; Horizon steuert Schriftgrößen zentral über die Presets h1 bis h6 und type_preset am Block (Gestaltung, design.json)."
+              "note": "Größenstufe: der Generator übersetzt sie über layout (text_size) in CSS je Breakpoint, wenn sie von der Stufe des globalen Presets abweicht."
             }
           },
           "notes": "Spalte als group mit Kindblöcken icon und text."
@@ -6126,7 +6638,37 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Textspalten mit Symbolen als section mit group-Blöcken."
+      "notes": "Textspalten mit Symbolen als section mit group-Blöcken.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        },
+        {
+          "op": "set_by_value",
+          "from": "icon_alignment",
+          "values": {
+            "icon--left": {
+              "css": [
+                ".group-block-content{display:grid;grid-template-columns:auto 1fr;gap:4px 20px;align-items:start}",
+                ".group-block-content>:first-child{grid-row:span 9}"
+              ]
+            }
+          }
+        },
+        {
+          "op": "text_size",
+          "scope": "child",
+          "block_types": [
+            "icon"
+          ],
+          "child_id": "title",
+          "from": "heading_size",
+          "sizes": "heading",
+          "suffix": "p",
+          "declarations": "font-weight:700"
+        }
+      ]
     },
     "section-text-with-products": {
       "action": "build",
@@ -6195,11 +6737,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "overlay_opacity": {
           "to": "toggle_overlay",
@@ -6328,7 +6870,13 @@
       "set": {
         "media_type_1": "video"
       },
-      "notes": "Video-Banner als hero mit Video als Medium."
+      "notes": "Video-Banner als hero mit Video als Medium.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     },
     "subcollections": {
       "action": "build",
@@ -6343,11 +6891,11 @@
           "transform": "map_values",
           "values": {
             "wrapper--full": "full-width",
-            "wrapper--full-padded": "full-width",
+            "wrapper--full-padded": "page-width",
             "wrapper": "page-width",
             "wrapper--narrow": "page-width"
           },
-          "note": "wrapper--full-padded wird full-width ohne Seitenabstand, wrapper--narrow wird page-width; beides im Bildpaar prüfen."
+          "note": "wrapper--full-padded wird page-width mit --page-width 100vw (volle Breite mit Seitenrand), wrapper und wrapper--narrow page-width mit der Broadcast-Breite aus layout.widths.page; im Bildpaar prüfen."
         },
         "border": {
           "to": "border",
@@ -6485,7 +7033,13 @@
       "set": {
         "content_direction": "column"
       },
-      "notes": "Text-Promo als section mit text- und button-Blöcken."
+      "notes": "Text-Promo als section mit text- und button-Blöcken.",
+      "layout": [
+        {
+          "op": "page_width",
+          "from": "width"
+        }
+      ]
     }
   },
   "settings_data": {
@@ -7046,7 +7600,11 @@
       "action": "configure"
     },
     "search": {
-      "action": "configure"
+      "action": "configure",
+      "required_sections": [
+        "search-header"
+      ],
+      "notes": "Horizon zeigt das Suchfeld in der Section search-header; Broadcast hat dafür keine eigene Section, der Generator übernimmt sie aus dem Template des Ziel-Repos."
     },
     "cart": {
       "action": "configure"

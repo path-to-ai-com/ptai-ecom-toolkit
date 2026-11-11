@@ -210,11 +210,11 @@ class PoliciesTest(Workspace):
         self.assertEqual(apps["services"][0]["decision"], "drop")
         self.assertEqual(result["open_rules"], ["translation"])
 
-    def test_fehlender_dienst_wird_ein_blocker_zum_einbauen(self):
+    def test_fehlender_dienst_wird_ein_punkt_vor_dem_launch(self):
         result = policies.apply(self.ws, self.SOURCE)
         self.assertEqual(len(result["open_items_added"]), 1)
         item = open_items.load(self.ws).get(result["open_items_added"][0])
-        self.assertEqual(item["severity"], "blocker")
+        self.assertEqual(item["severity"], "before_launch")
 
     def test_dieselbe_version_zweimal_aendert_nichts(self):
         policies.apply(self.ws, self.SOURCE)

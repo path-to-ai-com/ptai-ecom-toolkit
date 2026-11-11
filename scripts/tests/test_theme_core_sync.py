@@ -52,6 +52,21 @@ class TestAbgleich(unittest.TestCase):
         self.assertTrue((new_dir / "templates/index.json").is_file(), "unveränderte Dateien aus der alten Sicherung")
         self.assertNotEqual(new_dir, self.first)
 
+    def test_section_an_mit_allen_bloecken_aus_wird_gemeldet(self):
+        """Nach einem Abgleich im November 2026 kam eine Ankündigungsleiste aktiv mit abgeschaltetem Block
+        in den Entwurf; Broadcast blendet sie dann aus, Horizon zeigte einen leere Leiste."""
+        group = {"type": "header", "name": "Kopf", "sections": {
+            "bar": {"type": "announcement", "blocks": {"a1": {"type": "message", "disabled": True}}},
+            "aus": {"type": "announcement", "disabled": True, "blocks": {"a1": {"type": "message", "disabled": True}}},
+            "teils": {"type": "announcement", "blocks": {"a1": {"type": "message", "disabled": True},
+                                                         "a2": {"type": "message"}}},
+            "leer": {"type": "announcement"}}, "order": ["bar", "aus", "teils", "leer"]}
+        self.shop.touch(fake.LIVE_ID, "sections/header-group.json",
+                        ("/* auto */\n" + json.dumps(group)).encode())
+        delta, _ = sync.sync(self.shop, self.last, self.root / "sync")
+        self.assertEqual([(h["file"], h["section_id"]) for h in delta["hidden_by_blocks"]],
+                         [("sections/header-group.json", "bar")])
+
     def test_lokal_veraenderte_alte_sicherung_wird_nicht_uebernommen(self):
         (self.first / "snippets/icon.liquid").write_text("lokal verändert")
         delta, _ = sync.sync(self.shop, self.last, self.root / "sync")

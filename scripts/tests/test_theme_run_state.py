@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
+from tests import visual_compare_support as vcs
 from theme import open_items, run_state
 
 
@@ -57,7 +58,10 @@ class RunStateTest(unittest.TestCase):
         config = {"theme_migration": {"acceptance_checklist": "checklist.md"}}
         (self.ws / "reporting" / "config.json").write_text(json.dumps(config), encoding="utf-8")
         open_items.init(self.ws)
+        # G4 verlangt seit 11.11.2026 den vollständigen Bildvergleich; der Entwurf steht hier im Lauf.
+        _live, draft = vcs.complete_compare(self.ws)
         state = run_state.new(self.ws, "2026-01-01-migration")
+        state.set_value("draft_theme_id", draft)
         for gate in ("G1-decisions", "G2-mapping", "G3-first-upload", "G4-acceptance", "G5-go-live"):
             state.decide_gate(gate, "Beispielperson")
         state.set_phase("9-launch", "running")

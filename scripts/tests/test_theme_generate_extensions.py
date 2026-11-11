@@ -227,12 +227,12 @@ class UnknownFields(unittest.TestCase):
     def test_unknown_fields_are_ignored_and_reported(self):
         mapping = json.loads(json.dumps(MAPPING))
         mapping["sections"]["rich-text"]["settings"]["width"]["frobnicate"] = True
-        mapping["sections"]["rich-text"]["layout"] = "x"
+        mapping["sections"]["rich-text"]["presentation"] = "x"
         source, target = build_themes(temp_dir(self))
         generator = generate.Generator(mapping, None, source, target)
         generator.run()
         found = {(f["where"], f["key"]) for f in generator.report["mapping_findings"]}
-        self.assertEqual(found, {("sections.rich-text.settings.width", "frobnicate"), ("sections.rich-text", "layout")})
+        self.assertEqual(found, {("sections.rich-text.settings.width", "frobnicate"), ("sections.rich-text", "presentation")})
         page = generator.documents["templates/page.json"]["sections"]["main"]
         self.assertEqual(page["settings"]["section_width"], "full-width")
 

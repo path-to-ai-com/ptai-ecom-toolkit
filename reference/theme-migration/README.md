@@ -59,7 +59,7 @@ Dazu kommen drei Ablagen, die eigene Bausteine des Toolkits pflegen:
 | 6 Prüfung | Prüfer je Disziplin, Befunde zurück in 3 bis 5 | `verify-theme` | |
 | 7 Abgleich | Live-Änderungen seit der Sicherung, beliebig oft | `sync-live-theme` | Entscheidung je Änderung |
 | 8 Abnahme | erst nach "Bereit für die Abnahme"; Team testet im Cockpit | `verify-theme`, `test-round` | **G4** Ergebnis der Abnahme (Person der Marke, abgestimmt mit Path to AI) |
-| 9 Launch | Abgleich vor dem Launch, Vergleichswerte, Go/No-Go, Veröffentlichen durch einen Menschen | `sync-live-theme`, `launch-check`, `theme-migration` | **G5** Go/No-Go (Person der Marke, abgestimmt mit Path to AI) |
+| 9 Launch | Abgleich vor dem Launch, Vergleichswerte, Go/No-Go, geführter Launch: Haken-Liste, Frage nur bei allem grün, Veröffentlichen nach dem Ja, Launch-Check After | `sync-live-theme`, `launch-check`, `theme-migration` | **G5** Go/No-Go (Person der Marke, abgestimmt mit Path to AI) |
 | 10 Nachsorge | Prüfplan, Rückrichtung ins Repo | `theme-migration` | |
 
 Für die Marke und das Cockpit sind das neun Schritte (`theme-migration`, Abschnitt "Stand der

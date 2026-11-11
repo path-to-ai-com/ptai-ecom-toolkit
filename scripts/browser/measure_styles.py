@@ -269,7 +269,8 @@ def measure_page(playwright, browsers: dict, job: dict) -> dict:
         result["consent"] = common.handle_consent(page, "declined")
         page.keyboard.press("Escape")
         common.scroll_to_end(page)
-        page.evaluate("() => window.scrollTo(0, 0)")
+        # Auch den scrollenden Container zurück (Horizon: .page-wrapper), sonst misst die Seite im gescrollten Zustand.
+        common.scroll_to_top(page)
         page.wait_for_timeout(job["wait"])
         raw = page.evaluate(MEASURE_JS, MAX_SAMPLES)
         result.update(summarize_page(raw))

@@ -20,7 +20,16 @@ Regeln, die hier stehen, damit jedes Skript sie gleich einhält:
 - **Consent wird abgelehnt**, außer ein Mitschnitt mit Einwilligung ist
   ausdrücklich verlangt (`--consent accepted`, nur nach Freigabe des Teams).
 - **Chromium am Rechner, WebKit als iPhone.** Die WebKit-Aufnahme ist Pflicht,
-  weil iOS-Safari anders rendert und andere Cookies zulässt.
+  weil iOS-Safari anders rendert und andere Cookies zulässt. Die Breiten sind fest:
+  1440 und 390 CSS-Pixel (`theme.visual_compare.WIDTHS`), Gate G4 zählt nur sie.
+- **Scrollen und Ganzseiten-Bilder kennen scrollende Container.** Horizon scrollt
+  am Rechner nicht das Dokument, sondern `.page-wrapper`; das Dokument bleibt so
+  hoch wie das Fenster. Bis 11.11.2026 scrollte `scroll_to_end` deshalb nur einen
+  Schritt, nachgeladene Bilder blieben leer, und `full_page` lieferte nur die
+  Erstansicht. Dazu bleibt der Footer mit `content-visibility: auto` leer, bis er
+  einmal im Bild war. Ablauf seitdem: `scroll_to_end` (Mausrad in Schritten, sonst
+  per Skript im Container), `force_visible`, `scroll_to_top`, dann
+  `capture_full_page`.
 """
 from __future__ import annotations
 
@@ -33,13 +42,22 @@ from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 
 ROOT = Path(__file__).resolve().parents[2]
 CONSENT_DIR = ROOT / "skills" / "capture-screens" / "scripts"
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+
+from theme.visual_compare import WIDTHS  # noqa: E402
 
 #: Höchstens so viele Seiten gleichzeitig auf einer Storefront.
 MAX_PARALLEL = 2
-DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
+DESKTOP_VIEWPORT = {"width": WIDTHS["desktop"], "height": 900}
+#: In Playwright 390 x 664 CSS-Pixel; die Breite wird in `context_options` trotzdem fest gesetzt.
 MOBILE_DEVICE = "iPhone 13"
 DEVICES = ("desktop", "mobile")
 ENGINE = {"desktop": "chromium", "mobile": "webkit"}
+#: Ab diesem Anteil am Fenster (Höhe und Breite) trägt ein scrollender Container die Seite.
+SCROLLER_SHARE = 0.5
+#: So viele CSS-Pixel Abstand zum Ende gelten noch als Ende.
+END_TOLERANCE = 5
 
 PLAYWRIGHT_MISSING = ("Das Paket playwright fehlt in diesem Python. Aufruf über "
                       "uv run --quiet --with playwright==1.58.0 python <skript>.py")
@@ -129,16 +147,18 @@ def check_theme(found: dict | None, expected: str | None) -> dict:
     messen.
     """
     found_id = str(found["id"]) if found and found.get("id") is not None else None
+    # Die Rolle (`main` heißt veröffentlicht) belegt, ob die Referenz eines Vergleichs das Live-Theme ist.
+    role = (found or {}).get("role")
     if expected is None:
         return {"expected": None, "found": found_id, "found_name": (found or {}).get("name"),
-                "ok": True, "state": "ok"}
+                "found_role": role, "ok": True, "state": "ok"}
     # Im Browser ist die ID eine Zahl; verglichen wird deshalb als Zahl, wenn beide Ziffern sind.
     if found_id is not None and found_id.isdigit() and str(expected).isdigit():
         ok = int(found_id) == int(expected)
     else:
         ok = found_id is not None and found_id == str(expected)
     return {"expected": str(expected), "found": found_id, "found_name": (found or {}).get("name"),
-            "ok": ok, "state": "ok" if ok else "wrong_theme",
+            "found_role": role, "ok": ok, "state": "ok" if ok else "wrong_theme",
             "reason": None if ok else ("kein Theme-Nachweis auf der Seite" if found_id is None
                                        else f"Seite zeigt Theme {found_id}")}
 
@@ -160,6 +180,79 @@ def write_json(path: Path, data) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Seitenhöhe und Scrollstand, ohne Browser prüfbar
+# ---------------------------------------------------------------------------
+
+def main_scroller(metrics: dict) -> dict | None:
+    """Der scrollende Container, der die Seite trägt, sonst None.
+
+    `metrics` kommt aus `METRICS_JS`. Ein Container zählt, wenn er mindestens die Hälfte von Höhe und
+    Breite des Fensters einnimmt und überläuft. Kleine scrollende Elemente (Dropdown, Warenkorb-Liste)
+    tragen die Seite nicht. Von mehreren gilt der mit dem meisten Inhalt.
+    """
+    height = metrics.get("viewport_height") or 0
+    width = metrics.get("viewport_width") or 0
+    found = [s for s in metrics.get("scrollers") or []
+             if (s.get("client_height") or 0) >= SCROLLER_SHARE * height
+             and (s.get("client_width") or 0) >= SCROLLER_SHARE * width
+             and (s.get("scroll_height") or 0) > (s.get("client_height") or 0) + 1]
+    return max(found, key=lambda s: s["scroll_height"]) if found else None
+
+
+def page_extent(metrics: dict) -> dict:
+    """Höhe der ganzen Seite in CSS-Pixeln, Scrollstand und ob das Ende erreicht ist.
+
+    Die Höhe ist das Maximum aus Dokument und scrollendem Container: das Dokument plus der Teil, den
+    der Container verdeckt. In Horizon ist das Dokument so hoch wie das Fenster, und alles Weitere
+    steckt in `.page-wrapper`; ohne Container ist es die Dokumenthöhe.
+    """
+    document = int(metrics.get("doc_height") or 0)
+    window = int(metrics.get("viewport_height") or 0)
+    scroll_y = int(metrics.get("scroll_y") or 0)
+    scroller = main_scroller(metrics)
+    hidden = scroller["scroll_height"] - scroller["client_height"] if scroller else 0
+    height = max(document, window, document + hidden, scroller["scroll_height"] if scroller else 0)
+    top = int(scroller.get("scroll_top") or 0) if scroller else 0
+    document_end = scroll_y + window >= document - END_TOLERANCE
+    scroller_end = scroller is None or top + scroller["client_height"] >= scroller["scroll_height"] - END_TOLERANCE
+    return {"height": height, "document_height": document, "position": scroll_y + top,
+            "at_end": document_end and scroller_end,
+            "scroller": ({k: scroller.get(k) for k in ("index", "tag", "id", "class_name", "client_height",
+                                                       "scroll_height")} if scroller else None)}
+
+
+def scroll_done(extent: dict, last_height: int | None) -> bool:
+    """Fertig gescrollt: am Ende, und die Seite ist seit dem letzten Schritt nicht gewachsen."""
+    return bool(extent["at_end"]) and extent["height"] == last_height
+
+
+def wheel_stuck(extent: dict, last_position: int | None) -> bool:
+    """Das Mausrad hat nichts bewegt, obwohl das Ende nicht erreicht ist.
+
+    So in WebKit mit iPhone-Profil (kein Mausrad) oder wenn unter der Maus ein fester Bereich liegt.
+    Dann scrollt der Rest per Skript.
+    """
+    return last_position is not None and not extent["at_end"] and extent["position"] <= last_position
+
+
+def capture_height(height: int, max_height: int) -> tuple[int, int | None]:
+    """Höhe der Aufnahme und, falls gekürzt, die Höchsthöhe, an der abgeschnitten wurde."""
+    height = max(1, int(height))
+    return (max_height, max_height) if height > max_height else (height, None)
+
+
+def scroller_label(scroller: dict | None) -> str | None:
+    """`div.page-wrapper` statt Index, damit ein Mensch im Ergebnis sieht, was gescrollt hat."""
+    if not scroller:
+        return None
+    name = scroller.get("tag") or "?"
+    if scroller.get("id"):
+        name += f"#{scroller['id']}"
+    classes = str(scroller.get("class_name") or "").split()
+    return name + "".join(f".{c}" for c in classes[:2])
+
+
+# ---------------------------------------------------------------------------
 # Mit Playwright
 # ---------------------------------------------------------------------------
 
@@ -167,6 +260,8 @@ def context_options(playwright, device: str, locale: str = "de-DE") -> dict:
     if device == "mobile":
         options = dict(playwright.devices[MOBILE_DEVICE])
         options.pop("default_browser_type", None)
+        # Fest 390 CSS-Pixel, auch wenn eine neuere Playwright-Fassung das Profil ändert.
+        options["viewport"] = {**options.get("viewport", {"height": 664}), "width": WIDTHS["mobile"]}
     else:
         options = {"viewport": dict(DESKTOP_VIEWPORT)}
     options.update({"locale": locale, "timezone_id": "Europe/Berlin"})
@@ -295,22 +390,225 @@ def baseline_globals(browser, options: dict, base_url: str) -> list[str]:
         context.close()
 
 
-def scroll_to_end(page, step: int = 800, pause_ms: int = 350, max_steps: int = 60) -> int:
-    """Scrollt bis zum Seitenende, auch wenn die Seite beim Scrollen nachlädt."""
-    last = -1
+#: Höhe von Dokument und Fenster, Scrollstand und jedes überlaufende Element mit `overflow-y: auto|scroll`.
+#: Die Elemente bekommen `data-ptai-scroller` mit ihrem Index, damit spätere Aufrufe sie wiederfinden.
+METRICS_JS = """() => {
+  const doc = document.documentElement, body = document.body;
+  const scrollers = [];
+  for (const el of document.querySelectorAll('[data-ptai-scroller]')) el.removeAttribute('data-ptai-scroller');
+  for (const el of document.querySelectorAll('body, body *')) {
+    if (!el.clientHeight || el.scrollHeight <= el.clientHeight + 1) continue;
+    const overflow = getComputedStyle(el).overflowY;
+    if (overflow !== 'auto' && overflow !== 'scroll' && overflow !== 'overlay') continue;
+    el.setAttribute('data-ptai-scroller', String(scrollers.length));
+    scrollers.push({index: scrollers.length, tag: el.tagName.toLowerCase(), id: el.id || null,
+                    class_name: typeof el.className === 'string' ? el.className.slice(0, 120) : null,
+                    client_height: el.clientHeight, client_width: el.clientWidth,
+                    scroll_height: el.scrollHeight, scroll_top: Math.round(el.scrollTop)});
+  }
+  return {viewport_width: window.innerWidth, viewport_height: window.innerHeight,
+          doc_height: Math.max(doc.scrollHeight, body ? body.scrollHeight : 0),
+          scroll_y: Math.round(window.scrollY), scrollers};
+}"""
+
+#: Ein Schritt per Skript: Fenster und jeder große scrollende Container, ohne weiche Animation.
+SCROLL_BY_JS = """(step) => {
+  window.scrollBy({top: step, left: 0, behavior: 'instant'});
+  for (const el of document.querySelectorAll('[data-ptai-scroller]')) {
+    if (el.clientHeight >= window.innerHeight * 0.5) el.scrollBy({top: step, left: 0, behavior: 'instant'});
+  }
+}"""
+
+SCROLL_TOP_JS = """() => {
+  window.scrollTo({top: 0, left: 0, behavior: 'instant'});
+  for (const el of document.querySelectorAll('[data-ptai-scroller]')) el.scrollTo({top: 0, behavior: 'instant'});
+}"""
+
+#: `content-visibility: auto` rendert einen Bereich erst, wenn er im Bild war (Horizon: Footer). Gesetzt wird
+#: je Element im Inline-Stil, nicht über ein Style-Element: das erlaubt auch eine strenge CSP.
+FORCE_VISIBLE_JS = """() => {
+  let count = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    const value = getComputedStyle(el).contentVisibility;
+    if (value && value !== 'visible') { el.style.setProperty('content-visibility', 'visible', 'important'); count++; }
+  }
+  return count;
+}"""
+
+#: Gibt den scrollenden Container frei: er und alle Vorfahren wachsen mit dem Inhalt, das Dokument trägt die
+#: ganze Höhe. Der alte Inline-Stil bleibt in `data-ptai-style`, damit `RESTORE_JS` ihn zurücksetzt.
+RELEASE_JS = """(index) => {
+  let el = document.querySelector(`[data-ptai-scroller="${index}"]`);
+  if (!el) return false;
+  for (; el; el = el.parentElement) {
+    if (!el.hasAttribute('data-ptai-style')) el.setAttribute('data-ptai-style', el.getAttribute('style') || '');
+    for (const [prop, value] of [['height', 'auto'], ['max-height', 'none'], ['overflow', 'visible']]) {
+      el.style.setProperty(prop, value, 'important');
+    }
+  }
+  return true;
+}"""
+
+#: Höhe jedes Elements außerhalb des scrollenden Containers und seiner Vorfahren, vor dem Vergrößern des Fensters.
+RECORD_HEIGHTS_JS = """(index) => {
+  const chain = new Set([document.documentElement, document.body]);
+  for (let el = document.querySelector(`[data-ptai-scroller="${index}"]`); el; el = el.parentElement) chain.add(el);
+  let count = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    if (chain.has(el)) continue;
+    el.setAttribute('data-ptai-height', String(el.getBoundingClientRect().height));
+    count++;
+  }
+  return count;
+}"""
+
+#: Was mit dem Fenster gewachsen ist (Höhen in `vh`, `svh`, `dvh`), zurück auf die gemessene Höhe.
+PIN_GROWN_JS = """() => {
+  let count = 0;
+  for (const el of document.querySelectorAll('[data-ptai-height]')) {
+    const before = parseFloat(el.getAttribute('data-ptai-height'));
+    if (el.getBoundingClientRect().height > before + 2) {
+      for (const prop of ['height', 'min-height', 'max-height']) el.style.setProperty(prop, before + 'px', 'important');
+      count++;
+    }
+  }
+  return count;
+}"""
+
+RESTORE_JS = """() => {
+  for (const el of document.querySelectorAll('[data-ptai-style]')) {
+    const old = el.getAttribute('data-ptai-style');
+    if (old) el.setAttribute('style', old); else el.removeAttribute('style');
+    el.removeAttribute('data-ptai-style');
+  }
+}"""
+
+
+def measure(page) -> dict:
+    """`page_extent` der laufenden Seite."""
+    return page_extent(page.evaluate(METRICS_JS))
+
+
+def scroll_to_end(page, step: int | None = None, pause_ms: int = 350, max_steps: int = 80) -> int:
+    """Scrollt bis zum Seitenende, auch wenn die Seite beim Scrollen nachlädt oder in einem Container scrollt.
+
+    Erst mit dem Mausrad in der Fenstermitte: es scrollt, was unter der Maus scrollt, auch `.page-wrapper`,
+    und löst dieselben Ereignisse aus wie ein Mensch. Bewegt es nichts (WebKit mit iPhone-Profil kennt kein
+    Mausrad), scrollt der Rest per Skript Fenster und Container. Ein Schritt ist 80 % der Fensterhöhe,
+    damit kein nachgeladenes Bild zwischen zwei Schritten liegt.
+    """
+    try:
+        size = page.viewport_size or {}
+        page.mouse.move(size.get("width", 800) / 2, size.get("height", 600) / 2)
+    except Exception:
+        pass
+    use_wheel = True
+    last_height = last_position = None
     steps = 0
     for steps in range(1, max_steps + 1):
         try:
-            height = page.evaluate("() => document.documentElement.scrollHeight")
-            bottom = page.evaluate("() => window.scrollY + window.innerHeight")
+            extent = page.evaluate(METRICS_JS)
         except Exception:
             break
-        if bottom >= height - 5 and height == last:
+        distance = step or max(200, int((extent.get("viewport_height") or 800) * 0.8))
+        extent = page_extent(extent)
+        if scroll_done(extent, last_height):
             break
-        last = height
-        try:
-            page.mouse.wheel(0, step)
-        except Exception:
-            page.evaluate(f"() => window.scrollBy(0, {step})")
+        if use_wheel and wheel_stuck(extent, last_position):
+            use_wheel = False
+        last_height, last_position = extent["height"], extent["position"]
+        if use_wheel:
+            try:
+                page.mouse.wheel(0, distance)
+            except Exception:
+                use_wheel = False
+        if not use_wheel:
+            page.evaluate(SCROLL_BY_JS, distance)
         page.wait_for_timeout(pause_ms)
     return steps
+
+
+def force_visible(page) -> int:
+    """Erzwingt `content-visibility: visible` auf jedem Element; gibt zurück, wie viele es betraf."""
+    try:
+        return int(page.evaluate(FORCE_VISIBLE_JS) or 0)
+    except Exception:
+        return 0
+
+
+def scroll_to_top(page) -> None:
+    """Fenster und jeder scrollende Container zurück nach oben, ohne weiche Animation."""
+    try:
+        page.evaluate(SCROLL_TOP_JS)
+    except Exception:
+        page.evaluate("() => window.scrollTo(0, 0)")
+
+
+def capture_full_page(page, path: str, max_height: int, settle_ms: int = 800) -> dict:
+    """Ganzseiten-Bild, auch wenn die Seite in einem Container scrollt. Gibt Höhe und Verfahren zurück.
+
+    - `document`: das Dokument trägt die Höhe, `full_page` wie immer.
+    - `released`: ein Container scrollt (Horizon: `.page-wrapper`). Er und seine Vorfahren werden
+      freigegeben, bis das Dokument die ganze Höhe trägt, dann `full_page`. Das Fenster bleibt so hoch wie
+      vorher, Bereiche in `vh` oder `svh` (Horizon: Abschnitte "Volle Bildschirmhöhe") behalten ihre Höhe.
+    - `resized`: trägt das Dokument nach der Freigabe noch nicht die ganze Höhe (etwa ein Container mit
+      `position: fixed`), wird das Fenster auf die gemessene Höhe gesetzt (gedeckelt) und aufgenommen. So
+      lief es am 11.11.2026 von Hand. Dabei wächst jeder Bereich in `vh` oder `svh` mit dem Fenster, ein
+      Abschnitt "Volle Bildschirmhöhe" wird so hoch wie die ganze Seite und schiebt den Rest aus dem Bild.
+      Deshalb wird vorher die Höhe jedes Elements gemessen und, was danach gewachsen ist, auf sie
+      festgesetzt (`pinned`). Läuft der Container danach noch über, ist das Bild `incomplete` und zählt
+      für Gate G4 nicht.
+
+    Bilder in CSS-Pixeln (`scale="css"`): ein iPhone-Bild mit dreifacher Dichte wäre bei 10 000 Pixeln
+    Seitenhöhe 30 000 Pixel hoch. Die Erstansicht nimmt `shoot_pair` getrennt in voller Dichte auf.
+    """
+    size = dict(page.viewport_size or {"width": 0, "height": 0})
+    extent = measure(page)
+    scroller, height, method = extent["scroller"], extent["height"], "document"
+    pinned, incomplete = 0, False
+    if scroller:
+        page.evaluate(RECORD_HEIGHTS_JS, scroller["index"])
+        page.evaluate(RELEASE_JS, scroller["index"])
+        page.wait_for_timeout(settle_ms)
+        released = measure(page)
+        method = release_method(extent, released)
+        if method == "released":
+            height = released["height"]
+        else:
+            page.evaluate(RESTORE_JS)
+            height, pinned, incomplete = _resize_to_content(page, size["width"], height, max_height, settle_ms)
+    target, cut_at = capture_height(height, max_height)
+    if method == "resized":
+        page.screenshot(path=path, scale="css")
+    else:
+        page.screenshot(path=path, full_page=True, scale="css",
+                        clip={"x": 0, "y": 0, "width": size["width"], "height": target})
+    return {"method": method, "page_height": height, "cut_at": cut_at, "scroller": scroller_label(scroller),
+            "viewport": size, "pinned": pinned, "incomplete": incomplete}
+
+
+def _resize_to_content(page, width: int, height: int, max_height: int, settle_ms: int) -> tuple[int, int, bool]:
+    """Fenster so hoch wie der Inhalt, Gewachsenes festgesetzt: `(höhe, festgesetzt, unvollständig)`."""
+    pinned = 0
+    for _ in range(3):
+        target, cut_at = capture_height(height, max_height)
+        page.set_viewport_size({"width": width, "height": target})
+        page.wait_for_timeout(settle_ms)
+        pinned += int(page.evaluate(PIN_GROWN_JS) or 0)
+        page.wait_for_timeout(200)
+        after = measure(page)
+        if not after["scroller"]:
+            return after["height"], pinned, False
+        if cut_at:
+            return max(height, after["height"]), pinned, False
+        height = after["height"]
+    return height, pinned, True
+
+
+def release_method(before: dict, after: dict) -> str:
+    """`released`, wenn nach der Freigabe kein Container mehr scrollt und das Dokument die Höhe trägt.
+
+    Zehn Prozent Spielraum, weil ein freigegebener Container ohne `min-height: 100dvh` etwas kürzer
+    werden darf. Sonst `resized`: das Fenster wird so hoch wie die Seite.
+    """
+    return "released" if not after["scroller"] and after["height"] >= before["height"] * 0.9 else "resized"

@@ -118,13 +118,26 @@ arbeitet das Team in seiner Sitzung ab; eine neue Fassung der Abnahme kommt auf 
 - Vorlage für G4: `migration/open-items.md` im Repo (Abschnitt Abnahme), die entschiedenen Abweichungen,
   jeder verschobene Punkt mit Person und Datum.
 - Vorlage für G5: der jüngste `reporting/runs/<date>-launch-check/launch-check.md` mit den Go-Kriterien und
-  `ready_for_launch` aus `stores status --json`.
+  `ready_for_launch` aus `stores status --json`. G5 ist dort selbst ein Go-Punkt (`go-decision`); steht nur
+  noch er offen, ist der Entwurf bereit für das Gespräch.
 - Den Termin legt das Team fest. Path to AI prüft, dass es an dem Tag erreichbar ist.
+
+## Der Launch selbst
+
+Seit 10.11.2026 veröffentlicht die Sitzung des Teams selbst (`theme-migration`, Phase 9): Haken-Liste,
+"Jetzt Launch durchführen?" nur bei allem grün, nach dem Ja der Person der Marke Schlussprüfung,
+`shopify theme publish` und Zurücklesen, dann sofort "Jetzt kommt der Launch-Check After." mit derselben
+Liste. Path to AI veröffentlicht nicht und klickt nicht im Admin; es ist am Launch-Tag erreichbar und liest
+danach `reporting/runs/<date>-launch-check/launch.json` und `launch-check-after.md` aus dem Repo. Bis
+10.11.2026 veröffentlichte ein Mensch der Marke im Admin, und die Skills prüften davor und danach.
 
 ## Fehlerbilder
 
 - **Eine Sitzung des Teams verweigert G4, G5, Phase 9 oder 10 mit "macht der Betreiber":** das Team hat ein
   Plugin vor 0.3.27. Aktualisieren lassen.
+- **Die Sitzung des Teams nennt am Launch-Tag nur den Weg im Admin, statt zu fragen:** das Plugin kennt den
+  geführten Launch noch nicht (`bin/theme launch` fehlt). Dann gilt der Ablauf von damals: Launch-Check,
+  Go, Klick im Admin durch die Person der Marke, `launch-check --after`.
 - **`stores status` zeigt einen alten Push:** die letzte Sitzung hat nicht gepusht. Das Team die Migration
   neu starten lassen; sie pusht am Ende jeder Sitzung.
 - **Eine Aufgabe für Path to AI braucht den Shop:** an das Team zurückgeben, als Punkt mit Person. Die

@@ -17,14 +17,17 @@ Die Datei `policies.json` liegt nicht im Plugin, sondern beim Betreiber im Works
 `apply` schreibt eine Kopie nach `migration/policies.json` im Repo des Stores, die Entscheidungen nach
 `migration/mapping/decisions.json` (`source: policy`, ersetzt ältere) und nach `apps.json`, damit der Generator
 sie beim nächsten Neubau liest. Ein Dienst, der beibehalten werden soll, aber im Inventar fehlt, wird ein Punkt
-`blocker` in der Liste offener Punkte: er muss vor der Abnahme eingebaut sein. Der Betreiber committet und
+`before_launch` in der Liste offener Punkte, kein `blocker`: Seit 0.3.28 gilt, was der Store heute hat, bekommt er
+mit derselben App wie der Referenz-Store; was er heute nicht hat, kommt nicht dazu. Ob der Store die Funktion heute
+mit einer anderen Lösung hat, weiß nur das Team; die Skill fragt das je Store einmal für alle diese Apps. Vorher
+hielt jede App des Referenz-Stores die Abnahme an, auch in Stores, die sie nie hatten. Der Betreiber committet und
 pusht; das Team zieht den Stand mit dem Repo. Eine Vorgabe öffnet nie eine Frage an das Team.
 
 Seit 0.3.15 entscheidet die Marke eine Vorgabe ohne Regel auch selbst, im Setup des Cockpits (Karte "Vorgaben der
 Marke", Fragen aus `policy_questions` im Setup des Referenz-Stores). `import` übernimmt diese Antworten aus
 `get_setup` in `policies.json`: `options[0]` heißt `may_differ`, `options[1]` `same_as_reference` mit dem Ziel
 "wie im Referenz-Store". Nennt die Frage eine App (`app:<handle>`), behält die angeglichene Regel sie
-(`keep`), und `apply` legt in jedem Store ohne die App einen Punkt zum Einbauen an. Die Regel trägt danach
+(`keep`), und `apply` legt in jedem Store ohne die App einen Punkt vor dem Launch an. Die Regel trägt danach
 selbst `decided_by` und `decided_at`, die Datei eine neue Version.
 Entscheiden dürfen alle Mitglieder der Marke; das Plugin kennt sie nicht, und das Cockpit lässt nur Mitglieder
 antworten. Deshalb gilt jede Antwort aus dem Cockpit, und ihr Name steht an der Regel.
@@ -420,8 +423,8 @@ def apply(workspace, source: dict, now: datetime | None = None) -> dict:
             for entry_ids in entries:
                 aliases = [entry_ids] if isinstance(entry_ids, str) else list(entry_ids)
                 present = [a for a in aliases if a in services]
-                # Ein Dienst, den der Store nicht hat: beim Streichen nichts zu tun, beim Behalten ein Punkt zum
-                # Einbauen, und die Entscheidung gilt für die erste Schreibweise.
+                # Ein Dienst, den der Store nicht hat: beim Streichen nichts zu tun, beim Behalten ein Punkt vor
+                # dem Launch, und die Entscheidung gilt für die erste Schreibweise.
                 if not present and decision == "drop":
                     continue
                 for service_id in present or aliases[:1]:
@@ -444,10 +447,11 @@ def apply(workspace, source: dict, now: datetime | None = None) -> dict:
             ident = f"POLICY-{rule['key']}-{service_id.split(':')[-1]}"[:60]
             if any(i["id"] == ident for i in items.items):
                 continue
-            items.add(title=f"Vorgabe {rule.get('subject') or rule['key']}: {rule.get('target') or service_id} einbauen",
-                      ident=ident, severity="blocker", source="policy",
-                      description=f"Vorgabe der Marke, Version {version}. {service_id} fehlt im Inventar dieses Stores "
-                                  "und muss vor der Abnahme eingebunden sein.")
+            items.add(title=f"Vorgabe {rule.get('subject') or rule['key']}: {service_id} fehlt, mit dem Team klären",
+                      ident=ident, severity="before_launch", source="policy",
+                      description=f"Vorgabe der Marke, Version {version}. {service_id} fehlt im Inventar dieses Stores. "
+                                  "Hat der Store die Funktion heute mit einer anderen Lösung, kommt die App vor dem "
+                                  "Launch dazu; sonst entfällt sie für diesen Store. Hält die Abnahme nicht an.")
             items_added.append(ident)
         items.save()
     copy = {**source, "applied_at": stamp}
@@ -560,7 +564,7 @@ def _set_rule(rule: dict, new_rule: str, by: str, at: str, app: str | None = Non
 
     Eine angeglichene Regel mit App behält die App unter beiden Schreibweisen, die Inventare der Stores
     kennen (`app:<handle>` und `<handle>`). Fehlt sie im Inventar eines Stores, macht `apply` daraus einen
-    Punkt `blocker` zum Einbauen.
+    Punkt `before_launch`, den die Skill mit dem Team klärt.
     """
     rule["rule"] = new_rule
     if new_rule == "same_as_reference":

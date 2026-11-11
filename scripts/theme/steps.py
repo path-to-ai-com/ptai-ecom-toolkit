@@ -19,6 +19,10 @@ Seit 0.3.16 heißt Schritt 6 "Abnahme", nicht mehr "Testrunde" (Vertrag V15); Be
 `ready_for_test_round` bleiben. Sätze, die eine Sitzung vorher in die Dateien eines Laufs geschrieben hat
 (Übergabe, Fragen, entschiedene Punkte), zeigt `export` mit dem neuen Wort, ohne die Dateien zu ändern. So zeigt
 ein bestehender Lauf beim nächsten Export dieselben Namen wie ein neuer.
+
+Seit 10.11.2026 trägt `migration.json` den Block `launch` (Modul `launch_status`): die Go-Liste aus dem
+jüngsten Launch-Check vor und nach dem Veröffentlichen, den Ablauf des Launches in sechs Schritten und den
+Rückfall mit den Kriterien des Teams. Das Schema bleibt 1; ältere Cockpits ignorieren den Block.
 """
 import json
 import re
@@ -26,7 +30,7 @@ import subprocess
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from theme import ConfigError, handover, load_config, policies, questions, ruled
+from theme import ConfigError, handover, launch_status, load_config, policies, questions, ruled
 
 STEPS = (
     ("backup", "Shop gesichert"),
@@ -268,7 +272,10 @@ def compute(workspace, data: dict, *, today: date | None = None, items=None, git
     status = state_of("9-launch")
     if status == "done" and not values.get("published_at"):
         status = "rework"
-    steps.append((status, f"veröffentlicht {values['published_at']}" if values.get("published_at") else ""))
+    note = f"veröffentlicht {values['published_at']}" if values.get("published_at") else ""
+    if note and values.get("launch_approved_by"):
+        note += f" nach Ja von {values['launch_approved_by']}"
+    steps.append((status, note))
     # 9 Kontrolle nach dem Launch
     steps.append((state_of("10-aftercare"), ""))
 
@@ -397,8 +404,11 @@ def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
     `people` sind die Personen aus `theme_migration.people`, die Fragen beantworten und Gates entscheiden;
     `shop` ist der Store im Cockpit (`portal.shop`), damit die Karte ihn ohne Manifest zuordnen kann.
     `now`, `after` und `operator_tasks` kommen aus der Übergabe der letzten Sitzung (Modul `handover`),
-    `ruled` aus `migration/ruled.json` (Modul `ruled`).
+    `ruled` aus `migration/ruled.json` (Modul `ruled`), `launch` aus Launch-Checks, Stand und
+    `migration/rollback.json` (Modul `launch_status`). Das Argument `moment` (Zeitpunkt der Berechnung)
+    gilt nur für `launch`.
     """
+    moment = kwargs.pop("moment", None)
     result = compute(workspace, data, **kwargs)
     values = data.get("values") or {}
     current = result["steps"][result["current_step"] - 1]
@@ -421,4 +431,6 @@ def export(workspace, data: dict, plugin_version: str, **kwargs) -> dict:
         "questions": [_with_current_terms(q) for q in result["questions"]],
         **hand,
         "ruled": [{**r, "text": current_terms(r["text"])} for r in ruled.visible(workspace)],
+        "launch": launch_status.build(workspace, data, sync_done=result["steps"][6]["status"] == "done",
+                                      people=questions.people(workspace), now=moment),
     }

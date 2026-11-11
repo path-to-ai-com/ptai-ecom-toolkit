@@ -127,6 +127,10 @@ bei `appInstallations` beweist nichts. Jede Quelle hat im Ergebnis eine Abdeckun
     stehen schon im Mitschnitt (`webPixelsConfigList`, Typ `CUSTOM`); im Admin fehlt nur ihr Code. Geht das
     nicht (kein Browser, Konto ohne Recht auf Apps), die Liste bei der Person anfordern; ohne sie steht die
     Quelle als `not_readable`.
+    - **Jedes Custom Pixel sichern:** den Code nach `migration/inventory/pixels/<name>.js`, daneben
+      `<name>.md` mit Pixel-ID, Sendet, Wo und An (Format in `apps-and-tracking.md`, Abschnitt "Custom
+      Pixels sichern"). Ein Pixel, das nur in der Kasse sendet, sieht kein Mitschnitt; der Launch-Check
+      blockiert den Go, solange ein Custom Pixel mit `drop` oder `replace` nicht gesichert und gelesen ist.
 
 11. **Jeden unbekannten Host auflösen.** Jede fremde Domain bekommt Anbieter und Zweck, recherchiert,
     nie weggelassen. Ein Host mit `unknown` blockiert Gate G1. Allgemein gültige Zuordnungen (öffentlicher

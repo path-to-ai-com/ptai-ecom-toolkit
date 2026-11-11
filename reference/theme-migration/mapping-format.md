@@ -140,6 +140,97 @@ der Reihenfolge des Mappings. Trägt eine Section dieselbe ID wie eine schon üb
 den Namen ihrer Quell-Gruppe vorangestellt (`renamed_section_ids`). `type` und `name` der Gruppe
 kommen aus der Gruppe im Ziel-Repo. Der Report nennt jede Zusammenführung unter `merged_groups`.
 
+### `layout`: Gestaltung je Section
+
+Seit 11.11.2026. Das Mapping überträgt Inhalte Zeile für Zeile; Breite, Ausrichtung, Textgröße, Abstände,
+Overlay-Deckkraft und Höhe stecken in der Quelle aber oft in Werten, die das Ziel anders oder gar nicht als
+Einstellung kennt. Ohne Übersetzung fällt das Ziel auf seine Standardwerte zurück. So geschehen bei einem
+Launch: Inhaltsseiten mit schmaler Textspalte links, Text in 14 statt 19 px, deckende Overlays über den
+Hero-Bildern. Die Abnahme per Stichprobe hat es nicht gefunden.
+
+Zwei Teile:
+
+- **Tabellen** auf oberster Ebene, einmal je Theme-Paar:
+
+  ```json
+  "layout": {
+    "breakpoints": [750, 990],
+    "widths": {"page": {"wrapper": "calc(max(1100px, 80vw) - 20px)", "wrapper--full-padded": "100vw"}},
+    "scale": {"body": "type_body_size", "heading": "type_heading_size"},
+    "sizes": {"body": {"3": [14, 15, 16], "4": [16, 18, 19]}}
+  }
+  ```
+
+  `sizes` hat je Stufe eine Pixelgröße unter dem ersten Breakpoint und ab jedem Breakpoint. `scale` nennt
+  je Größentabelle die globale Einstellung der Quelle in Prozent, mit der die Quelle alle Stufen skaliert.
+- **Operationen** je Section unter `layout`, als Liste in der Reihenfolge ihrer Wichtigkeit. Sie lesen
+  Werte der Quell-Section oder ihrer Blöcke (fehlender Schlüssel heißt Schema-Standard) und schreiben
+  Einstellungen des Ziels, geprüft gegen dessen Schema, oder CSS-Regeln für `custom_css` der Section.
+
+| Operation | Wirkung | Felder |
+|---|---|---|
+| `page_width` | Wert der Quelle über `widths.<tabelle>` als CSS-Variable der Section | `from`, `widths` (Standard `page`), `variable` (Standard `--page-width`) |
+| `text_blocks` | jeder Textblock über die Inhaltsbreite und ausgerichtet wie die Quelle | `alignment_from`, `values`, `default`, `width` (Standard `100%`, `null` lässt aus), `max_width` (Standard `none`), `block_type` |
+| `text_size` | Größenstufe als `font-size` je Breakpoint, wenn sie von der Stufe des Presets abweicht | `from`, `sizes`, `scope` (`section` mit `selector`, `blocks` mit `block_types`, `child` mit `child_id`), `baseline`, `baseline_from` und `baselines` (Stufe je Tag), `suffix`, `declarations` |
+| `gap` | Abstand zwischen den Blöcken ab einer Blockzahl | `to`, `value`, `min_blocks` |
+| `overlay_opacity` | Farbe und Deckkraft der Quelle als eine Farbe mit Alphawert; Deckkraft 0 schaltet das Overlay aus | `color_from`, `opacity_from`, `to`, `toggle`, `scope` (`section` oder `blocks` mit `block_types`) |
+| `set_by_value` | ein Wert der Quelle setzt mehrere Einstellungen und/oder CSS (Höhe, Blocksatz, Symbol links) | `from`, `values: {"<wert>": {"set": {…}, "css": […]}}` |
+| `drop_empty_blocks` | Text ohne sichtbaren Inhalt und Button ohne Beschriftung oder Ziel entfernen | |
+| `copy_to_blocks` | Einstellung der Section an jeden Block eines Typs (Textfarbe im Hero) | `from`, `to`, `block_type` |
+
+Blockselektoren haben die Form `.text-block[class*=__<id>]`; trägt jeder Textblock dieselbe Stufe, wird
+daraus eine Regel für `.text-block`. CSS aus `custom_css` des Mappings steht zuerst, dann die
+Layout-Regeln, solange die 500 Zeichen reichen. Was nicht mehr passt, wird der `build`-Fall
+`layout_css_too_long` mit den Regeln unter `rules`, für die eigene CSS-Datei des Shops. Jede angewendete
+Operation steht im Report unter `layout`.
+
+```json
+"section-rich-text": {
+  "target": "section",
+  "layout": [
+    {"op": "page_width", "from": "width"},
+    {"op": "text_blocks", "alignment_from": "align_text", "values": {"text-center": "center"}},
+    {"op": "gap", "to": "gap", "value": 28, "min_blocks": 2},
+    {"op": "text_size", "scope": "blocks", "block_types": ["text"], "from": "text_size",
+     "sizes": "body", "baseline": 3, "suffix": ":is(p,li)"}
+  ]
+}
+```
+
+### `typography`: Presets und Schriften
+
+Quell-Themes skalieren Überschriften und Fließtext je Breakpoint und über einen Prozentwert, Horizon hat
+feste Presets (`type_size_h1` bis `type_size_h6`, `type_size_paragraph`) mit wenigen Stufen und skaliert
+unter 48 px nicht. Ohne Übersetzung blieben die Presets auf dem Standard des Ziels (H1 72 px, Absatz 14 px)
+und die Zwischenüberschriften in dessen Schrift.
+
+```json
+"typography": {
+  "scale": {"heading": "type_heading_size", "body": "type_body_size"},
+  "roles": {"h1": {"sizes": [32, 35, 38], "scale": "heading", "preset": "type_size_h1"},
+            "paragraph": {"sizes": [14, 15, 16], "scale": "body", "preset": "type_size_paragraph"}},
+  "css_variable": "--font-size--{role}",
+  "copy": {"type_subheading_font": "type_base_font"},
+  "set": {"type_font_h4": "heading"}
+}
+```
+
+- Je Rolle: Größen der Quelle mal Skala, Preset mit der nächsten Stufe zur Desktop-Größe, bei Gleichstand
+  die größere. Ergebnis unter `typography.roles` im Report.
+- `copy`: Ziel-Einstellung aus einer Einstellung der Quelle, mit der Transformation ihrer Zeile in
+  `settings_data` (etwa `font_handle` mit `replace`).
+- `set`: feste Werte, gegen das Schema des Ziels geprüft.
+- Weichen die Presets von den genauen Größen ab, steht das CSS je Breakpoint unter `typography.css`, dazu
+  der `build`-Fall `type_scale_css`: es gehört in die eigene CSS-Datei des Shops.
+
+### `required_sections` je Template
+
+`"search": {"action": "configure", "required_sections": ["search-header"]}`: Sections, ohne die das Template
+im Ziel nicht funktioniert. Fehlt eine im erzeugten Template, übernimmt der Generator sie aus dem Template
+gleichen Namens im Ziel-Repo, an der Stelle, die sie dort hat (`added_sections` im Report). Fehlt sie auch
+dort, ist es der `build`-Fall `required_section_missing`. Anlass: eine Suchseite ohne Suchfeld nach einem
+Launch, weil Broadcast für das Suchfeld keine eigene Section hat.
+
 ### `overrides.json`
 
 Gleiches Format wie das Mapping; es wird je Schlüssel über das Mapping gelegt, auf drei Ebenen:
@@ -261,6 +352,8 @@ Palette aus dem Ziel und trägt die Farben ein.
 - **Limits** vor dem Schreiben: 25 Sections je Template oder Group, 50 dynamische Blöcke je Section
   (oder `max_blocks`), 1250 je Datei, 8 Ebenen, 512 KB je Datei, 1,5 MB für `settings_data.json`.
   Eine Datei darüber wird nicht geschrieben.
+- **Section an, alle Blöcke aus**: im Ziel ausgeschaltet (`disabled_sections`). Broadcast blendet sie
+  aus, Horizon zeigt eine leere Fläche.
 - **Testverzeichnis**: `--out` darf nicht im Ziel-Repo liegen. Der Report vergleicht jede Datei mit
   dem Stand im Ziel-Repo (`diff`), damit Änderungen aus dem Theme-Editor nicht still überschrieben
   werden.
@@ -302,8 +395,8 @@ Palette aus dem Ziel und trägt die Farben ein.
    - `dropped` mit `intended: false`: Zeile korrigieren oder bewusst `drop` setzen.
    - `limit_violations`: die Datei fehlt in der Ausgabe.
    - `mapping_findings` und `schema_errors`.
-   - `adjusted`, `defaults_applied`, `renamed_block_ids`, `app_items`, `app_embeds`: kein Befund,
-     aber durchsehen.
+   - `adjusted`, `defaults_applied`, `renamed_block_ids`, `app_items`, `app_embeds`, `layout`,
+     `added_sections`, `disabled_sections`, `typography`: kein Befund, aber durchsehen.
    - `diff`: Unterscheidet sich eine Datei vom Ziel-Repo an Stellen, die das Mapping nicht erklärt,
      stammt die Abweichung aus dem Editor. Erst ins Mapping oder die Overrides holen, dann ersetzen.
 5. **Gerendert prüfen.** Ein Lauf ohne Befund beweist nur, dass die Dateien zum Schema passen. Ob

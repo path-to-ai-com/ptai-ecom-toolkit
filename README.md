@@ -120,34 +120,34 @@ Diese Skills brauchen keine Zugänge.
 | `ptai-ecom:upload-theme` | Lädt das Theme in ein unveröffentlichtes Theme hoch und prüft jede Datei nach dem Upload. |
 | `ptai-ecom:verify-theme` | Prüft den Entwurf gegen das Live-Theme: Struktur, Inhalt, SEO, Gestaltung, Funktionen, Apps und Tracking, Ladezeit, Barrierefreiheit, Sprachen. Erstellt danach die Abnahme. |
 | `ptai-ecom:sync-live-theme` | Zeigt Änderungen im Live-Shop seit der Sicherung und welche davon ins neue Theme übernommen werden müssen. |
-| `ptai-ecom:launch-check` | Geht vor dem Livegang die Launch-Checkliste durch und zeigt, was noch fehlt, mit Go/No-Go-Empfehlung; mit `--after` die Prüfungen direkt nach dem Veröffentlichen. Auch ohne Migration nutzbar. |
+| `ptai-ecom:launch-check` | Geht vor dem Livegang die Launch-Checkliste durch und zeigt jeden Go-Punkt als Haken-Liste mit Go/No-Go-Empfehlung; mit `--after` die Prüfungen direkt nach dem Veröffentlichen. Auch ohne Migration nutzbar. |
 
 ### So läuft ein Launch
 
-Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änderung. Die Einzelheiten stehen in `reference/theme-migration/launch-checklist.md`, der Rückfall in `rollback.md`, die Zeit danach in `post-launch.md`. `theme-migration` führt den Ablauf als Phase 9, `launch-check` prüft ihn als Lauf, der beliebig oft wiederholt werden kann.
+Gilt für jeden Wechsel auf ein neues Theme und für jede größere Theme-Änderung. Die Einzelheiten stehen in `reference/theme-migration/launch-checklist.md`, der Rückfall in `rollback.md`, die Zeit danach in `post-launch.md`. `theme-migration` führt den Ablauf als Phase 9 (geführter Launch: prüfen, fragen, veröffentlichen, danach prüfen), `launch-check` prüft ihn als Lauf, der beliebig oft wiederholt werden kann.
 
 **Tage vorher**
 
 1. **Abnahme.** Das Team hat jeden Testpunkt der Abnahme (`test-round`) bewertet, kein Befund der Schwere `blocker` oder `before_launch` ist offen. In einer Migration ist das Gate G4, mit Namen festgehalten.
 2. **Abgleich mit dem Live-Theme.** `sync-live-theme` zeigt alles, was das Team seit der Sicherung im alten Theme geändert hat. Jede Änderung wird übernommen oder bewusst gestrichen.
 3. **Kein Änderungsstopp.** Das Team arbeitet am alten Theme weiter. Direkt vor dem Launch läuft der Abgleich noch einmal; danach hält jede Änderung am Theme den Launch an. Shopdaten wie Produkte, Kollektionen, Menüs und Seiten gelten für beide Themes.
-4. **Rückfall planen.** Schriftlich steht, wann zurückgeschaltet wird und wer das entscheidet, dazu die Liste dessen, was ein Rückfall nicht zurückdreht.
+4. **Rückfall planen.** Schriftlich steht, wann zurückgeschaltet wird und wer das entscheidet, dazu die Liste dessen, was ein Rückfall nicht zurückdreht. In einer Migration mit `bin/theme launch rollback`; das Cockpit zeigt die Kriterien mit Go-Liste und Ablauf im Blatt der Migration.
 
-**Am Launch-Tag, vor dem Klick**
+**Am Launch-Tag, vor dem Veröffentlichen**
 
 5. **Zeitpunkt.** Montag bis Donnerstag, kein Feiertag am Tag und am Folgetag, nicht ab vier Wochen vor Black Friday. Keine große Kampagne, kein laufender Preis- oder A/B-Test, Ansprechpartner auf beiden Seiten erreichbar.
 6. **Vergleichswerte ziehen.** `pull-gsc`, `pull-ga4`, `pull-cwv` und `crawl-site`, von heute oder gestern. Nach dem Launch wird gegen genau diese Werte verglichen.
-7. **`launch-check`.** Schneidet beide Themes im Browser bis zum Seitenende mit und vergleicht sie: Tracking je Seite, Pagination und Zahl der Analyse-Ereignisse je Seitentyp, App-Embeds, Übersetzungen, `robots.txt`, Statuscodes, Canonicals. Was fehlt, wird behoben, dann läuft er erneut. Ein Punkt, der bewusst anders ist, etwa eine gestrichene App, steht mit Person und Grund in der Entscheidungsliste (`decisions.json`); dann zählt er als erfüllt, nicht als Lücke.
-8. **Go/No-Go.** Ein Mensch entscheidet und wird mit Namen festgehalten, in einer Migration als Gate G5.
-9. **Schlussprüfung.** Unmittelbar vor dem Klick: `updatedAt` des Live-Themes und die Template-Zuweisungen sind seit dem Abgleich unverändert. Jede Änderung hält den Launch an.
+7. **`launch-check`.** Zeigt jeden Go-Punkt als Haken-Liste (✅ erledigt, ❌ fehlt, ⏸ blockiert, ✋ manuell) mit einer Zeile Beleg und der Summe. Schneidet beide Themes im Browser bis zum Seitenende mit und vergleicht sie: Tracking je Seite, Pagination und Zahl der Analyse-Ereignisse je Seitentyp, App-Embeds, Übersetzungen, `robots.txt`, Statuscodes, Canonicals. Was fehlt, wird behoben, dann läuft er erneut. Ein Punkt, der bewusst anders ist, etwa eine gestrichene App, steht mit Person und Grund in der Entscheidungsliste (`decisions.json`); dann zählt er als erfüllt, nicht als Lücke.
+8. **Go/No-Go.** Die Person der Marke entscheidet nach Abstimmung mit Path to AI und wird mit Namen festgehalten, in einer Migration als Gate G5. G5 ist selbst ein Punkt der Haken-Liste.
+9. **Frage.** Erst wenn die Haken-Liste ganz grün ist, fragt die Skill „Jetzt Launch durchführen?“, mit neuem und altem Theme und dem Rückfall-Theme. Fehlt etwas, fragt sie nicht, sondern zeigt, was fehlt und wer es erledigt.
 
 **Veröffentlichen**
 
-10. Ein Mensch veröffentlicht im Admin unter Onlineshop, Themes, am Entwurf „Veröffentlichen“, oder über Rollouts (zeitgesteuert, gestuft oder als Experiment). Das alte Theme rutscht als Entwurf in die Bibliothek und ist das Rückfall-Theme. Keine Skill veröffentlicht.
+10. Nach dem Ja veröffentlicht die Skill selbst, mit dem Namen der Person im Stand: Schlussprüfung (`updatedAt` des Live-Themes und Template-Zuweisungen seit dem Abgleich unverändert, sonst hält der Launch an), `shopify theme publish`, Zurücklesen der Rolle `MAIN`. Das alte Theme rutscht als Entwurf in die Bibliothek und ist das Rückfall-Theme. Rollouts (zeitgesteuert, gestuft oder als Experiment) bleiben ein Weg im Admin, wenn das Team ihn will.
 
 **Direkt danach**
 
-11. **`launch-check --after`.** Das erwartete Theme ist live, `robots.txt` wie vorher und für alle Crawler und Googlebot offen, Statuscodes, `noindex` und Canonicals der Top-Seiten wie im alten Theme, Tracking und Analyse-Ereignisse je Seite wie vorher, jede Sprache läuft. Shopifys eigene Vorgaben (etwa `noindex` als Header auf der Suche, die Sperre einzelner Crawler) stehen als Hinweis, nicht als Fehler.
+11. **`launch-check --after`.** „Jetzt kommt der Launch-Check After.“ Dieselbe Haken-Liste, am Ende der festgehaltene Stand. Das erwartete Theme ist live, `robots.txt` wie vorher und für alle Crawler und Googlebot offen, Statuscodes, `noindex` und Canonicals der Top-Seiten wie im alten Theme, Tracking und Analyse-Ereignisse je Seite wie vorher, jede Sprache läuft. Shopifys eigene Vorgaben (etwa `noindex` als Header auf der Suche, die Sperre einzelner Crawler) stehen als Hinweis, nicht als Fehler.
 12. **Testbestellung,** nur nach Freigabe des Teams und mit Ankündigung ans Lager: Pixel, Kasse, Dankeseite, Ereignisse in Analyse und Werbekonten. Danach stornieren und erstatten.
 13. **Sitemap** in der Search Console neu einreichen.
 14. **Nachsorge** nach `post-launch.md`: die ersten 48 Stunden Umsatz, Conversion Rate, Fehlerseiten und Kaufabbrüche eng, Woche 1 täglich 404 und Crawl, Woche 2 Conversion je Seitentyp und Gerät, Woche 4 der erste Vergleich gegen die Werte aus Schritt 6, Tag 28 Core Web Vitals im Feld. Das alte Theme wird erst nach der Stabilisierung und mit Freigabe gelöscht.

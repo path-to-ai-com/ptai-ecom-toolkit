@@ -164,6 +164,23 @@ class HandoverTest(ExportWorkspace):
                        ["Wir lesen die App-Liste im Shopify-Admin."], step=1)
         self.assertEqual(self.export()["owner"], "operator")
 
+    def test_wartezeit_des_betreibers_bleibt_ueber_sitzungen_stehen(self):
+        from datetime import datetime, timezone
+        first = datetime(2026, 10, 21, 9, 0, tzinfo=timezone.utc)
+        later = datetime(2026, 10, 23, 9, 0, tzinfo=timezone.utc)
+        handover.write(self.ws, "Abstimmung", "Danach weiter.", ["Abnahme ins Cockpit stellen"], step=1, at=first)
+        handover.write(self.ws, "Abstimmung", "Danach weiter.", ["Abnahme ins Cockpit stellen"], step=1, at=later)
+        self.assertEqual(self.export()["operator_since"], "2026-10-21T09:00:00+00:00")
+        handover.write(self.ws, "Abstimmung", "Danach weiter.", [], step=1, at=later)
+        self.assertIsNone(self.export()["operator_since"])
+        handover.write(self.ws, "Abstimmung", "Danach weiter.", ["Frage an Path to AI: …"], step=1, at=later)
+        self.assertEqual(self.export()["operator_since"], "2026-10-23T09:00:00+00:00")
+
+    def test_aeltere_uebergabe_ohne_wartezeit_nimmt_ihren_zeitpunkt(self):
+        write(handover.path(self.ws), {"now": "Abstimmung", "after": "", "operator_tasks": ["Aufgabe"],
+                                       "written_at": "2026-10-20T08:00:00+00:00"})
+        self.assertEqual(self.export()["operator_since"], "2026-10-20T08:00:00+00:00")
+
     def test_uebergabe_aus_einem_anderen_schritt_gilt_nicht_mehr(self):
         handover.write(self.ws, "Abstimmung", "Danach baut Claude den Entwurf um.", ["Aufgabe"], step=2)
         data = self.export()

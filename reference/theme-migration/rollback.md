@@ -15,8 +15,9 @@ Er ist ein Klick, aber er dreht weniger zurück, als die meisten annehmen.
 
 ## Wann zurückgeschaltet wird
 
-Die Kriterien stehen vor dem Launch schriftlich fest, mit der Person, die entscheidet. Beispiele für
-ihre Form, die Schwellen legt das Team fest:
+Die Kriterien stehen vor dem Launch schriftlich fest, mit der Person, die entscheidet, seit 10.11.2026
+in `migration/rollback.json` (`bin/theme launch rollback`, Phase 9 von `theme-migration`), sichtbar im
+Cockpit. Beispiele für ihre Form, die Schwellen legt das Team fest:
 
 - Conversion Rate über einen festgelegten Zeitraum um einen festgelegten Anteil unter den
   Vergleichswerten direkt vor dem Launch, ohne andere Erklärung (Kampagne, Saison, Ausfall eines

@@ -1,6 +1,6 @@
 ---
 name: upload-theme
-description: Lädt das lokal gebaute Theme in ein unveröffentlichtes Shopify-Theme hoch und weist nach, dass der gesendete Inhalt angekommen ist: Schutz vor jedem Schreiben (nur Rolle UNPUBLISHED, Ziel-ID gegen draft_theme_id, Live-Theme vorher und nachher unverändert), Erstanlage über ein Konto mit Themes-Recht oder den Admin-Weg, danach nur geänderte Dateien, Code vor Templates, Zurücklesen jeder Datei mit inhaltlichem Vergleich, Theme-Übersetzungen mit frischen Digests registrieren. Nutzen bei "hochladen", "Entwurf anlegen", "ins Entwurfs-Theme pushen", "Testansicht aktualisieren", "Übersetzungen registrieren", in Phase 5 einer Theme-Migration und in jeder Runde der Schleife aus Neubau, Upload und Prüfung. Veröffentlicht nie und schreibt nie in das Live-Theme. Nicht verwenden für das Bauen (ptai-ecom:build-theme) und nicht für die Prüfung (ptai-ecom:verify-theme). Liest reporting/config.json im Kunden-Workspace.
+description: Lädt das lokal gebaute Theme in ein unveröffentlichtes Shopify-Theme hoch und weist nach, dass der gesendete Inhalt angekommen ist: Schutz vor jedem Schreiben (nur Rolle UNPUBLISHED, Ziel-ID gegen draft_theme_id, Live-Theme vorher und nachher unverändert), Erstanlage über ein Konto mit Themes-Recht oder den Admin-Weg, danach nur geänderte Dateien, Code vor Templates, Zurücklesen jeder Datei mit inhaltlichem Vergleich, Theme-Übersetzungen mit frischen Digests registrieren. Nutzen bei "hochladen", "Entwurf anlegen", "ins Entwurfs-Theme pushen", "Testansicht aktualisieren", "Übersetzungen registrieren", in Phase 5 einer Theme-Migration und in jeder Runde der Schleife aus Neubau, Upload und Prüfung. Veröffentlicht nicht und schreibt nie in das Live-Theme. Nicht verwenden für das Bauen (ptai-ecom:build-theme) und nicht für die Prüfung (ptai-ecom:verify-theme). Liest reporting/config.json im Kunden-Workspace.
 ---
 
 # upload-theme: in ein unveröffentlichtes Theme hochladen
@@ -9,7 +9,8 @@ Einzige Skill des Toolkits, die in einen Shop schreibt, und nur in ein Theme mit
 `UNPUBLISHED`.
 
 - Ruft nie `themePublish`, `shopify theme publish`, `shopify theme push --live` oder `--publish` auf.
-- Veröffentlichen macht immer ein Mensch.
+- Veröffentlicht wird nur im geführten Launch von `theme-migration` (Phase 9, `bin/theme launch publish`),
+  nach dem Ja der Person der Marke.
 - Arbeitsverzeichnis: der Kunden-Workspace.
 
 **Jede Shopify-Arbeit über die Shopify-Skills des Shopify AI Toolkit:** Mutationen über
